@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Main window","local":true,"windows":["main"],"permissions":["core:default","dialog:default","core:window:allow-set-cursor-position","core:window:allow-destroy","core:window:allow-close","core:window:allow-show","core:window:allow-set-focus","updater:default","process:allow-restart"]}}

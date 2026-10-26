@@ -1,0 +1,9 @@
+target/
+target-*/
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# the first library (one big built file); the library is folders now (library/Library, src-tauri library.rs)
+library/default/

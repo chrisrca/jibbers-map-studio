@@ -1,0 +1,3581 @@
+[
+ {
+  "id": "ball",
+  "name": "ball_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "ball.glb",
+  "boundsMin": [
+   -1.0,
+   -1.0,
+   -1.0
+  ],
+  "boundsMax": [
+   1.0,
+   1.0,
+   1.0
+  ],
+  "triangles": 768
+ },
+ {
+  "id": "banana_box",
+  "name": "banana_box_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "banana_box.glb",
+  "boundsMin": [
+   -5.518488517683511,
+   -1.4007283816394944,
+   -0.5592673853010455
+  ],
+  "boundsMax": [
+   5.518488801509415,
+   1.3456090393995843,
+   0.5645744710378223
+  ],
+  "triangles": 422
+ },
+ {
+  "id": "banana_box_wide",
+  "name": "banana_box_wide_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "banana_box_wide.glb",
+  "boundsMin": [
+   -5.523863708083619,
+   -1.0854903025926168,
+   -2.310590034189835
+  ],
+  "boundsMax": [
+   5.5238318580197605,
+   1.4180756886597603,
+   2.303899101597946
+  ],
+  "triangles": 368
+ },
+ {
+  "id": "battleship_box",
+  "name": "battleship_box_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "battleship_box.glb",
+  "boundsMin": [
+   -4.251177787780762,
+   -0.46231452979785453,
+   -0.2938679552760268
+  ],
+  "boundsMax": [
+   4.25117826461792,
+   0.7924555914915801,
+   0.29386793770840625
+  ],
+  "triangles": 44
+ },
+ {
+  "id": "battleship_box_wide",
+  "name": "battleship_box_wide_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "battleship_box_wide.glb",
+  "boundsMin": [
+   -4.251177787780762,
+   -0.462314584393597,
+   -1.319863082157153
+  ],
+  "boundsMax": [
+   4.251177787780762,
+   0.7924555864826658,
+   1.3198630645895302
+  ],
+  "triangles": 28
+ },
+ {
+  "id": "battleship_rail",
+  "name": "battleship_rail_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "battleship_rail.glb",
+  "boundsMin": [
+   -0.132,
+   -6.255243265132492,
+   -17.14872526019935
+  ],
+  "boundsMax": [
+   0.133,
+   0.22662779881787865,
+   12.385053096383531
+  ],
+  "triangles": 432
+ },
+ {
+  "id": "bike_rack_rail",
+  "name": "bike_rack_rail_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "bike_rack_rail.glb",
+  "boundsMin": [
+   -6.8779999803304674,
+   -1.2829999952316284,
+   -0.6939997076158142
+  ],
+  "boundsMax": [
+   6.879999980330467,
+   0.526000055470047,
+   0.6860002876158142
+  ],
+  "triangles": 16924
+ },
+ {
+  "id": "c_rail",
+  "name": "c_rail_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "c_rail.glb",
+  "boundsMin": [
+   -9.744980941037445,
+   -1.3600011264992105,
+   -0.14765580907887826
+  ],
+  "boundsMax": [
+   9.744975154820581,
+   1.6500001908793236,
+   4.590679396077242
+  ],
+  "triangles": 1036
+ },
+ {
+  "id": "c_rail_wide",
+  "name": "c_rail_wide_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "c_rail_wide.glb",
+  "boundsMin": [
+   -9.770346298940503,
+   -1.3600015176291065,
+   -0.08782386326403002
+  ],
+  "boundsMax": [
+   9.770334993516755,
+   1.6500001885441444,
+   6.598132086512481
+  ],
+  "triangles": 1036
+ },
+ {
+  "id": "c_tube_narrow",
+  "name": "c_tube_narrow_placeholder",
+  "forceUniformScale": true,
+  "parameters": [],
+  "file": "c_tube_narrow.glb",
+  "boundsMin": [
+   -3.6148529072987543,
+   -1.0850000333786012,
+   -0.9348529031264101
+  ],
+  "boundsMax": [
+   3.614701051734019,
+   0.17999982611752763,
+   0.20944570519356046
+  ],
+  "triangles": 2416
+ },
+ {
+  "id": "c_tube_wide",
+  "name": "c_tube_wide_placeholder",
+  "forceUniformScale": true,
+  "parameters": [],
+  "file": "c_tube_wide.glb",
+  "boundsMin": [
+   -3.5998296760539774,
+   -1.2079999570846558,
+   -2.068653829082808
+  ],
+  "boundsMax": [
+   3.6016538536901774,
+   0.221000016579744,
+   0.21836787858053253
+  ],
+  "triangles": 2788
+ },
+ {
+  "id": "cannon_rail_adjustable",
+  "name": "cannon_rail_adjustable_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "side-curve",
+    "type": "float",
+    "default": -0.0
+   },
+   {
+    "name": "up-curve",
+    "type": "float",
+    "default": 2.9999971
+   },
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "cannon_rail_adjustable.glb",
+  "boundsMin": [
+   -0.220000039063902,
+   -0.06200001907348629,
+   -16.753485541091
+  ],
+  "boundsMax": [
+   0.22000925788637443,
+   3.606249086049315,
+   3.007010183906746
+  ],
+  "triangles": 2478
+ },
+ {
+  "id": "cannon_rail_adjustable_short",
+  "name": "cannon_rail_adjustable_short_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "side-curve",
+    "type": "float",
+    "default": -0.0
+   },
+   {
+    "name": "up-curve",
+    "type": "float",
+    "default": 2.9999971
+   },
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "cannon_rail_adjustable_short.glb",
+  "boundsMin": [
+   -0.220000039063902,
+   -0.061999819073486284,
+   -9.590638774297819
+  ],
+  "boundsMax": [
+   0.2200072857786751,
+   3.6735935196846934,
+   3.007017783906746
+  ],
+  "triangles": 2478
+ },
+ {
+  "id": "chairlift",
+  "name": "chairlift_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "speed",
+    "type": "float",
+    "default": 4.0
+   },
+   {
+    "name": "reversed",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "slack",
+    "type": "float",
+    "default": 0.5
+   },
+   {
+    "name": "spacing",
+    "type": "float",
+    "default": 15.0
+   }
+  ],
+  "lift": {
+   "base": {
+    "cable": {
+     "inPoint": null,
+     "outPoint": null,
+     "wheel": null,
+     "route": [
+      {
+       "kind": "fixed",
+       "p": [
+        -0.86573,
+        3.7906,
+        8.38842
+       ]
+      },
+      {
+       "kind": "wheel",
+       "p": [
+        1.15147,
+        3.7906,
+        -4.04478
+       ],
+       "up": [
+        0.0,
+        -1.0,
+        0.0
+       ],
+       "fwd": [
+        -1.0,
+        0.0,
+        -0.0
+       ],
+       "radius": 2.08,
+       "arc": 180.0
+      },
+      {
+       "kind": "fixed",
+       "p": [
+        3.16867,
+        3.7906,
+        8.38842
+       ]
+      }
+     ]
+    },
+    "file": "chairlift_base.glb",
+    "boundsMin": [
+     -1.8585764098064859,
+     -2.357,
+     -8.447221760278163
+    ],
+    "boundsMax": [
+     4.161515899580543,
+     5.8,
+     6.972781360278162
+    ]
+   },
+   "top": {
+    "cable": {
+     "inPoint": null,
+     "outPoint": null,
+     "wheel": null,
+     "route": [
+      {
+       "kind": "fixed",
+       "p": [
+        -0.86573,
+        3.7906,
+        8.38842
+       ]
+      },
+      {
+       "kind": "wheel",
+       "p": [
+        1.15147,
+        3.7906,
+        -4.04478
+       ],
+       "up": [
+        0.0,
+        -1.0,
+        0.0
+       ],
+       "fwd": [
+        -1.0,
+        0.0,
+        -0.0
+       ],
+       "radius": 2.08,
+       "arc": 180.0
+      },
+      {
+       "kind": "fixed",
+       "p": [
+        3.16867,
+        3.7906,
+        8.38842
+       ]
+      }
+     ]
+    },
+    "file": "chairlift_top.glb",
+    "boundsMin": [
+     -1.858586140139764,
+     -2.357,
+     -8.447221809908088
+    ],
+    "boundsMax": [
+     4.161510439852486,
+     5.8,
+     6.972780289908087
+    ]
+   },
+   "mast": {
+    "cable": {
+     "up": [
+      {
+       "kind": "slot",
+       "p": [
+        3.6694,
+        13.537,
+        -1.222
+       ],
+       "up": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "min": 0.0,
+       "max": 0.05
+      },
+      {
+       "kind": "slot",
+       "p": [
+        3.6694,
+        13.537,
+        1.342
+       ],
+       "up": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "min": 0.0,
+       "max": 0.05
+      }
+     ],
+     "down": [
+      {
+       "kind": "slot",
+       "p": [
+        -3.6694,
+        13.537,
+        1.342
+       ],
+       "up": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "min": 0.0,
+       "max": 0.05
+      },
+      {
+       "kind": "slot",
+       "p": [
+        -3.6694,
+        13.537,
+        -1.222
+       ],
+       "up": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "min": 0.0,
+       "max": 0.05
+      }
+     ]
+    },
+    "file": "chairlift_mast.glb",
+    "boundsMin": [
+     -3.626799984,
+     -1.67,
+     -0.939999998
+    ],
+    "boundsMax": [
+     3.713200016,
+     14.45,
+     0.9600000019999999
+    ]
+   }
+  },
+  "file": "chairlift_base.glb",
+  "boundsMin": [
+   -1.8585764098064859,
+   -2.357,
+   -8.447221760278163
+  ],
+  "boundsMax": [
+   4.161515899580543,
+   5.8,
+   6.972781360278162
+  ],
+  "triangles": 0
+ },
+ {
+  "id": "curve_tube_long",
+  "name": "curve_tube_long_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "curve_tube_long.glb",
+  "boundsMin": [
+   -0.29500014676465874,
+   -3.611272173159394,
+   -10.033088123529861
+  ],
+  "boundsMax": [
+   0.2950001706200051,
+   3.6651118535867333,
+   10.3825399921427
+  ],
+  "triangles": 2370
+ },
+ {
+  "id": "curve_tube_long_thick",
+  "name": "curve_tube_long_thick_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "curve_tube_long_thick.glb",
+  "boundsMin": [
+   -0.4300001645540472,
+   -3.7461707115362666,
+   -10.167673179330107
+  ],
+  "boundsMax": [
+   0.43000019985793614,
+   3.799583226724886,
+   10.51413305721749
+  ],
+  "triangles": 2370
+ },
+ {
+  "id": "curve_tube_long_thin",
+  "name": "curve_tube_long_thin_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "curve_tube_long_thin.glb",
+  "boundsMin": [
+   -0.16000016123497982,
+   -3.4763948598362417,
+   -9.898503000212564
+  ],
+  "boundsMax": [
+   0.16000017118439686,
+   3.5306404268027194,
+   10.25094692706791
+  ],
+  "triangles": 2370
+ },
+ {
+  "id": "curve_tube",
+  "name": "curve_tube_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "curve_tube.glb",
+  "boundsMin": [
+   -0.29000033398383346,
+   -3.9632086305910197,
+   -7.094488376622377
+  ],
+  "boundsMax": [
+   0.29000030819870265,
+   2.676792140729335,
+   8.699331751541402
+  ],
+  "triangles": 1828
+ },
+ {
+  "id": "curve_tube_shallow",
+  "name": "curve_tube_shallow_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "curve_tube_shallow.glb",
+  "boundsMin": [
+   -0.29500011059126796,
+   -2.71289850906116,
+   -6.704114295869237
+  ],
+  "boundsMax": [
+   0.29500015147216885,
+   3.556594651129707,
+   9.106812878826108
+  ],
+  "triangles": 1828
+ },
+ {
+  "id": "curve_tube_shallow_thick",
+  "name": "curve_tube_shallow_thick_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "curve_tube_shallow_thick.glb",
+  "boundsMin": [
+   -0.43000014240629447,
+   -2.847859355265518,
+   -6.83862767483491
+  ],
+  "boundsMax": [
+   0.43000018069660667,
+   3.6911408902526164,
+   9.241773754729874
+  ],
+  "triangles": 1828
+ },
+ {
+  "id": "curve_tube_shallow_thin",
+  "name": "curve_tube_shallow_thin_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "curve_tube_shallow_thin.glb",
+  "boundsMin": [
+   -0.16000010857856115,
+   -2.5779377075473136,
+   -6.56960094062385
+  ],
+  "boundsMax": [
+   0.16000015205005533,
+   3.4220484349868174,
+   8.971852062509692
+  ],
+  "triangles": 1828
+ },
+ {
+  "id": "curve_tube_thick",
+  "name": "curve_tube_thick_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "curve_tube_thick.glb",
+  "boundsMin": [
+   -0.4200003330523768,
+   -4.0930075213979595,
+   -7.224063515223783
+  ],
+  "boundsMax": [
+   0.4200002985825174,
+   2.8065546232855816,
+   8.828065539011787
+  ],
+  "triangles": 1828
+ },
+ {
+  "id": "curve_tube_thin",
+  "name": "curve_tube_thin_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "curve_tube_thin.glb",
+  "boundsMin": [
+   -0.16000033491529012,
+   -3.83340975466219,
+   -6.964913282713956
+  ],
+  "boundsMax": [
+   0.1600003182417372,
+   2.547029708073833,
+   8.570597964071018
+  ],
+  "triangles": 1828
+ },
+ {
+  "id": "dfd",
+  "name": "dfd_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "dfd.glb",
+  "boundsMin": [
+   -0.132,
+   -7.534610144484818,
+   -12.992175604322597
+  ],
+  "boundsMax": [
+   0.133,
+   1.9683755670928158,
+   6.233107890662438
+  ],
+  "triangles": 324
+ },
+ {
+  "id": "dfd_tube",
+  "name": "dfd_tube_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "dfd_tube.glb",
+  "boundsMin": [
+   -0.3190000364153829,
+   -2.156490586256722,
+   -6.902984125166581
+  ],
+  "boundsMax": [
+   0.3210000364153829,
+   2.4853188967721245,
+   7.175697597813558
+  ],
+  "triangles": 1440
+ },
+ {
+  "id": "donkeydick_curved",
+  "name": "donkeydick_curved_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "donkeydick_curved.glb",
+  "boundsMin": [
+   -0.15000039828928574,
+   -1.84,
+   -19.971510597355856
+  ],
+  "boundsMax": [
+   0.15000002192420916,
+   3.363240712251076,
+   9.53000074128394
+  ],
+  "triangles": 582
+ },
+ {
+  "id": "donkeydick_curved_short",
+  "name": "donkeydick_curved_short_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "donkeydick_curved_short.glb",
+  "boundsMin": [
+   -0.150000325827504,
+   -1.86,
+   -11.831808961869033
+  ],
+  "boundsMax": [
+   0.15000002192420916,
+   3.355344307639577,
+   9.519997060287954
+  ],
+  "triangles": 582
+ },
+ {
+  "id": "donkeydick_rail",
+  "name": "donkeydick_rail_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "donkeydick_rail.glb",
+  "boundsMin": [
+   -0.22000069410608494,
+   -1.4500000000000002,
+   -9.860166763666765
+  ],
+  "boundsMax": [
+   0.22000069410608494,
+   2.2084871059132185,
+   9.519999073717779
+  ],
+  "triangles": 396
+ },
+ {
+  "id": "donkeydick_tube",
+  "name": "donkeydick_tube_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "donkeydick_tube.glb",
+  "boundsMin": [
+   -0.49000030214825724,
+   -0.4900002635633588,
+   -3.2657087310909785
+  ],
+  "boundsMax": [
+   0.49000030214825724,
+   1.2129667313588008,
+   6.970054914978474
+  ],
+  "triangles": 1632
+ },
+ {
+  "id": "donkeydick_tube_short",
+  "name": "donkeydick_tube_short_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "donkeydick_tube_short.glb",
+  "boundsMin": [
+   -0.49000038662481954,
+   -0.49000022897523865,
+   -3.33144206833294
+  ],
+  "boundsMax": [
+   0.49000038662481954,
+   0.9023396638383826,
+   3.4070082958022327
+  ],
+  "triangles": 1632
+ },
+ {
+  "id": "down_flat_tube",
+  "name": "down_flat_tube_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "down_flat_tube.glb",
+  "boundsMin": [
+   -0.2400000568159805,
+   -3.613999997615814,
+   -13.16999997973442
+  ],
+  "boundsMax": [
+   0.2400000568159805,
+   1.4798080545287537,
+   0.20099997973442077
+  ],
+  "triangles": 3360
+ },
+ {
+  "id": "firecracker_rail",
+  "name": "firecracker_rail_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "firecracker_rail.glb",
+  "boundsMin": [
+   -0.2199999988079071,
+   -1.69000002,
+   -9.583000264919239
+  ],
+  "boundsMax": [
+   0.2199999988079071,
+   3.2800000928259805,
+   9.580000264919239
+  ],
+  "triangles": 532
+ },
+ {
+  "id": "flat_box",
+  "name": "flat_box_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "flat_box.glb",
+  "boundsMin": [
+   -0.44,
+   -0.85,
+   -4.6
+  ],
+  "boundsMax": [
+   0.44,
+   0.85,
+   4.6
+  ],
+  "triangles": 12
+ },
+ {
+  "id": "flat_down_flat_box",
+  "name": "flat_down_flat_box_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "flat_down_flat_box.glb",
+  "boundsMin": [
+   -0.100000025,
+   -1.4185941679605962,
+   -5.90900665
+  ],
+  "boundsMax": [
+   0.100000025,
+   0.0620141602,
+   5.91000745
+  ],
+  "triangles": 44
+ },
+ {
+  "id": "flat_down_flat_rail",
+  "name": "flat_down_flat_rail_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "flat_down_flat_rail.glb",
+  "boundsMin": [
+   -0.11250011879492863,
+   -1.301073240478188,
+   -4.793018269841418
+  ],
+  "boundsMax": [
+   0.11250009197281656,
+   0.2375001971074801,
+   4.790016033696429
+  ],
+  "triangles": 262
+ },
+ {
+  "id": "flat_down",
+  "name": "flat_down_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "flat_down.glb",
+  "boundsMin": [
+   -0.11,
+   -5.3686524804576425,
+   -10.000248802086542
+  ],
+  "boundsMax": [
+   0.11,
+   0.8440012619706536,
+   4.419114465142977
+  ],
+  "triangles": 216
+ },
+ {
+  "id": "floodlight",
+  "name": "floodlight_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "light-color",
+    "type": "color",
+    "default": "#FFFFFF"
+   },
+   {
+    "name": "light-intensity",
+    "type": "float",
+    "default": 1.0
+   }
+  ],
+  "file": "floodlight.glb",
+  "boundsMin": [
+   -3.5,
+   -1.2300010046325685,
+   -1.6739045535342103
+  ],
+  "boundsMax": [
+   3.5,
+   21.513275105961224,
+   0.7049999237060547
+  ],
+  "triangles": 308
+ },
+ {
+  "id": "half_spine_box",
+  "name": "half_spine_box_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "half_spine_box.glb",
+  "boundsMin": [
+   -1.028953536190521,
+   -1.56800804693304,
+   -2.6252021338001637
+  ],
+  "boundsMax": [
+   0.43294113205083645,
+   1.56800804693304,
+   2.6252021338001637
+  ],
+  "triangles": 12
+ },
+ {
+  "id": "half_spine_box_tall",
+  "name": "half_spine_box_tall_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "half_spine_box_tall.glb",
+  "boundsMin": [
+   -1.0289539066132753,
+   -2.242576379990876,
+   -2.6252021338001637
+  ],
+  "boundsMax": [
+   0.43294128790942576,
+   2.242576379990876,
+   2.6252021338001637
+  ],
+  "triangles": 12
+ },
+ {
+  "id": "half_spine",
+  "name": "half_spine_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "half_spine.glb",
+  "boundsMin": [
+   -1.028953536190521,
+   -1.56800804693304,
+   -2.700002150591431
+  ],
+  "boundsMax": [
+   0.43294113205083645,
+   1.7206069060886406,
+   2.7000021505914287
+  ],
+  "triangles": 92
+ },
+ {
+  "id": "half_spine_tall",
+  "name": "half_spine_tall_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "half_spine_tall.glb",
+  "boundsMin": [
+   -1.0289539066132753,
+   -2.242576379990876,
+   -2.700002150591431
+  ],
+  "boundsMax": [
+   0.43294128790942576,
+   2.395198006088641,
+   2.7000021505914287
+  ],
+  "triangles": 92
+ },
+ {
+  "id": "nipple_rail",
+  "name": "nipple_rail_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "nipple_rail.glb",
+  "boundsMin": [
+   -0.15000031239415082,
+   -1.48,
+   -6.996000373846083
+  ],
+  "boundsMax": [
+   0.15000031239415457,
+   2.0934803198057605,
+   7.165000538833479
+  ],
+  "triangles": 272
+ },
+ {
+  "id": "picnic_table_long",
+  "name": "picnic_table_long_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "picnic_table_long.glb",
+  "boundsMin": [
+   -4.84,
+   -1.4430001432647652,
+   -2.617
+  ],
+  "boundsMax": [
+   4.84,
+   0.384,
+   2.6100000000000003
+  ],
+  "triangles": 5748
+ },
+ {
+  "id": "picnic_table",
+  "name": "picnic_table_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "picnic_table.glb",
+  "boundsMin": [
+   -2.34,
+   -1.443000078877651,
+   -2.617
+  ],
+  "boundsMax": [
+   2.34,
+   0.384,
+   2.6100000000000003
+  ],
+  "triangles": 5748
+ },
+ {
+  "id": "quad_kink_rail",
+  "name": "quad_kink_rail_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "quad_kink_rail.glb",
+  "boundsMin": [
+   -0.08000001030977079,
+   -3.406423831320937,
+   -15.439015543868324
+  ],
+  "boundsMax": [
+   0.08000001030977079,
+   3.7651940997681,
+   14.532822336376253
+  ],
+  "triangles": 1636
+ },
+ {
+  "id": "quarter_spine",
+  "name": "quarter_spine_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "quarter_spine.glb",
+  "boundsMin": [
+   -1.0717039293550492,
+   -1.486747541272446,
+   -2.700002150591431
+  ],
+  "boundsMax": [
+   0.3800005353483159,
+   1.8018752060886407,
+   2.7000021505914287
+  ],
+  "triangles": 142
+ },
+ {
+  "id": "quarter_spine_tall",
+  "name": "quarter_spine_tall_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "quarter_spine_tall.glb",
+  "boundsMin": [
+   -1.078115712166555,
+   -1.7424634311834737,
+   -2.700002150591431
+  ],
+  "boundsMax": [
+   0.37242880488223756,
+   2.2328139060886407,
+   2.7000021505914287
+  ],
+  "triangles": 162
+ },
+ {
+  "id": "rail_long2",
+  "name": "rail_long2_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "rail_long2.glb",
+  "boundsMin": [
+   -3.6159977126867813,
+   -0.9939999961853028,
+   -0.08400003060005619
+  ],
+  "boundsMax": [
+   3.613000012686778,
+   0.07099999141693115,
+   0.084000030600054
+  ],
+  "triangles": 2400
+ },
+ {
+  "id": "rail_long",
+  "name": "rail_long_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "rail_long.glb",
+  "boundsMin": [
+   -0.22,
+   -1.69000002,
+   -9.600002522546665
+  ],
+  "boundsMax": [
+   0.22,
+   1.370000582546665,
+   9.600002522546665
+  ],
+  "triangles": 108
+ },
+ {
+  "id": "rail_short",
+  "name": "rail_short_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "rail_short.glb",
+  "boundsMin": [
+   -0.22,
+   -1.69000002,
+   -5.850001622999827
+  ],
+  "boundsMax": [
+   0.22,
+   1.370000382999827,
+   5.850001622999827
+  ],
+  "triangles": 108
+ },
+ {
+  "id": "rainbow_banana",
+  "name": "rainbow_banana_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "rainbow_banana.glb",
+  "boundsMin": [
+   -4.6075989090119,
+   -0.92,
+   -0.8947895097188125
+  ],
+  "boundsMax": [
+   4.607675815427665,
+   0.7716196511416318,
+   0.8996812536179701
+  ],
+  "triangles": 912
+ },
+ {
+  "id": "rainbow_banana_wide",
+  "name": "rainbow_banana_wide_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "rainbow_banana_wide.glb",
+  "boundsMin": [
+   -4.592592438959209,
+   -0.91,
+   -1.4586370502007855
+  ],
+  "boundsMax": [
+   4.592593105367831,
+   0.7585870226843733,
+   1.4638707196317113
+  ],
+  "triangles": 870
+ },
+ {
+  "id": "rainbow_box",
+  "name": "rainbow_box_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "rainbow_box.glb",
+  "boundsMin": [
+   -3.6706106662750244,
+   -1.0413376539708457,
+   -0.3669113421022886
+  ],
+  "boundsMax": [
+   3.6706106662750244,
+   1.361674792227902,
+   0.36691098082802837
+  ],
+  "triangles": 56
+ },
+ {
+  "id": "rainbow_box_wide",
+  "name": "rainbow_box_wide_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "rainbow_box_wide.glb",
+  "boundsMin": [
+   -3.684013605117798,
+   -0.9173689647494393,
+   -1.5414402107794967
+  ],
+  "boundsMax": [
+   3.684013605117798,
+   1.5001443474915073,
+   1.5414402417904185
+  ],
+  "triangles": 40
+ },
+ {
+  "id": "rainbow_rail",
+  "name": "rainbow_rail_placeholder",
+  "forceUniformScale": true,
+  "parameters": [],
+  "file": "rainbow_rail.glb",
+  "boundsMin": [
+   -8.174434848239807,
+   -0.09692254298652775,
+   -0.18700008006479735
+  ],
+  "boundsMax": [
+   8.174440107913947,
+   4.6804128252647015,
+   0.18700008006479418
+  ],
+  "triangles": 1488
+ },
+ {
+  "id": "rainbow_rail_small",
+  "name": "rainbow_rail_small_placeholder",
+  "forceUniformScale": true,
+  "parameters": [],
+  "file": "rainbow_rail_small.glb",
+  "boundsMin": [
+   -3.241403205826937,
+   -0.06961445473518904,
+   -0.11500004865494609
+  ],
+  "boundsMax": [
+   3.241396952346543,
+   2.303880730935785,
+   0.11500004865494583
+  ],
+  "triangles": 992
+ },
+ {
+  "id": "ropetow",
+  "name": "ropetow_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "speed",
+    "type": "float",
+    "default": 3.0
+   },
+   {
+    "name": "reversed",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "slack",
+    "type": "float",
+    "default": 0.5
+   }
+  ],
+  "lift": {
+   "base": {
+    "cable": {
+     "inPoint": null,
+     "outPoint": null,
+     "wheel": null,
+     "route": [
+      {
+       "kind": "fixed",
+       "p": [
+        -0.69,
+        1.007,
+        0.0
+       ]
+      },
+      {
+       "kind": "wheel",
+       "p": [
+        0.0,
+        1.007,
+        0.0
+       ],
+       "up": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "fwd": [
+        1.0,
+        0.0,
+        -0.0
+       ],
+       "radius": 0.69,
+       "arc": 180.0
+      },
+      {
+       "kind": "fixed",
+       "p": [
+        0.69,
+        1.007,
+        0.0
+       ]
+      }
+     ]
+    },
+    "file": "ropetow_base.glb",
+    "boundsMin": [
+     -0.7,
+     -0.12,
+     -0.7
+    ],
+    "boundsMax": [
+     0.7,
+     1.09,
+     0.7
+    ]
+   },
+   "top": {
+    "cable": {
+     "inPoint": null,
+     "outPoint": null,
+     "wheel": null,
+     "route": [
+      {
+       "kind": "fixed",
+       "p": [
+        -0.69,
+        1.007,
+        0.0
+       ]
+      },
+      {
+       "kind": "wheel",
+       "p": [
+        0.0,
+        1.007,
+        0.0
+       ],
+       "up": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "fwd": [
+        1.0,
+        0.0,
+        -0.0
+       ],
+       "radius": 0.69,
+       "arc": 180.0
+      },
+      {
+       "kind": "fixed",
+       "p": [
+        0.69,
+        1.007,
+        0.0
+       ]
+      }
+     ]
+    },
+    "file": "ropetow_top.glb",
+    "boundsMin": [
+     -0.7,
+     -0.12,
+     -0.7
+    ],
+    "boundsMax": [
+     0.7,
+     1.09,
+     0.7
+    ]
+   }
+  },
+  "file": "ropetow_base.glb",
+  "boundsMin": [
+   -0.7,
+   -0.12,
+   -0.7
+  ],
+  "boundsMax": [
+   0.7,
+   1.09,
+   0.7
+  ],
+  "triangles": 0
+ },
+ {
+  "id": "s-rail",
+  "name": "s-rail_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "black",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "s-rail.glb",
+  "boundsMin": [
+   -6.209979728049973,
+   -1.8969999332427978,
+   -1.7256593634443538
+  ],
+  "boundsMax": [
+   6.052605720336791,
+   0.360000701283008,
+   1.7506574884169257
+  ],
+  "triangles": 2448
+ },
+ {
+  "id": "s_rail",
+  "name": "s_rail_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "s_rail.glb",
+  "boundsMin": [
+   -1.3370376397931825,
+   -0.969999886,
+   -5.540122417735086
+  ],
+  "boundsMax": [
+   1.3423275676875763,
+   0.8800004881504042,
+   5.562429954789523
+  ],
+  "triangles": 2194
+ },
+ {
+  "id": "shotgun_dfd",
+  "name": "shotgun_dfd_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "shotgun_dfd.glb",
+  "boundsMin": [
+   -0.13800000504439297,
+   -1.819470122419532,
+   -6.809110746557644
+  ],
+  "boundsMax": [
+   0.13700001312118268,
+   2.6210562627158573,
+   7.368797848128171
+  ],
+  "triangles": 1256
+ },
+ {
+  "id": "shotgun_long",
+  "name": "shotgun_long_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "shotgun_long.glb",
+  "boundsMin": [
+   -0.13000000504439296,
+   -0.414,
+   -11.62000009920496
+  ],
+  "boundsMax": [
+   0.13000000504439296,
+   1.1500005137552647,
+   7.7600000992049605
+  ],
+  "triangles": 136
+ },
+ {
+  "id": "shotgun_short",
+  "name": "shotgun_short_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "shotgun_short.glb",
+  "boundsMin": [
+   -0.13000000504439296,
+   -0.414,
+   -5.01800044464141
+  ],
+  "boundsMax": [
+   0.14000000504439297,
+   1.1500002679136376,
+   5.122000444641409
+  ],
+  "triangles": 136
+ },
+ {
+  "id": "sign_billboard",
+  "name": "sign_billboard_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "text",
+    "type": "string",
+    "default": "- Replace this - "
+   }
+  ],
+  "file": "sign_billboard.glb",
+  "boundsMin": [
+   -2.0800006160032347,
+   -4.2199995,
+   -0.18129109346290573
+  ],
+  "boundsMax": [
+   2.0800006160032347,
+   1.000000458,
+   0.1999986150032348
+  ],
+  "triangles": 48
+ },
+ {
+  "id": "sign_piste_direction",
+  "name": "sign_piste_direction_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "red",
+    "options": [
+     "red",
+     "blue",
+     "green",
+     "black",
+     "orange",
+     "yellow"
+    ]
+   },
+   {
+    "name": "text",
+    "type": "string",
+    "default": "- Replace this -"
+   },
+   {
+    "name": "is-left",
+    "type": "bool",
+    "default": false
+   }
+  ],
+  "file": "sign_piste_direction.glb",
+  "boundsMin": [
+   -0.47999998927116394,
+   -0.31200030490417463,
+   -0.10598502978617017
+  ],
+  "boundsMax": [
+   0.47999998927116394,
+   4.967999904904175,
+   0.08499999344348907
+  ],
+  "triangles": 186
+ },
+ {
+  "id": "sign_piste",
+  "name": "sign_piste_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "red",
+     "blue",
+     "green",
+     "black",
+     "orange",
+     "yellow"
+    ]
+   },
+   {
+    "name": "text",
+    "type": "string",
+    "default": "- Replace this -"
+   }
+  ],
+  "file": "sign_piste.glb",
+  "boundsMin": [
+   -0.47999998927116394,
+   -0.32700010490417464,
+   -0.1055754122861437
+  ],
+  "boundsMax": [
+   0.47999998927116394,
+   4.953000104904175,
+   0.08499999344348907
+  ],
+  "triangles": 124
+ },
+ {
+  "id": "snowcannon",
+  "name": "snowcannon_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "direction",
+    "type": "selection",
+    "default": "down",
+    "options": [
+     "down",
+     "flat",
+     "up1",
+     "up2"
+    ]
+   },
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "orange+blue",
+    "options": [
+     "orange+blue",
+     "blue+orange",
+     "purple+green",
+     "cyan+red"
+    ]
+   },
+   {
+    "name": "light-color",
+    "type": "color",
+    "default": "#FFFFFF"
+   },
+   {
+    "name": "light-intensity",
+    "type": "float",
+    "default": 1.0
+   }
+  ],
+  "file": "snowcannon.glb",
+  "boundsMin": [
+   -1.12,
+   -0.45700012,
+   -1.0213804804689282
+  ],
+  "boundsMax": [
+   1.12,
+   3.612096613098058,
+   1.2813749804689019
+  ],
+  "triangles": 86
+ },
+ {
+  "id": "spine_box",
+  "name": "spine_box_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "spine_box.glb",
+  "boundsMin": [
+   -1.4618941300504842,
+   -1.5680074824508206,
+   -2.6252025063293427
+  ],
+  "boundsMax": [
+   1.4618941300504842,
+   1.5680074824508206,
+   2.6252021338001637
+  ],
+  "triangles": 10
+ },
+ {
+  "id": "spine_box_tall",
+  "name": "spine_box_tall_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "spine_box_tall.glb",
+  "boundsMin": [
+   -1.4330819587049883,
+   -2.246073786803484,
+   -2.6252025063293427
+  ],
+  "boundsMax": [
+   1.4907048633224171,
+   2.246073786803484,
+   2.6252021338001637
+  ],
+  "triangles": 10
+ },
+ {
+  "id": "spiral_rail",
+  "name": "spiral_rail_placeholder",
+  "forceUniformScale": true,
+  "parameters": [],
+  "file": "spiral_rail.glb",
+  "boundsMin": [
+   -3.0244339225140466,
+   -1.8800000858306884,
+   -3.020834529594313
+  ],
+  "boundsMax": [
+   3.045173185018454,
+   6.694941911863262,
+   3.020823457021738
+  ],
+  "triangles": 3842
+ },
+ {
+  "id": "stairs_long",
+  "name": "stairs_long_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "stairs_long.glb",
+  "boundsMin": [
+   -4.42,
+   -1.2200000000000002,
+   -6.41
+  ],
+  "boundsMax": [
+   4.380000000000001,
+   1.23,
+   2.8000000000000003
+  ],
+  "triangles": 120
+ },
+ {
+  "id": "stairs_short",
+  "name": "stairs_short_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "stairs_short.glb",
+  "boundsMin": [
+   -4.42,
+   -1.2,
+   -4.14
+  ],
+  "boundsMax": [
+   4.380000000000001,
+   1.98,
+   2.9
+  ],
+  "triangles": 120
+ },
+ {
+  "id": "street_down_rail_long",
+  "name": "street_down_rail_long_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "street_down_rail_long.glb",
+  "boundsMin": [
+   -0.25896583,
+   -2.794989,
+   -7.953926209710951
+  ],
+  "boundsMax": [
+   0.07000095054869948,
+   6.50642468591767,
+   7.911811809710951
+  ],
+  "triangles": 3456
+ },
+ {
+  "id": "street_down_rail_short",
+  "name": "street_down_rail_short_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "street_down_rail_short.glb",
+  "boundsMin": [
+   -0.25298365,
+   -3.7360132,
+   -2.9408639097109517
+  ],
+  "boundsMax": [
+   0.07000023529297948,
+   1.57240378591767,
+   2.9069284097109516
+  ],
+  "triangles": 3456
+ },
+ {
+  "id": "street_kinked_rail",
+  "name": "street_kinked_rail_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "street_kinked_rail.glb",
+  "boundsMin": [
+   -11.86100601192093,
+   -5.712999959945678,
+   -0.07500000710988003
+  ],
+  "boundsMax": [
+   10.559996014305115,
+   3.2489983955296515,
+   0.07500000710988013
+  ],
+  "triangles": 8238
+ },
+ {
+  "id": "street_rail_long",
+  "name": "street_rail_long_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "street_rail_long.glb",
+  "boundsMin": [
+   -0.25505956,
+   -1.8819934000000003,
+   -8.4320615
+  ],
+  "boundsMax": [
+   0.07000095367430001,
+   0.5689931550888849,
+   8.425958
+  ],
+  "triangles": 3456
+ },
+ {
+  "id": "street_rail_short",
+  "name": "street_rail_short_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "street_rail_short.glb",
+  "boundsMin": [
+   -0.26000270999999997,
+   -1.88000977,
+   -4.0649956000000005
+  ],
+  "boundsMax": [
+   0.07399828,
+   0.5700001193517006,
+   4.0609673
+  ],
+  "triangles": 3456
+ },
+ {
+  "id": "street_rainbow_rail2",
+  "name": "street_rainbow_rail2_placeholder",
+  "forceUniformScale": true,
+  "parameters": [],
+  "file": "street_rainbow_rail2.glb",
+  "boundsMin": [
+   -4.744996986886978,
+   -2.5711135017881395,
+   -0.8500000238418579
+  ],
+  "boundsMax": [
+   4.744996986886978,
+   1.1480263581575314,
+   0.8500000238418579
+  ],
+  "triangles": 12280
+ },
+ {
+  "id": "street_rainbow_rail",
+  "name": "street_rainbow_rail_placeholder",
+  "forceUniformScale": true,
+  "parameters": [],
+  "file": "street_rainbow_rail.glb",
+  "boundsMin": [
+   -4.744999986886978,
+   -1.6320000017881393,
+   -0.6000000238418579
+  ],
+  "boundsMax": [
+   4.744999986886978,
+   1.054402171498373,
+   0.6000000238418579
+  ],
+  "triangles": 11320
+ },
+ {
+  "id": "t_box",
+  "name": "t_box_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "t_box.glb",
+  "boundsMin": [
+   -2.505,
+   -0.65,
+   -0.375
+  ],
+  "boundsMax": [
+   2.505,
+   0.282,
+   0.375
+  ],
+  "triangles": 24
+ },
+ {
+  "id": "table_tube",
+  "name": "table_tube_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "table_tube.glb",
+  "boundsMin": [
+   -3.68200318152256,
+   -1.1080000023841858,
+   -0.6000000238418579
+  ],
+  "boundsMax": [
+   3.68200318152256,
+   0.15300024889231725,
+   0.6000000238418579
+  ],
+  "triangles": 5796
+ },
+ {
+  "id": "tbar",
+  "name": "tbar_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "speed",
+    "type": "float",
+    "default": 3.0
+   },
+   {
+    "name": "reversed",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "slack",
+    "type": "float",
+    "default": 0.5
+   },
+   {
+    "name": "extension",
+    "type": "float",
+    "default": 3.5
+   },
+   {
+    "name": "spacing",
+    "type": "float",
+    "default": 12.0
+   }
+  ],
+  "lift": {
+   "base": {
+    "cable": {
+     "inPoint": null,
+     "outPoint": null,
+     "wheel": null,
+     "route": [
+      {
+       "kind": "fixed",
+       "p": [
+        -0.91533,
+        3.96483,
+        3.41118
+       ]
+      },
+      {
+       "kind": "wheel",
+       "p": [
+        0.00012,
+        3.96483,
+        -2.6275
+       ],
+       "up": [
+        0.0,
+        -1.0,
+        0.0
+       ],
+       "fwd": [
+        -1.0,
+        0.0,
+        -0.0
+       ],
+       "radius": 0.91538006,
+       "arc": 180.0
+      },
+      {
+       "kind": "fixed",
+       "p": [
+        0.91556,
+        3.96483,
+        3.41118
+       ]
+      }
+     ]
+    },
+    "file": "tbar_base.glb",
+    "boundsMin": [
+     -0.9313751377063968,
+     -0.3949493583262882,
+     -3.1688580184394084
+    ],
+    "boundsMax": [
+     0.9286702715063968,
+     4.040324243630599,
+     3.552500077802427
+    ]
+   },
+   "top": {
+    "cable": {
+     "inPoint": null,
+     "outPoint": null,
+     "wheel": null,
+     "route": [
+      {
+       "kind": "fixed",
+       "p": [
+        -0.91533,
+        3.96483,
+        3.41118
+       ]
+      },
+      {
+       "kind": "wheel",
+       "p": [
+        0.00012,
+        3.96483,
+        -2.6275
+       ],
+       "up": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "fwd": [
+        -1.0,
+        0.0,
+        -0.0
+       ],
+       "radius": 0.915413,
+       "arc": -180.0
+      },
+      {
+       "kind": "fixed",
+       "p": [
+        0.91556,
+        3.96483,
+        3.41118
+       ]
+      }
+     ]
+    },
+    "file": "tbar_top.glb",
+    "boundsMin": [
+     -0.9313751377063968,
+     -0.39494956605288967,
+     -3.1688595184394086
+    ],
+    "boundsMax": [
+     0.9286702715063968,
+     4.040324243630599,
+     3.552501477802427
+    ]
+   },
+   "mast": {
+    "cable": {
+     "up": [
+      {
+       "kind": "slot",
+       "p": [
+        1.1,
+        5.863,
+        -0.692
+       ],
+       "up": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "min": 0.0,
+       "max": 2.0
+      },
+      {
+       "kind": "fixed",
+       "p": [
+        1.1,
+        5.929,
+        0.0
+       ]
+      },
+      {
+       "kind": "slot",
+       "p": [
+        1.1,
+        5.863,
+        0.692
+       ],
+       "up": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "min": 0.0,
+       "max": 2.0
+      }
+     ],
+     "down": [
+      {
+       "kind": "slot",
+       "p": [
+        -1.1,
+        5.863,
+        0.692
+       ],
+       "up": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "min": 0.0,
+       "max": 2.0
+      },
+      {
+       "kind": "fixed",
+       "p": [
+        -1.1,
+        5.929,
+        0.0
+       ]
+      },
+      {
+       "kind": "slot",
+       "p": [
+        -1.1,
+        5.863,
+        -0.692
+       ],
+       "up": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "min": 0.0,
+       "max": 2.0
+      }
+     ]
+    },
+    "file": "tbar_mast.glb",
+    "boundsMin": [
+     -4.066366413197847,
+     -1.542643621757465,
+     -0.305999565
+    ],
+    "boundsMax": [
+     4.066385039509719,
+     6.7869994,
+     0.294000435
+    ]
+   }
+  },
+  "file": "tbar_base.glb",
+  "boundsMin": [
+   -0.9313751377063968,
+   -0.3949493583262882,
+   -3.1688580184394084
+  ],
+  "boundsMax": [
+   0.9286702715063968,
+   4.040324243630599,
+   3.552500077802427
+  ],
+  "triangles": 0
+ },
+ {
+  "id": "teardrop_rail",
+  "name": "teardrop_rail_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "teardrop_rail.glb",
+  "boundsMin": [
+   -0.04219369089837741,
+   -1.0236330907901632,
+   -5.541228401000739
+  ],
+  "boundsMax": [
+   0.04236543328593498,
+   3.7373992377666916,
+   5.7105075789142505
+  ],
+  "triangles": 612
+ },
+ {
+  "id": "teardrop_tube",
+  "name": "teardrop_tube_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "teardrop_tube.glb",
+  "boundsMin": [
+   -0.33000120179447323,
+   -3.4781543080154407,
+   -3.4804929006381045
+  ],
+  "boundsMax": [
+   0.330001201794473,
+   1.596961239366233,
+   9.228458171633665
+  ],
+  "triangles": 2308
+ },
+ {
+  "id": "teardrop_tube_thick",
+  "name": "teardrop_tube_thick_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "teardrop_tube_thick.glb",
+  "boundsMin": [
+   -0.38000118391307747,
+   -3.528057530840532,
+   -3.530463844484898
+  ],
+  "boundsMax": [
+   0.38000118391307725,
+   1.6468633969734476,
+   9.27842586009327
+  ],
+  "triangles": 2308
+ },
+ {
+  "id": "teardrop_tube_thin",
+  "name": "teardrop_tube_thin_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "black",
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "teardrop_tube_thin.glb",
+  "boundsMin": [
+   -0.1900011862972721,
+   -3.338425270271304,
+   -3.3405743355934194
+  ],
+  "boundsMax": [
+   0.190001186297272,
+   1.457235147501208,
+   9.088548815187206
+  ],
+  "triangles": 2308
+ },
+ {
+  "id": "tree_spruce",
+  "name": "tree_spruce_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "tree_spruce.glb",
+  "boundsMin": [
+   -2.3637498352226167,
+   -0.42999550926513663,
+   -2.1960160691072343
+  ],
+  "boundsMax": [
+   2.3637498352226167,
+   8.970004109265137,
+   2.1960160691072343
+  ],
+  "triangles": 1920
+ },
+ {
+  "id": "tube_long2",
+  "name": "tube_long2_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "tube_long2.glb",
+  "boundsMin": [
+   -10.389000046187583,
+   -1.10900038333786,
+   -0.334000075989904
+  ],
+  "boundsMax": [
+   3.87599984618757,
+   0.3309997022146088,
+   0.33400007598990245
+  ],
+  "triangles": 1440
+ },
+ {
+  "id": "tube_long",
+  "name": "tube_long_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "black",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "tube_long.glb",
+  "boundsMin": [
+   -0.25,
+   -0.25000017345130615,
+   -2.60000056298502
+  ],
+  "boundsMax": [
+   0.25,
+   0.25000017345130615,
+   2.60000056298502
+  ],
+  "triangles": 480
+ },
+ {
+  "id": "tube_long_raised",
+  "name": "tube_long_raised_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "black",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "tube_long_raised.glb",
+  "boundsMin": [
+   -0.5,
+   -1.219999988079071,
+   -7.9000020957461325
+  ],
+  "boundsMax": [
+   0.5,
+   0.5000004905763528,
+   7.9000020957461325
+  ],
+  "triangles": 1440
+ },
+ {
+  "id": "tube",
+  "name": "tube_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "tube.glb",
+  "boundsMin": [
+   -3.8660000461875836,
+   -1.1090000033378602,
+   -0.334000075989904
+  ],
+  "boundsMax": [
+   3.8760000461875697,
+   0.33099996161460876,
+   0.33400007598990245
+  ],
+  "triangles": 1440
+ },
+ {
+  "id": "up_down_box",
+  "name": "up_down_box_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "up_down_box.glb",
+  "boundsMin": [
+   -0.8338179605632554,
+   -1.4732467835635876,
+   -6.403087652489915
+  ],
+  "boundsMax": [
+   0.8338172483320347,
+   2.1156843949815256,
+   6.403087652489915
+  ],
+  "triangles": 24
+ },
+ {
+  "id": "up_down_box_small",
+  "name": "up_down_box_small_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "up_down_box_small.glb",
+  "boundsMin": [
+   -0.5485662720013363,
+   -1.1203057647398487,
+   -6.403087652489915
+  ],
+  "boundsMax": [
+   0.5485658034266065,
+   2.468626058642417,
+   6.403087652489915
+  ],
+  "triangles": 24
+ },
+ {
+  "id": "up_down_box_wide",
+  "name": "up_down_box_wide_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "up_down_box_wide.glb",
+  "boundsMin": [
+   -2.6398093934351574,
+   -1.3913997616150415,
+   -6.403087652489915
+  ],
+  "boundsMax": [
+   2.6398093934351574,
+   2.197531416930072,
+   6.403087652489915
+  ],
+  "triangles": 16
+ },
+ {
+  "id": "up_down_rail",
+  "name": "up_down_rail_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "up_down_rail.glb",
+  "boundsMin": [
+   -3.6159977126867813,
+   -0.9940008961853027,
+   -0.08400007304752634
+  ],
+  "boundsMax": [
+   3.612999312686778,
+   0.7345433387018596,
+   0.08400007304752503
+  ],
+  "triangles": 2880
+ },
+ {
+  "id": "up_down_table_tube",
+  "name": "up_down_table_tube_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "up_down_table_tube.glb",
+  "boundsMin": [
+   -3.68200318152256,
+   -1.1080000023841858,
+   -0.6000000238418579
+  ],
+  "boundsMax": [
+   3.68200318152256,
+   0.5575607806018361,
+   0.6000000238418579
+  ],
+  "triangles": 6768
+ },
+ {
+  "id": "up_down_tube",
+  "name": "up_down_tube_placeholder",
+  "forceUniformScale": false,
+  "parameters": [],
+  "file": "up_down_tube.glb",
+  "boundsMin": [
+   -3.7319977387215735,
+   -1.0799999,
+   -0.20000007070763556
+  ],
+  "boundsMax": [
+   3.741999838721566,
+   0.8414062631599979,
+   0.20000007070763623
+  ],
+  "triangles": 2880
+ },
+ {
+  "id": "up_flat_rail",
+  "name": "up_flat_rail_placeholder",
+  "forceUniformScale": false,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "up_flat_rail.glb",
+  "boundsMin": [
+   -0.1725145327408821,
+   -0.34999981,
+   -10.931992981765235
+  ],
+  "boundsMax": [
+   0.17251453269048642,
+   1.7834413233768416,
+   11.487825270887605
+  ],
+  "triangles": 160
+ },
+ {
+  "id": "wave_rail_3_donkey",
+  "name": "wave_rail_3_donkey_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "wave_rail_3_donkey.glb",
+  "boundsMin": [
+   -0.15000034006223653,
+   -0.7610000226576907,
+   -6.845934263748952
+  ],
+  "boundsMax": [
+   0.1500003400622366,
+   2.1813368140716083,
+   7.1073715179827355
+  ],
+  "triangles": 1484
+ },
+ {
+  "id": "wave_rail_3",
+  "name": "wave_rail_3_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "wave_rail_3.glb",
+  "boundsMin": [
+   -0.1500003477649878,
+   -0.6990000226576908,
+   -6.597694890250828
+  ],
+  "boundsMax": [
+   0.15000034776497398,
+   1.5739794115840646,
+   6.569377217982736
+  ],
+  "triangles": 1546
+ },
+ {
+  "id": "wave_rail_4_donkey",
+  "name": "wave_rail_4_donkey_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "wave_rail_4_donkey.glb",
+  "boundsMin": [
+   -0.1300003247292193,
+   -0.7610000268102733,
+   -7.601182035614785
+  ],
+  "boundsMax": [
+   0.13000032472921935,
+   2.084357668642533,
+   7.58618341872713
+  ],
+  "triangles": 1546
+ },
+ {
+  "id": "wave_rail_4",
+  "name": "wave_rail_4_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "wave_rail_4.glb",
+  "boundsMin": [
+   -0.13000034099593366,
+   -0.6990000273348145,
+   -7.648149704508608
+  ],
+  "boundsMax": [
+   0.13000038830445707,
+   1.5595275514089026,
+   7.624177418727131
+  ],
+  "triangles": 1670
+ },
+ {
+  "id": "wave_rail_5_donkey",
+  "name": "wave_rail_5_donkey_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "wave_rail_5_donkey.glb",
+  "boundsMin": [
+   -0.13000043880829731,
+   -0.7610000173576928,
+   -9.756180535614785
+  ],
+  "boundsMax": [
+   0.13000036088645892,
+   2.090357268642533,
+   10.138185418727131
+  ],
+  "triangles": 2300
+ },
+ {
+  "id": "wave_rail_5",
+  "name": "wave_rail_5_placeholder",
+  "forceUniformScale": true,
+  "parameters": [
+   {
+    "name": "color",
+    "type": "selection",
+    "default": "blue",
+    "options": [
+     "blue",
+     "red",
+     "green",
+     "pink",
+     "cyan",
+     "orange"
+    ]
+   }
+  ],
+  "file": "wave_rail_5.glb",
+  "boundsMin": [
+   -0.1300004058240159,
+   -0.6990000172757297,
+   -10.010149004508607
+  ],
+  "boundsMax": [
+   0.13000047542612847,
+   1.5825282514089025,
+   9.973184418727131
+  ],
+  "triangles": 2362
+ },
+ {
+  "id": "whaletail_rail",
+  "name": "whaletail_rail_placeholder",
+  "forceUniformScale": true,
+  "parameters": [],
+  "file": "whaletail_rail.glb",
+  "boundsMin": [
+   -4.781209741995748,
+   -1.5660000002980161,
+   -0.10799574865276507
+  ],
+  "boundsMax": [
+   4.7730060278154705,
+   0.892887899287966,
+   0.09600226693387703
+  ],
+  "triangles": 1426
+ },
+ {
+  "id": "whaletail_tube",
+  "name": "whaletail_tube_placeholder",
+  "forceUniformScale": true,
+  "parameters": [],
+  "file": "whaletail_tube.glb",
+  "boundsMin": [
+   -5.0104813963768455,
+   -1.5689991628828912,
+   -0.40000022736163426
+  ],
+  "boundsMax": [
+   4.999206013991306,
+   1.2237576133979395,
+   0.40399798150996963
+  ],
+  "triangles": 2262
+ }
+]

@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = ["gamelink"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.test]
+opt-level = 1
+
+[package]
+name = "jibbers-studio"
+description = "Jibbers Map Studio"
+edition.workspace = true
+version.workspace = true
+
+[lib]
+name = "jibbers_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+flate2 = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+gltf = { version = "1", features = ["KHR_texture_transform"] }
+tobj = "4"
+ureq = "2"
+indexmap = { version = "2", features = ["serde"] }
+rayon = "1"
+lz4_flex = { version = "0.11", default-features = false, features = ["safe-decode"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+winreg = "0.55"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Diagnostics_Debug", "Win32_System_Memory", "Win32_System_Threading", "Win32_Security"] }
+discord-rich-presence = "1.1.0"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

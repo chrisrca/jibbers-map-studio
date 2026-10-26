@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "react-hooks", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    "no-unused-expressions": ["error", { "allowShortCircuit": true, "allowTernary": true }],
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+    "react/static-components": "error",
+
+    "react/react-in-jsx-scope": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    "unicorn/no-useless-spread": "off",
+    "react/set-state-in-effect": "off",
+    "react/purity": "off",
+    "react/refs": "off",
+    "react/globals": "off",
+    "react/immutability": "off",
+    "react/hooks": "off",
+    "react/exhaustive-effect-dependencies": "off",
+    "no-unmodified-loop-condition": "off",
+    "no-underscore-dangle": "off",
+    "no-shadow": "off"
+  },
+  "ignorePatterns": ["src/ui/blender/icons.generated.ts"]
+}
