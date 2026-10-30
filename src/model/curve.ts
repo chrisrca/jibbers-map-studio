@@ -43,6 +43,35 @@ export const newCurve = ( points: V3[] ): CurveData => ( {
   profile: "round", radius: 0.025, thickness: 0.006, sides: 16, resolution: 12, caps: true,
 } );
 
+// A curve piece the Add menus make ( Blender's Add › Curve, as the game's jibs ).
+export interface CurvePreset {
+  label:  string;
+  points: V3[];
+  look?:  Partial<CurveData>;
+  // the points that are sharp ( a kink )
+  sharp?: number[];
+  // grinds ( a leg doesn't )
+  jib:    boolean;
+}
+
+export const CURVE_PRESETS: CurvePreset[] = [
+  { label: "Rail",        points: [[-2,   0,   0 ], [2,  0,   0  ]],              jib: true                                                   },
+  { label: "Kinked Rail", points: [[-3,   0.6, 0 ], [-1, 0.6, 0  ], [3, -0.6, 0]], jib: true,  sharp: [1]                                      },
+  { label: "Curved Rail", points: [[-2.5, 0,   -1], [0,  0,   0.6], [2.5, 0, -1]], jib: true                                                   },
+  { label: "Box Rail",    points: [[-2,   0,   0 ], [2,  0,   0  ]],              jib: true,  look: { profile: "square", radius: 0.08 }       },
+  { label: "Flat Bar",    points: [[-2,   0,   0 ], [2,  0,   0  ]],              jib: true,  look: { profile: "flat", radius: 0.04, thickness: 0.004 } },
+  { label: "Pipe Leg",    points: [[0,    0,   0 ], [0,  0.6, 0  ]],              jib: false, look: { radius: 0.03 }                          },
+];
+
+/**
+ * A preset's curve.
+**/
+export function presetCurve( p: CurvePreset ): CurveData {
+  const c = { ...newCurve( p.points ), ...p.look };
+  for ( const i of p.sharp ?? [] ) c.splines[0].points[i].sharp = true;
+  return c;
+}
+
 /**
  * Where a spline goes: points along it ( and the size there ), a corner kept at every sharp point.
 **/

@@ -8,7 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { bootMark } from "../core/ipc";
 import { inAssets } from "../pieces/assetScene";
 import { saveAsset, saveAssetAs } from "../pieces/assetFiles";
-import { unlocked, useEditor, workspaceOf } from "../map/store";
+import { toHide, unlocked, useEditor, workspaceOf } from "../map/store";
 import { terrain } from "../terrain/terrain";
 import { AssetBrowser } from "../ui/panels/AssetBrowser";
 import { GameHeader, GamePanel } from "../ui/GamePanel";
@@ -20,7 +20,7 @@ import { FileDropZones } from "../ui/fileDrop";
 import { TopBar } from "../ui/MenuBar";
 import { Outliner } from "../ui/panels/Outliner";
 import { PropertiesEditor } from "../ui/panels/Properties";
-import { BRUSH_KEYS, ToolHeader, TOOLS, toggleSlope } from "../ui/Toolbar";
+import { BRUSH_KEYS, modeOf, ToolHeader, TOOLS, toggleSlope } from "../ui/Toolbar";
 import type { ToolId } from "../map/store";
 import { copySelection, paste } from "../map/clipboard";
 import { startLagWatch } from "./lagWatch";
@@ -124,6 +124,7 @@ export default function App() {
       else if ( e.ctrlKey && e.key === "Tab" ) { e.preventDefault(); if ( st.projectDir ) st.setCenterTab( st.centerTab === "game" ? "editor" : "game" ); }
       else if ( e.key === "F5" ) { e.preventDefault(); if ( st.projectDir ) playInGame(); }
       else if ( e.altKey  && k === "a" ) { e.preventDefault(); st.setSelection( [] ); }
+      else if ( e.altKey  && k === "h" ) { e.preventDefault(); if ( st.projectDir ) st.setHidden( Object.keys( st.hiddenInView ), false ); }
       // ( Ctrl+A, not A: A is the camera's, with W, S and D )
       else if ( e.ctrlKey && !e.shiftKey && k === "a" ) { if ( st.projectDir && st.tool === "select" ) { e.preventDefault(); selectAll(); } }
       else if ( e.ctrlKey && !e.shiftKey && k === "c" ) { if ( st.projectDir && copySelection() ) e.preventDefault(); }
@@ -134,6 +135,9 @@ export default function App() {
       // tool it lets go of the picked point, ending the run being laid )
       else if ( e.key === "Escape" && workspaceOf( st.tool ) !== "assets" ) { st.setSelection( [] ); if ( st.tool !== "select" && st.tool !== "trail" ) st.setTool( "select" ); }
       else if ( e.key === "Home" ) getEngine()?.nav.frameAll();
+      // Blender's H in Object Mode: the selection hidden in the view ( Shift: everything else ); in Terrain Mode it's
+      // the shapes' key
+      else if ( k === "h" && st.projectDir && modeOf( st.tool ) === "object" ) st.setHidden( toHide( st, e.shiftKey ), true );
       else if ( !e.shiftKey && st.projectDir ) {
         // ( Design's tool keys: in the Assets workspace a key never takes you out of it )
         const tool = workspaceOf( st.tool ) === "assets" ? undefined : TOOLS.find( ( t ) => t.key.toLowerCase() === k );
@@ -291,7 +295,7 @@ function selectAll() {
     ...st.objects.map( ( o ) => ( { kind: "object" as const, uid: o.uid } ) ),
     ...st.spawns.map( ( o ) => ( { kind: "spawn"  as const, uid: o.uid } ) ),
     ...st.customObjects.map( ( o ) => ( { kind: "custom" as const, uid: o.uid } ) ),
-  ] ) );
+  ].filter( ( x ) => !st.hiddenInView[x.uid] ) ) );
 }
 
 type Hint                           = [IconName | string, string];

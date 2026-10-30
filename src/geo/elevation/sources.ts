@@ -6,7 +6,7 @@
 
 import { arcgisPiece, decodePng, mercatorGrid, pool, terrarium, usgs3dep, type DemLevel, type DemSource, type Sampler } from "./dem";
 import { mercator, type LonLat } from "../proj";
-import { fastProjection, httpFetch, openCog, projectBox, readWindow, windowAt, type Window } from "./remote";
+import { fastProjection, httpFetch, openCog, projectBox, readWindow, windowsAt, type Window } from "./remote";
 
 type Box = [number, number, number, number];
 
@@ -66,11 +66,7 @@ async function cogSampler( urls: string[], crs: string, box: Box, spacing: numbe
   const to = fastProjection( crs, box );
   return ( p ) => {
     const [x, y] = to( p );
-    for ( const w of windows ) {
-      const v = windowAt( w, x, y );
-      if ( !Number.isNaN( v ) ) return v;
-    }
-    return NaN;
+    return windowsAt( windows, x, y );
   };
 }
 

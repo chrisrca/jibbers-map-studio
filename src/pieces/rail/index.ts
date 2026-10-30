@@ -55,6 +55,7 @@ export function withRail( o: CustomObjectEntry, rail: Rail ): CustomObjectEntry 
   const r: Rail = {
     points:     rail.points,
     radius:     rail.radius,
+    ...( rail.box ? { box: rail.box } : {} ),
     ...( rail.up ? { up: rail.up } : {} ),
     prevMethod: o.rail?.prevMethod ?? rail.prevMethod ?? o.intended_up_method,
     solid,

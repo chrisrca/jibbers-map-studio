@@ -40,6 +40,8 @@ pub(crate) struct Link {
     pub(crate) status_at: Option<(Instant, i32)>,
     /// the size last asked of the game, and when (Unity only reports a new size a frame or so later)
     pub(crate) asked: Option<((i32, i32), Instant)>,
+    /// what the studio's tests read of the game (while they have the test pad in)
+    pub(crate) probe: Option<probe::Probe>,
 }
 
 impl Link {
@@ -66,6 +68,7 @@ impl Link {
             input_without_focus: false,
             status_at: None,
             asked: None,
+            probe: None,
         }
     }
 
@@ -105,6 +108,11 @@ impl Link {
         }
         self.check_request();
         self.play(a);
+        if jibbers_dir().join("studio-pad.json").exists() {
+            let mut p = self.probe.take().unwrap_or_else(|| probe::Probe::find(a));
+            p.tick(a, self);
+            self.probe = Some(p);
+        }
     }
 
     /// Play pressed again in the studio on this map: reloaded in place, once it's in the map.

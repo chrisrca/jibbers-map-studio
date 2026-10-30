@@ -19,12 +19,10 @@ export class ModelLoopCut {
     if ( m?.kind !== "loopcut" ) return;
     const o = this.ed.obj();
     if ( !o ) return;
-    const was    = this.ed.mode;
-    this.ed.mode = "edge";
-    const k      = this.ed.picking.pick( x, y ) as string | null;
-    this.ed.mode = was;
-    m.edge       = k;
-    m.preview    = [];
+    // ( the nearest edge within reach, as Blender's: the edges needn't be hit exactly )
+    const k   = this.ed.picking.pickEdge( x, y, 60 );
+    m.edge    = k;
+    m.preview = [];
     if ( k ) {
       const g                = o.model.mesh, M = this.ed.matrix( o );
       const { ring, closed } = edgeRing( g, k );

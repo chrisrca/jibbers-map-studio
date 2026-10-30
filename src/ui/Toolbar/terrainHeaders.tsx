@@ -14,7 +14,7 @@ import { Dropdown, NumSlider } from "../widgets/widgets";
 import { showBrushSettings } from "./tools";
 
 /**
- * The terrain view's settings ( Blender's overlay popover ): slope colours, hillshade, contour lines.
+ * The terrain view's settings ( Blender's overlay popover ): slope colours, relief, hillshade, contour lines.
 **/
 export function TerrainViewPanel() {
   const v   = useEditor( ( s ) => s.terrainView );
@@ -30,6 +30,7 @@ export function TerrainViewPanel() {
       <NumSlider label="Bands" value={v.slopeStep} min={0} max={15} step={1} fmt={( x ) => ( x ? deg( x ) : "Smooth" )} onChange={( slopeStep ) => set( { slopeStep } )} />
       <NumSlider label="Opacity" value={v.slopeOpacity} min={0.1} max={1} step={0.05} fmt={( x ) => `${Math.round( x * 100 )}%`} onChange={( slopeOpacity ) => set( { slopeOpacity } )} />
       <div className="pop-sep" />
+      <NumSlider label="Relief" value={v.relief} min={0} max={1} step={0.05} fmt={( x ) => ( x ? `${Math.round( x * 100 )}%` : "Off" )} onChange={( relief ) => set( { relief } )} />
       <NumSlider label="Hillshade" value={v.hillshade} min={0} max={1} step={0.05} fmt={( x ) => ( x ? `${Math.round( x * 100 )}%` : "Off" )} onChange={( hillshade ) => set( { hillshade } )} />
       <NumSlider label="Exaggeration" value={v.exaggeration} min={1} max={8} step={0.25} fmt={( x ) => `${x.toFixed( 2 )}×`} onChange={( exaggeration ) => set( { exaggeration } )} />
       <NumSlider label="Sun Direction" value={v.sunDir} min={0} max={359} step={1} fmt={deg} onChange={( sunDir ) => set( { sunDir } )} />

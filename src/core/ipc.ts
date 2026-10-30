@@ -68,6 +68,53 @@ export interface GameSpin {
   cycles: number;
 }
 
+// The test pad in the game ( src-tauri/gamelink/src/pad.rs ): what's held, the sticks ( -1..1, up and right positive )
+// and triggers ( 0..1 ), and keyboard keys.
+export interface GamePad {
+  connected:   boolean;
+  // Rewired left on its own input source ( the game as players have it )
+  keepSource?: boolean;
+  buttons?:    ( "dpad_up" | "dpad_down" | "dpad_left" | "dpad_right" | "start" | "back" | "left_thumb" | "right_thumb" | "lb" | "rb" | "guide" | "a" | "b" | "x" | "y" )[];
+  lx?:         number;
+  ly?:         number;
+  rx?:         number;
+  ry?:         number;
+  lt?:         number;
+  rt?:         number;
+  // keyboard keys held ( a letter or digit, "escape", "enter", "space", "tab", "backspace", "f5" ), straight into the
+  // game's window
+  keys?:       string[];
+}
+
+// What the link sees of the game while the test pad is in ( gamelink/src/probe.rs ).
+export interface GameProbe {
+  scene:       string;
+  frame:       number;
+  // Unity's Application.isFocused ( the game's camera takes no look input without it ), null when it couldn't ask
+  focused:     boolean | null;
+  // the game's camera turning down look input ( no focus, a menu or the chat open ), null without a camera
+  lookBlocked: boolean | null;
+  // the game's chat open, null when it couldn't tell
+  chatOpen:    boolean | null;
+  // each camera's place, then its turn ( quaternion x y z w ), Unity space
+  cameras:     [number, number, number, number, number, number, number][];
+  drones:      number;
+  // each drone's place and turn, as the cameras'
+  dronePoses:  [number, number, number, number, number, number, number][];
+  // Rewired's Windows input source ( 0 Raw Input, 1 DirectInput, 2 XInput, 3 Windows Gaming Input ), XInput on
+  source:      number;
+  xinput:      boolean;
+  joysticks:   string[];
+  // the game's Raw Input registrations: usage page, usage, flags, the window it goes to ( "game", "none", "other" )
+  rawInput:    [number, number, string, string][];
+  // every Rewired player: its joysticks and their maps
+  players:     string[];
+  // how many times the game has read the test pad, and what it has asked of the link ( pad.rs CALLS )
+  padReads:    number;
+  calls:       number[];
+  ms:          number;
+}
+
 // One item of the asset library ( default library or the user's imports; src-tauri/src/commands/library.rs list_library ).
 export interface LibraryEntry {
   // "app:<file>" ( comes with the studio ), "game:<file>" ( the features with the game's look, built from your
@@ -273,6 +320,11 @@ export const ipc = {
    * closes Jibbers
   **/
   gameClose:      () => invoke<void>( "game_close" ),
+  /**
+   * the test pad in the game ( the link's ) as `pad` says; null takes it out
+  **/
+  gamePad:        ( pad: GamePad | null ) => invoke<void>( "game_pad", { pad } ),
+  gameProbe:      () => invoke<GameProbe | null>( "game_probe" ),
   listGameMaps:   () => invoke<MapListing[]>( "list_game_maps" ),
 };
 

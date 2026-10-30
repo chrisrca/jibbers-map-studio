@@ -505,8 +505,10 @@ export class Engine {
   // ---------------------------------------------------------------- the map's contents
 
   syncObjects() {
-    const s = useEditor.getState();
-    this.objectsR?.sync( s.objects, s.spawns, s.selection );
+    const s    = useEditor.getState();
+    // ( what's hidden in the view isn't drawn: it comes back as it was when shown )
+    const seen = <T extends { uid: string }>( list: T[] ) => ( Object.keys( s.hiddenInView ).length ? list.filter( ( x ) => !s.hiddenInView[x.uid] ) : list );
+    this.objectsR?.sync( seen( s.objects ), seen( s.spawns ), s.selection );
     this.trees.sync();
     if ( !this.blGizmo?.dragging ) this.gizmo.sync();
   }

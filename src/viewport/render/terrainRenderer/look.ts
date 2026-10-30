@@ -46,6 +46,9 @@ export const snowLook = {
   sunHeight: uniform( ( 35  * Math.PI ) / 180 ),
   contours:       uniform( 0   ),
   contourOpacity: uniform( 0.5 ),
+  // the shading by the map's own sun made deeper ( the terrain view's Relief ), and that sun ( three.js space, to it )
+  relief:         uniform( 0   ),
+  sunView:        uniform( new THREE.Vector3( 0.5, 0.6, 0.5 ).normalize() ),
   // paint mode's view of the flow mask: 1 = colour the ground by corduroy direction
   showFlow:       uniform( 0   ),
   // paint mode, Grip: the grip shown ( on chunks without the 4-channel flag ), and the chunks it can't go on

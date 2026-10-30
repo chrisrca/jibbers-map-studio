@@ -1,18 +1,37 @@
 // Cutting: the Knife ( K ), edge loops and rings, Loop Cut ( Ctrl+R ), Subdivide.
 
-import { type Mesh, type V3, add, cloneMesh, dot, edgesOf, ek, ekv, faceCenter, len, lerp3, mul, sub, vertexFaces } from "../mesh";
+import { type Mesh, type V3, add, cloneMesh, cross, dot, edgesOf, ek, ekv, faceCenter, faceNormal, len, lerp3, mul, norm, sub, vertexFaces } from "../mesh";
 import { type OpResult, selFromEdges, selFromFaces, selFromVerts } from "./selection";
 
-// A knife point: an existing corner, or a place on an edge ( between its two corners ).
-export type KnifePoint = { v: number } | { a: number; b: number; p: V3 };
+// A knife point: an existing corner, a place on an edge ( between its two corners ), or a place inside a face.
+export type KnifePoint = { v: number } | { a: number; b: number; p: V3 } | { f: number; p: V3 };
 
 /**
- * Knife: the points put into the mesh ( those on edges become corners of every face along that edge ), then each face
- * cut between one point and the next where both are its corners. The cut's corners come back selected.
+ * Whether a point on a face's plane lies inside it ( seen square to the face ).
+**/
+function insideFace( g: Mesh, f: number[], p: V3 ) {
+  const n    = faceNormal( { ...g, f: [f] }, 0 );
+  const u    = norm( Math.abs( n[1] ) < 0.9 ? cross( [0, 1, 0], n ) : cross( [1, 0, 0], n ) ), w = cross( n, u );
+  const x    = dot( p, u ), y = dot( p, w );
+  let inside = false;
+  for ( let i = 0, j = f.length - 1; i < f.length; j = i++ ) {
+    const xi = dot( g.v[f[i]], u ), yi = dot( g.v[f[i]], w ), xj = dot( g.v[f[j]], u ), yj = dot( g.v[f[j]], w );
+    if ( yi > y !== yj > y && x < ( ( xj - xi ) * ( y - yi ) ) / ( yj - yi ) + xi ) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Knife: the points put into the mesh ( those on edges become corners of every face along that edge, those inside a
+ * face new vertices in it ), then each face cut between one point and the next where both are its corners, or along
+ * the points inside it from one of its corners to another. A cut that ends inside a face is left there as loose edges
+ * ( as Blender leaves it ). The cut's corners come back selected.
 **/
 export function knifeCut( g0: Mesh, pts: KnifePoint[] ): OpResult {
   const g             = cloneMesh( g0 );
   const ids: number[] = [];
+  // the points inside faces ( new vertices no face has yet )
+  const inner         = new Set<number>();
   const onSeg         = ( p: V3, u: V3, w: V3 ) => {
     const d = sub( w, u ), l2 = dot( d, d );
     if ( l2 < 1e-16 ) return false;
@@ -22,6 +41,12 @@ export function knifeCut( g0: Mesh, pts: KnifePoint[] ): OpResult {
   for ( const k of pts ) {
     if ( "v" in k ) {
       ids.push( k.v );
+      continue;
+    }
+    if ( "f" in k ) {
+      const at = g.v.push( [...k.p] as V3 ) - 1;
+      inner.add( at );
+      ids.push( at );
       continue;
     }
     // the place on its edge, or on the part of it left after an earlier point went in
@@ -39,16 +64,8 @@ export function knifeCut( g0: Mesh, pts: KnifePoint[] ): OpResult {
     }
     ids.push( at );
   }
-  for ( let i = 0; i + 1 < ids.length; i++ ) {
-    const p = ids[i], q = ids[i + 1];
-    if ( p === q ) continue;
-    const fi = g.f.findIndex( ( f ) => {
-      const a = f.indexOf( p ), b = f.indexOf( q );
-      if ( a < 0 || b < 0 ) return false;
-      const d = Math.abs( a - b );
-      return d !== 1 && d !== f.length - 1;
-    } );
-    if ( fi < 0 ) continue;
+  // face `fi` cut from corner p to corner q, through `through` ( inside it, in order from p )
+  const split = ( fi: number, p: number, q: number, through: number[] ) => {
     const f             = g.f[fi], a = f.indexOf( p ), b = f.indexOf( q );
     const one: number[] = [], two: number[] = [];
     for ( let j = a; ; j = ( j + 1 ) % f.length ) {
@@ -59,31 +76,64 @@ export function knifeCut( g0: Mesh, pts: KnifePoint[] ): OpResult {
       two.push( f[j] );
       if ( j === a ) break;
     }
-    g.f[fi] = one;
-    g.f.push( two );
+    g.f[fi] = [...one, ...[...through].reverse()];
+    g.f.push( [...two, ...through] );
     g.m.push( g.m[fi] );
     g.s.push( g.s[fi] );
+  };
+  for ( let i = 0; i + 1 < ids.length; i++ ) {
+    const p = ids[i], q = ids[i + 1];
+    if ( p === q ) continue;
+    if ( inner.has( p ) ) {
+      // ( from inside a face, not from one of its corners: left loose )
+      g.w.push( [p, q] );
+      continue;
+    }
+    if ( inner.has( q ) ) {
+      // into a face from its corner p: on through the points inside it to the corner it leaves by
+      let j = i + 1;
+      while ( j < ids.length && inner.has( ids[j] ) ) j++;
+      const through = ids.slice( i + 1, j ), out = ids[j];
+      const fi      = out === undefined || out === p ? -1 : g.f.findIndex( ( f ) => f.includes( p ) && f.includes( out ) && insideFace( g, f, g.v[through[0]] ) );
+      if ( fi < 0 ) {
+        for ( let k = i; k + 1 < Math.min( j + 1, ids.length ); k++ ) g.w.push( [ids[k], ids[k + 1]] );
+      } else split( fi, p, out, through );
+      i = j - 1;
+      continue;
+    }
+    const fi = g.f.findIndex( ( f ) => {
+      const a = f.indexOf( p ), b = f.indexOf( q );
+      if ( a < 0 || b < 0 ) return false;
+      const d = Math.abs( a - b );
+      return d !== 1 && d !== f.length - 1;
+    } );
+    if ( fi >= 0 ) split( fi, p, q, [] );
   }
   return { mesh: g, sel: selFromVerts( g, ids ) };
 }
 
 /**
- * Blender's edge loop through an edge ( Alt+click ): on across vertices with four edges, to the edge opposite.
+ * Blender's edge loop through an edge ( Alt+click ): on across vertices with four edges, to the edge opposite; along
+ * an open border, round the border.
 **/
 export function edgeLoop( g: Mesh, start: string ): string[] {
   const edges   = edgesOf( g );
   const vf      = vertexFaces( g );
   const valence = new Map<number, string[]>();
   for ( const [k, e] of edges ) for ( const v of [e.a, e.b] ) ( valence.get( v ) ?? valence.set( v, [] ).get( v )! ).push( k );
-  const out  = new Set<string>( [start] );
-  const walk = ( k: string, from: number ) => {
+  const out    = new Set<string>( [start] );
+  const border = edges.get( start )?.faces.length === 1;
+  const walk   = ( k: string, from: number ) => {
     let cur = k, v = from;
     for ( let guard = 0; guard < 100000; guard++ ) {
       const es = valence.get( v ) ?? [];
-      if ( es.length !== 4 || vf[v].length !== 4 ) return;
+      // ( along the border: the one other border edge at v )
+      const on = border ? es.filter( ( e ) => e !== cur && edges.get( e )!.faces.length === 1 ) : [];
+      if ( border && on.length !== 1 ) return;
+      if ( !border && ( es.length !== 4 || vf[v].length !== 4 ) ) return;
       // the edge at v sharing no face with this one
       const faces = new Set( edges.get( cur )!.faces );
-      const next  = es.find( ( e ) => e !== cur && !edges.get( e )!.faces.some( ( f ) => faces.has( f ) ) );
+      const next  = border ? on[0] : es.find( ( e ) => e !== cur && !edges.get( e )!.faces.some( ( f ) => faces.has( f ) ) );
       if ( !next || out.has( next ) ) return;
       out.add( next );
       const [a, b] = ekv( next );
@@ -153,6 +203,11 @@ export function edgeRing( g: Mesh, start: string ): { ring: [number, number][]; 
   }
   return { ring, faces, closed };
 }
+
+/**
+ * Blender's face loop ( Alt+click in face select mode ): the quads the edge's ring runs across.
+**/
+export const faceLoop = ( g: Mesh, start: string ): number[] => edgeRing( g, start ).faces;
 
 /**
  * Loop Cut ( Ctrl+R ): `cuts` new edge loops across the ring through `start`, at even steps slid by `slide` ( -1..1 ).

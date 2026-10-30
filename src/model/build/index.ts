@@ -7,7 +7,7 @@ import type { CurveData } from "../curve";
 import type { Mesh, V3 } from "../mesh";
 
 export { joinMeshes, weld, evaluate } from "./modifiers";
-export { triangulateFace, type Built, buildMesh, packBuilt } from "./triangles";
+export { triangulateFace, type Built, boxUv, buildMesh, packBuilt } from "./triangles";
 export { type ModelCollider, modelColliders } from "./colliders";
 
 export type Modifier =

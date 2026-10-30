@@ -6,7 +6,7 @@ import { DesignHeader, PaintHeader, ScatterHeader, SelectHeader } from "./modeHe
 import { BrushHeader, ShapeHeader, TrailHeader } from "./terrainHeaders";
 import { TexturePaintSettings } from "./texturePaint";
 
-export { TOOLS, BRUSH_KEYS, showBrushSettings, PAINT_TOOLS, BLENDS } from "./tools";
+export { TOOLS, BRUSH_KEYS, showBrushSettings, PAINT_TOOLS, BLENDS, modeOf } from "./tools";
 export { ToolColumn, toggleGrindLines, toggleSlope } from "./ToolColumn";
 export { TexturePaintSettings } from "./texturePaint";
 

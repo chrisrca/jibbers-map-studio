@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { copySelection, hasClipboard, paste } from "../../map/clipboard";
 import { realTerrainOf } from "../../map/project";
-import { unlocked, useEditor } from "../../map/store";
+import { toHide, unlocked, useEditor } from "../../map/store";
+import { CURVE_PRESETS } from "../../model/curve";
 import type { PaintTool } from "../../paint/settings";
 import { mirrorTerrain } from "../../terrain/ops";
 import { HB } from "../blender/AssetsUI";
@@ -24,7 +25,19 @@ function selectAllItems() {
     ...st.objects.map( ( o ) => ( { kind: "object" as const, uid: o.uid } ) ),
     ...st.spawns.map( ( o ) => ( { kind: "spawn" as const, uid: o.uid } ) ),
     ...st.customObjects.map( ( o ) => ( { kind: "custom" as const, uid: o.uid } ) ),
-  ] ) );
+  ].filter( ( x ) => !st.hiddenInView[x.uid] ) ) );
+}
+
+/**
+ * Blender's Object › Show/Hide.
+**/
+export function showHideItems(): MenuItem[] {
+  const st = useEditor.getState();
+  return [
+    { label: "Show Hidden Objects", bl: "hide_off", keys: "Alt H",   disabled: !Object.keys( st.hiddenInView ).length, run: () => st.setHidden( Object.keys( st.hiddenInView ), false ) },
+    { label: "Hide Selected",       bl: "hide_on",  keys: "H",       disabled: !st.selection.length,                   run: () => st.setHidden( toHide( st ), true ) },
+    { label: "Hide Unselected",     bl: "hide_on",  keys: "Shift H", run:      () => st.setHidden( toHide( st, true ), true ) },
+  ];
 }
 
 const SELECT_MENU = (): MenuItem[] => [
@@ -35,6 +48,7 @@ const SELECT_MENU = (): MenuItem[] => [
 const ADD_MENU = (): MenuItem[] => [
   { label: "Spawn",         icon: "spawn", keys: "N", run: () => useEditor.getState().setTool( "spawn" ) },
   { label: "Library Piece", icon: "place", keys: "P", run: () => useEditor.getState().setTool( "place" ) },
+  { label: "Rail",          icon: "rail",  sub:  CURVE_PRESETS.filter( ( p ) => p.jib ).map( ( p ) => ( { label: p.label, icon: "rail" as const, run: () => void getEngine()?.menus.addCurveInView( p ) } ) ) },
   { sep:   true,             label: "" },
   { label: "Ramp",           icon:  "shapeCurve", keys: "H", run: () => useEditor.setState( { tool: "shape", shapeKind: "curve" } ) },
   { label: "Copy Terrain",   icon:  "shapeCopy", run: () => useEditor.setState( { tool: "shape", shapeKind: "stamp" } ) },
@@ -107,6 +121,8 @@ export function DesignHeader() {
     { label: "Copy",      bl: "copydown",  keys: "Ctrl C",  run:      () => void copySelection() },
     { label: "Paste",     bl: "pastedown", keys: "Ctrl V",  disabled: !hasClipboard(), run: () => void paste() },
     { label: "Duplicate", bl: "duplicate", keys: "Shift D", run:      () => useEditor.getState().duplicateSelected() },
+    { sep:   true,     label: "" },
+    { label: "Show/Hide", sub: showHideItems() },
     { sep:   true,     label: "" },
     { label: "Delete", bl:    "trash", keys: "X", run: () => useEditor.getState().removeSelected() },
   ];

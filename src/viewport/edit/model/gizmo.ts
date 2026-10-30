@@ -56,8 +56,9 @@ export class ModelGizmo {
   /**
    * What a gizmo drag snaps onto under the mouse: a vertex ( not a moving one ) or a surface ( not this piece ).
   **/
-  snapTarget( x: number, y: number, to: "vertex" | "surface" ) {
+  snapTarget( x: number, y: number, to: "vertex" | "edge" | "surface" ) {
     if ( to === "vertex" ) return this.ed.ops.vertexUnder( x, y, new Set( this.from?.verts ?? this.ed.sel.v ) );
+    if ( to === "edge"   ) return this.ed.ops.edgePointUnder( x, y, new Set( this.from?.verts ?? this.ed.sel.v ) );
     return this.ed.view.surfaceAt?.( x, y, this.ed.uid ?? "" ) ?? null;
   }
 

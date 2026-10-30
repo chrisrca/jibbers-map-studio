@@ -3,10 +3,15 @@
 import { useEffect, useState } from "react";
 import type { CustomObjectEntry } from "../../../core/types";
 import { useEditor } from "../../../map/store";
+import type { Profile } from "../../../model/curve";
+import { withModel } from "../../../model/objects";
 import { partsFor } from "../../../pieces/library";
 import { autoRail, isRailCollider, PART_MARK, straightRail, withRail } from "../../../pieces/rail";
 import { getEngine } from "../../Viewport";
 import { NumberField } from "../../widgets/controls";
+
+// A curve rail's tube: a round rail, a box rail, a flat bar.
+const PROFILES: [Profile, string][] = [["round", "Round"], ["square", "Box"], ["flat", "Flat"]];
 
 /**
  * How many colliders a railed piece's visible parts have ( pieces/rail.ts fitParts ).
@@ -38,6 +43,40 @@ export function RailEditor( { o, set, commit }: { o: CustomObjectEntry; set: ( f
         <div>{resetButton}</div>
       </>
     );
+  // a curve piece's rail is its curve: its own points, its tube's size and shape
+  const curve = o.model?.curve;
+  const edit  = (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <button className={`btn ${editing ? "on" : ""}`} onClick={() => useEditor.setState( { railEdit: editing ? null : { uid: o.uid, point: null } } )}>
+        {editing ? "Done" : "Edit points"}
+      </button>
+      {editing && <button className="btn" onClick={() => getEngine()?.rails.addPoint()}>Add point</button>}
+      {editing && <button className="btn" disabled={editing.point === null} onClick={() => getEngine()?.rails.deletePoint()}>Delete point</button>}
+      {!curve && resetButton}
+    </div>
+  );
+  if ( curve && o.model ) {
+    const model    = o.model;
+    const setCurve = ( p: Partial<typeof curve> ) => set( ( x ) => ( x.model?.curve ? withModel( x, { ...x.model, curve: { ...x.model.curve, ...p } } ) : x ) );
+    return (
+      <>
+        <label>Rail</label>
+        <span style={{ alignSelf: "center", color: "var(--muted)" }}>{`${curve.splines[0]?.points.length ?? 0} points · ${o.colliders.filter( isRailCollider ).length} segments`}</span>
+        <label>Thickness</label>
+        <NumberField value={curve.radius * 200} unit="cm" step={0.5} min={0.5} digits={1} onChange={( v ) => setCurve( { radius: Math.max( 0.0025, v / 200 ) } )} onCommit={commit} />
+        <label>Shape</label>
+        <div className="seg">
+          { PROFILES.map( ( [id, label] ) => (
+            <button key={id} className={curve.profile === id ? "on" : ""} onClick={() => { setCurve( { profile: id, ...( id === "flat" && model.curve!.profile !== "flat" ? { thickness: Math.min( model.curve!.radius, 0.006 ) } : {} ) } ); commit(); }}>
+              {label}
+            </button>
+          ) ) }
+        </div>
+        <label />
+        {edit}
+      </>
+    );
+  }
   return (
     <>
       <label>Rail</label>
@@ -51,9 +90,33 @@ export function RailEditor( { o, set, commit }: { o: CustomObjectEntry; set: ( f
         step={0.5}
         min={1}
         digits={1}
-        onChange={( v ) => set( ( x ) => ( x.rail ? withRail( x, { ...x.rail, radius: Math.max( 0.005, v / 200 ) } ) : x ) )}
+        onChange={( v ) => set( ( x ) => {
+          if ( !x.rail ) return x;
+          const radius = Math.max( 0.005, v / 200 );
+          return withRail( x, { ...x.rail, radius, ...( x.rail.box ? { box: [radius, radius] as [number, number] } : {} ) } );
+        } )}
         onCommit={commit}
       />
+      <label>Collider</label>
+      <div className="seg">
+        { ( [["round", "Round", "Capsules"], ["box", "Box", "Boxes"]] as const ).map( ( [id, label, tip] ) => (
+          <button
+            key={id}
+            title={tip}
+            className={( id === "box" ) === !!o.rail!.box ? "on" : ""}
+            onClick={() => {
+              set( ( x ) => {
+                if ( !x.rail ) return x;
+                const { box: _b, ...line } = x.rail;
+                return withRail( x, id === "box" ? { ...line, box: [x.rail.radius, x.rail.radius] } : line );
+              } );
+              commit();
+            }}
+          >
+            {label}
+          </button>
+        ) ) }
+      </div>
       <label />
       <label
         style={{ color: "var(--text)" }}
@@ -77,14 +140,7 @@ export function RailEditor( { o, set, commit }: { o: CustomObjectEntry; set: ( f
         ) }
       </label>
       <label />
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <button className={`btn ${editing ? "on" : ""}`} onClick={() => useEditor.setState( { railEdit: editing ? null : { uid: o.uid, point: null } } )}>
-          {editing ? "Done" : "Edit points"}
-        </button>
-        {editing && <button className="btn" onClick={() => getEngine()?.rails.addPoint()}>Add point</button>}
-        {editing && <button className="btn" disabled={editing.point === null} onClick={() => getEngine()?.rails.deletePoint()}>Delete point</button>}
-        {resetButton}
-      </div>
+      {edit}
     </>
   );
 }

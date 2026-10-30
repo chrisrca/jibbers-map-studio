@@ -151,6 +151,11 @@ export class ViewportKeys {
       this.engine.menus.addMenu();
       return true;
     }
+    // Shift+S: the Snap menu ( Edit Mode has its own )
+    if ( k === "s" && e.shiftKey && !e.ctrlKey && !this.engine.editing && !this.engine.blGizmo.dragging ) {
+      this.engine.menus.snapMenu();
+      return true;
+    }
     // a G / R / S drag under way: X / Y / Z ( Shift: the other two ) hold it to an axis or plane, Esc lets go, Enter keeps
     if ( this.engine.blGizmo.dragging ) {
       if ( k === "escape" ) this.engine.blGizmo.cancel();

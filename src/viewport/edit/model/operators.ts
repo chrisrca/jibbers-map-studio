@@ -23,7 +23,7 @@ export class ModelOperators {
     if ( !o || !this.ed.sel.v.size ) return;
     this.ed.modal = {
       kind: "transform", op, o0: o0 ?? o, verts: [...this.ed.sel.v], pivot: useEditor.getState().modelTools.pivot === "cursor" ? toThree( useEditor.getState().cursor3d ) : this.ed.gizmo.pivotOf( o, this.ed.sel.v ), x0: this.ed.mouse.x, y0: this.ed.mouse.y,
-      axis: null,        local: false, dir: dir ?? null, typed: "", label: label ?? { g: "Move", r: "Rotate", s: "Scale" }[op], pre,
+      axis: null,        local: false, dir: dir ?? null, typed: "", label: label ?? { g: "Move", r: "Rotate", s: "Scale" }[op], pre, plane: false,
       vx:         this.ed.mouse.x, vy: this.ed.mouse.y, lx: this.ed.mouse.x, ly: this.ed.mouse.y,
       propRadius: useEditor.getState().modelTools.propRadius,
     };
@@ -127,7 +127,13 @@ export class ModelOperators {
     let applyAt: ( w: THREE.Vector3, pivot: THREE.Vector3 ) => THREE.Vector3;
     if ( m.op === "g" ) {
       let delta: THREE.Vector3;
-      if ( dir ) {
+      if ( dir && m.plane ) {
+        // on the plane square to the axis, through the pivot
+        const plane = new THREE.Plane().setFromNormalAndCoplanarPoint( dir, m.pivot );
+        const a     = this.ed.view.ray( m.x0, m.y0 ).ray.intersectPlane( plane, new THREE.Vector3() ), b = this.ed.view.ray( mx, my ).ray.intersectPlane( plane, new THREE.Vector3() );
+        delta       = a && b ? b.sub( a ) : new THREE.Vector3();
+        if ( snapping && tools.snapTo === "increment" ) delta.set( Math.round( delta.x / step ) * step, Math.round( delta.y / step ) * step, Math.round( delta.z / step ) * step ).addScaledVector( dir, -delta.dot( dir ) );
+      } else if ( dir ) {
         let t = this.alongLine( mx, my, m.pivot, dir ) - this.alongLine( m.x0, m.y0, m.pivot, dir );
         if ( snapping && tools.snapTo === "increment" ) t = Math.round( t / step ) * step;
         if ( !Number.isNaN( typed ) ) t = typed;
@@ -143,7 +149,9 @@ export class ModelOperators {
       }
       // onto a vertex or a surface: the selected vertex nearest it lands there
       if ( snapping && tools.snapTo !== "increment" && Number.isNaN( typed ) ) {
-        const target = tools.snapTo === "vertex" ? this.vertexUnder( this.ed.mouse.x, this.ed.mouse.y, new Set( m.verts ) ) : this.ed.view.surfaceAt?.( this.ed.mouse.x, this.ed.mouse.y, o.uid ) ?? null;
+        const target = tools.snapTo === "vertex" ? this.vertexUnder( this.ed.mouse.x, this.ed.mouse.y, new Set( m.verts ) )
+          : tools.snapTo === "edge" ? this.edgePointUnder( this.ed.mouse.x, this.ed.mouse.y, new Set( m.verts ) )
+          : this.ed.view.surfaceAt?.( this.ed.mouse.x, this.ed.mouse.y, o.uid ) ?? null;
         if ( target ) {
           let src = start.get( m.verts[0] )!, bd = Infinity;
           for ( const P of start.values() ) {
@@ -151,7 +159,7 @@ export class ModelOperators {
             if ( d2 < bd ) { bd = d2; src = P; }
           }
           delta = target.clone().sub( src );
-          if ( dir ) delta = dir.clone().multiplyScalar( delta.dot( dir ) );
+          if ( dir ) delta = m.plane ? delta.addScaledVector( dir, -delta.dot( dir ) ) : dir.clone().multiplyScalar( delta.dot( dir ) );
           status = `snapped to ${tools.snapTo}  `;
         }
       }
@@ -176,7 +184,13 @@ export class ModelOperators {
       let sc   = Math.hypot( mx - px, my - py ) / d0;
       if ( snapping ) sc = Math.round( sc / ( e.shiftKey ? 0.01 : 0.1 ) ) * ( e.shiftKey ? 0.01 : 0.1 );
       if ( !Number.isNaN( typed ) ) sc = typed;
-      applyAt = dir
+      applyAt = dir && m.plane
+        ? ( w, pv ) => {
+          // the two axes square to it scaled, along it kept
+          const d = w.clone().sub( pv ), n = d.dot( dir );
+          return pv.clone().addScaledVector( dir, n ).add( d.addScaledVector( dir, -n ).multiplyScalar( sc ) );
+        }
+        : dir
         ? ( w, pv ) => w.add( dir.clone().multiplyScalar( w.clone().sub( pv ).dot( dir ) * ( sc - 1 ) ) )
         : ( w, pv ) => w.sub( pv ).multiplyScalar( sc ).add( pv );
       status = `Scale: ${sc.toFixed( 4 )}`;
@@ -201,7 +215,7 @@ export class ModelOperators {
       status += `  proportional ${R.toFixed( 2 )} m (scroll)`;
     }
     // ( Blender's letter for the game's axis )
-    const ax           = m.axis === null ? ( m.dir ? " along normal" : "" ) : ` along ${m.local ? "local" : "global"} ${"XZY"[m.axis]}`;
+    const ax           = m.axis === null ? ( m.dir ? " along normal" : "" ) : m.plane ? ` on ${m.local ? "local" : "global"} ${[..."XYZ"].filter( ( l ) => l !== "XZY"[m.axis!] ).join( "" )}` : ` along ${m.local ? "local" : "global"} ${"XZY"[m.axis]}`;
     this.ed.statusText = `${m.label}: ${status}${ax}${m.typed ? `  [${m.typed}]` : ""}`;
     this.ed.setMesh( g, null );
   }
@@ -226,27 +240,70 @@ export class ModelOperators {
   }
 
   /**
-   * Spin: the selection swept round an axis through the piece's origin ( Y unless X or Z is pressed ); the mouse
-   * sideways takes from a whole turn ( Ctrl: 15° steps ), the wheel or + / − sets the steps, a typed angle is used as is.
+   * The nearest place on an edge to a point on the screen ( of a modelled piece; on this one, an edge with no vertex
+   * that's moving ): where the edge passes closest to the mouse's ray.
+  **/
+  edgePointUnder( x: number, y: number, skip: Set<number> ): THREE.Vector3 | null {
+    const st                       = useEditor.getState(), ray = this.ed.view.ray( x, y ).ray;
+    let best: THREE.Vector3 | null = null, bd = 20;
+    for ( const o of st.customObjects ) {
+      if ( !o.model ) continue;
+      const M = this.ed.matrix( o ), mine = o.uid === this.ed.uid, g = o.model.mesh;
+      for ( const e of edgesOf( g ).values() ) {
+        if ( mine && ( skip.has( e.a ) || skip.has( e.b ) ) ) continue;
+        const a        = toThree( g.v[e.a] ).applyMatrix4( M ), b = toThree( g.v[e.b] ).applyMatrix4( M );
+        const [ax, ay] = this.ed.picking.screen( a ), [bx, by] = this.ed.picking.screen( b );
+        const dx       = bx - ax, dy = by - ay, t = Math.max( 0, Math.min( 1, ( ( x - ax ) * dx + ( y - ay ) * dy ) / ( dx * dx + dy * dy || 1 ) ) );
+        const d        = Math.hypot( ax + dx * t - x, ay + dy * t - y );
+        if ( d >= bd ) continue;
+        const on = new THREE.Vector3();
+        ray.distanceSqToSegment( a, b, undefined, on );
+        const [, , z] = this.ed.picking.screen( on );
+        if ( z > 1 ) continue;
+        bd   = d;
+        best = on;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Spin ( Blender's ): the selection swept round the 3D cursor, about Blender's Z unless X or Y is pressed, as far as
+   * the mouse goes round it on the screen ( from nothing; on past a half turn, up to a whole one; Ctrl: 15° steps ); the
+   * wheel or + / − sets the steps, a typed angle is used as is.
   **/
   startSpin() {
     const o = this.ed.obj();
     if ( !o || !this.ed.sel.v.size ) return;
-    this.ed.modal = { kind: "spin", o0: o, mesh0: o.model.mesh, sel0: this.ed.sel, axis: 1, steps: 12, x0: this.ed.mouse.x, typed: "" };
+    const centre   = this.ed.toPiece( toThree( useEditor.getState().cursor3d ) );
+    const [cx, cy] = this.ed.picking.screen( this.ed.world( o, centre ) );
+    const last     = Math.atan2( this.ed.mouse.y - cy, this.ed.mouse.x - cx );
+    this.ed.modal  = { kind: "spin", o0: o, mesh0: o.model.mesh, sel0: this.ed.sel, axis: 1, steps: 12, typed: "", centre, turned: 0, last };
     this.runSpin( {} as PointerEvent );
   }
 
   runSpin( e: { ctrlKey?: boolean } ) {
     const m = this.ed.modal;
     if ( m?.kind !== "spin" ) return;
-    let deg = Math.max( -360, Math.min( 360, 360 - ( m.x0 - this.ed.mouse.x ) * 0.5 ) );
+    // the mouse's turn round the centre on the screen since last time, added up ( so it goes on past a half turn )
+    const [cx, cy] = this.ed.picking.screen( this.ed.world( m.o0, m.centre ) );
+    const now      = Math.atan2( this.ed.mouse.y - cy, this.ed.mouse.x - cx );
+    let step       = now - m.last;
+    if ( step > Math.PI ) step -= Math.PI * 2;
+    if ( step < -Math.PI ) step += Math.PI * 2;
+    m.turned = Math.max( -360, Math.min( 360, m.turned + THREE.MathUtils.radToDeg( step ) ) );
+    m.last   = now;
+    // ( the angle counter-clockwise seen from the axis' tip, as Blender's: turning the way the mouse goes round, seen
+    // from the camera; the piece's own coordinates turn the other way )
+    const axis: V3 = [0, 0, 0];
+    axis[m.axis]   = 1;
+    const facing   = toThree( axis ).transformDirection( this.ed.matrix( m.o0 ) ).dot( this.ed.view.camera.getWorldDirection( new THREE.Vector3() ) ) > 0;
+    let deg        = facing ? m.turned : -m.turned;
     if ( e.ctrlKey ) deg = Math.round( deg / 15 ) * 15;
     if ( m.typed   && !Number.isNaN( parseFloat( m.typed ) ) ) deg = parseFloat( m.typed );
-    const axis: V3     = [0, 0, 0];
-    axis[m.axis]       = 1;
-    const r            = Math.abs( deg ) < 1e-6 ? { mesh: m.mesh0, sel: m.sel0 } : spin( m.mesh0, m.sel0, [0, 0, 0], axis, ( deg * Math.PI ) / 180, m.steps );
+    const r            = Math.abs( deg ) < 1e-6 ? { mesh: m.mesh0, sel: m.sel0 } : spin( m.mesh0, m.sel0, m.centre, axis, ( -deg * Math.PI ) / 180, m.steps );
     this.ed.sel        = r.sel;
-    this.ed.statusText = `Spin: ${Math.round( deg * 10 ) / 10}° · ${m.steps} steps (scroll) · axis ${"XYZ"[m.axis]}${m.typed ? `  [${m.typed}]` : ""}`;
+    this.ed.statusText = `Spin: ${Math.round( deg * 10 ) / 10}° · ${m.steps} steps (scroll) · axis ${"XZY"[m.axis]} through the 3D cursor${m.typed ? `  [${m.typed}]` : ""}`;
     this.ed.setMesh( r.mesh, null );
   }
 
@@ -279,6 +336,36 @@ export class ModelOperators {
     this.ed.sel = r.sel;
     this.ed.setMesh( r.mesh, null );
     this.startTransform( "g", "Extrude", o, undefined, r.mesh );
+  }
+
+  /**
+   * Shift+E: Edge Crease ( Blender's ) — how sharp Subdivision Surface keeps the selected edges: the mouse away from
+   * the selection's middle creases them more, back in less ( Ctrl: tenths ); a typed amount ( 0..1 ) is used as is.
+  **/
+  startCrease() {
+    const o = this.ed.obj();
+    if ( !o || !this.ed.sel.e.size ) return;
+    this.ed.modal = { kind: "crease", o0: o, mesh0: o.model.mesh, edges: [...this.ed.sel.e], pivot: this.ed.gizmo.pivotOf( o, this.ed.sel.v ), x0: this.ed.mouse.x, y0: this.ed.mouse.y, typed: "" };
+    this.runCrease( {} );
+  }
+
+  runCrease( e: { ctrlKey?: boolean } ) {
+    const m = this.ed.modal;
+    if ( m?.kind !== "crease" ) return;
+    const [px, py] = this.ed.picking.screen( m.pivot );
+    const d0       = Math.hypot( m.x0 - px, m.y0 - py ), d = Math.hypot( this.ed.mouse.x - px, this.ed.mouse.y - py );
+    let by         = Math.max( -1, Math.min( 1, ( d - d0 ) / Math.max( 50, d0 ) ) );
+    if ( e.ctrlKey ) by = Math.round( by * 10 ) / 10;
+    const typed = m.typed && !Number.isNaN( parseFloat( m.typed ) ) ? Math.max( 0, Math.min( 1, parseFloat( m.typed ) ) ) : null;
+    const c     = { ...m.mesh0.c };
+    for ( const k of m.edges ) {
+      const w = typed ?? Math.max( 0, Math.min( 1, ( m.mesh0.c?.[k] ?? 0 ) + by ) );
+      if ( w > 0 ) c[k] = w;
+      else delete c[k];
+    }
+    const { c: _c, ...plain } = m.mesh0;
+    this.ed.statusText        = `Edge Crease: ${( typed ?? by ).toFixed( 3 )}${m.typed ? `  [${m.typed}]` : ""}`;
+    this.ed.setMesh( Object.keys( c ).length ? { ...plain, c } : plain, null );
   }
 
   startInset() {

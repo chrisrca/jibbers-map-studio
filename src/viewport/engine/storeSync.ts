@@ -14,7 +14,7 @@ export class StoreSync {
   **/
   onChange( s: EditorState, prev: EditorState ) {
     redraw();
-    if ( s.objects       !== prev.objects       || s.spawns !== prev.spawns || s.selection !== prev.selection || s.chunkExtras !== prev.chunkExtras ) this.engine.syncObjects();
+    if ( s.objects       !== prev.objects       || s.spawns !== prev.spawns || s.selection !== prev.selection || s.chunkExtras !== prev.chunkExtras || s.hiddenInView !== prev.hiddenInView ) this.engine.syncObjects();
     if ( s.chunkExtras   !== prev.chunkExtras   ) this.engine.syncRepeats();
     if ( s.objects       !== prev.objects       || s.customObjects !== prev.customObjects ) this.engine.lights.sync();
     if ( s.map           !== prev.map           || s.tool !== prev.tool ) this.engine.daylight.applyTime();
@@ -46,11 +46,9 @@ export class StoreSync {
     if ( s.tool          !== prev.tool          ) this.engine.look.syncStage( s );
     // ( the Assets workspace navigates as Blender does )
     this.engine.controls.blender = workspaceOf( s.tool ) === "assets";
-    // the Outliner's eye: hidden in the Assets workspace's view
-    if ( s.hiddenInView !== prev.hiddenInView || s.tool !== prev.tool || s.customObjects !== prev.customObjects ) {
-      const on = workspaceOf( s.tool ) === "assets";
-      this.engine.customR.showOnly( on && Object.keys( s.hiddenInView ).length ? new Set( s.customObjects.filter( ( o ) => !s.hiddenInView[o.uid] ).map( ( o ) => o.uid ) ) : null );
-    }
+    // the Outliner's eye ( H ): hidden in the view ( each workspace's scene has its own )
+    if ( s.hiddenInView !== prev.hiddenInView || s.customObjects !== prev.customObjects )
+      this.engine.customR.showOnly( Object.keys( s.hiddenInView ).length ? new Set( s.customObjects.filter( ( o ) => !s.hiddenInView[o.uid] ).map( ( o ) => o.uid ) ) : null );
     if ( s.view3d      !== prev.view3d      || s.materialMode !== prev.materialMode ) this.engine.look.apply();
     if ( s.terrainView !== prev.terrainView ) this.engine.ground.applyTerrainView();
     if ( s.shapes      !== prev.shapes      || s.selection !== prev.selection || s.tool !== prev.tool || s.locked !== prev.locked ) this.engine.shapeTool?.sync();

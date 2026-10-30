@@ -10,6 +10,7 @@ import { fillSampler } from "./elevation/sources";
 import { fetchTrails, TRAIL_HUES, TRAIL_WIDTH, type Trail, type TrailKind } from "./skimap/osm";
 import { skiMap } from "./skimap/skimap";
 import { LocalProjection, type LonLat } from "./proj";
+import { mapIdFrom } from "../map/mapId";
 import { spreadHue } from "../paint/ground";
 import { buildScenery } from "./scenery/scenery";
 
@@ -269,7 +270,8 @@ export async function importMountain( o: ImportOptions ): Promise<ImportResult> 
     format:  "jibbers-studio-project",
     version: 1,
     map: {
-      id:                       crypto.randomUUID(),
+      // ( its file name in the game, from its name: "Ruka" -> "ruka" )
+      id:                       mapIdFrom( o.name ) || crypto.randomUUID(),
       name:                     o.name,
       camStart:                 [start.x - fwd[0] * 40, start.y + 30, start.z - fwd[1] * 40],
       // the game's background mountains sit at fixed places that have nothing to do with a real map

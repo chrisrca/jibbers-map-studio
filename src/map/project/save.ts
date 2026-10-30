@@ -42,6 +42,7 @@ export function currentProject(): Project | null {
       membership:  Object.fromEntries( Object.entries( s.membership ).filter( ( [uid] ) => alive.has( uid ) ) ),
       labels:      Object.fromEntries( Object.entries( s.labels ).filter( ( [uid] ) => alive.has( uid ) ) ),
       locked:      Object.keys( s.locked ).filter( ( uid ) => alive.has( uid ) ),
+      hidden:      Object.keys( s.hiddenInView ).filter( ( uid ) => alive.has( uid ) ),
       customUids:  s.customObjects.map( ( o ) => o.uid ),
       exported:    meta.exported,
       sourceMapId: meta.sourceMapId,

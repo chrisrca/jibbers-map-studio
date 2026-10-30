@@ -1,6 +1,6 @@
 // A model's mesh as the view and the game draw it: faces into triangles, smooth or flat by its angle.
 
-import { type Mesh, type V3, add, cross, dot, faceNormal, len, norm, sub, vertexFaces } from "../mesh";
+import { type Mesh, type V3, add, cross, dot, faceNormal, faceUvs, len, norm, sub, vertexFaces } from "../mesh";
 import type { Atlas } from "../uv";
 import type { ModelData } from "./index";
 import { evaluate } from "./modifiers";
@@ -54,6 +54,15 @@ export interface Built {
 }
 
 /**
+ * A corner's UV by the box projection ( metres, so a material's texture keeps its size ): along the face's most
+ * upright axis.
+**/
+export function boxUv( p: V3, n: V3 ): [number, number] {
+  const ax = Math.abs( n[0] ) > Math.abs( n[1] ) && Math.abs( n[0] ) > Math.abs( n[2] ) ? 0 : Math.abs( n[1] ) > Math.abs( n[2] ) ? 1 : 2;
+  return ax === 0 ? [p[2] * Math.sign( n[0] || 1 ), p[1]] : ax === 1 ? [p[0], p[2] * Math.sign( n[1] || 1 )] : [-p[0] * Math.sign( n[2] || 1 ), p[1]];
+}
+
+/**
  * The evaluated mesh as triangles with normals and UVs, one submesh per material slot ( UVs from the paint layout
  * `atlasOf` gives for it, if it gives one, else a box projection ).
 **/
@@ -70,9 +79,9 @@ export function buildMesh( model: ModelData, atlasOf?: ( g: Mesh ) => Atlas | nu
   g.f.forEach( ( f, fi ) => {
     const n = fn[fi];
     if ( len( n ) < 0.5 ) return;
-    // the box projection's axis: the face's most upright
-    const ax     = Math.abs( n[0] ) > Math.abs( n[1] ) && Math.abs( n[0] ) > Math.abs( n[2] ) ? 0 : Math.abs( n[1] ) > Math.abs( n[2] ) ? 1 : 2;
     const f0     = g.f[fi];
+    // its own UVs ( unwrapped, or laid out in the UV Editor ), else the box projection
+    const own    = faceUvs( g, fi );
     const corner = ( v: number ) => {
       let vn = n;
       if ( g.s[fi] ) {
@@ -82,8 +91,8 @@ export function buildMesh( model: ModelData, atlasOf?: ( g: Mesh ) => Atlas | nu
       }
       const p        = g.v[v];
       const c        = atlas ? ( atlas.start[fi] + f0.indexOf( v ) ) * 2 : 0;
-      const [u0, v0] = atlas ? [atlas.uv[c], atlas.uv[c + 1]]
-        : ax === 0 ? [p[2] * Math.sign( n[0] || 1 ), p[1]] : ax === 1 ? [p[0], p[2] * Math.sign( n[1] || 1 )] : [-p[0] * Math.sign( n[2] || 1 ), p[1]];
+      const k        = own ? f0.indexOf( v ) * 2 : 0;
+      const [u0, v0] = atlas ? [atlas.uv[c], atlas.uv[c + 1]] : own ? [own[k], own[k + 1]] : boxUv( p, n );
       const key      = `${v}|${vn.map( ( x ) => Math.round( x * 1000 ) ).join( "," )}|${Math.round( u0 * 100000 )},${Math.round( v0 * 100000 )}`;
       let id         = ids.get( key );
       if ( id === undefined ) {

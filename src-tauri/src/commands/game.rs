@@ -139,6 +139,31 @@ pub fn link_health(since_ms: u64) -> Option<String> {
     game::link_health(since_ms)
 }
 
+/// The test pad (the link's: gamelink/src/pad.rs) set as `pad` says ({"connected", "buttons", "lx", "ly", "rx", "ry",
+/// "lt", "rt"}); null takes it out, real controllers back.
+#[tauri::command]
+pub fn game_pad(pad: Option<serde_json::Value>) -> CmdResult<()> {
+    let path = game::maps_dir().map_err(err)?.parent().unwrap().join("studio-pad.json");
+    match pad {
+        Some(p) => std::fs::write(&path, p.to_string()).map_err(|e| e.to_string()),
+        None => {
+            // (disconnected first: the link puts the game's XInput back when it reads that)
+            let _ = std::fs::write(&path, r#"{"connected":false}"#);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_file(path.with_file_name("studio-probe.json"));
+            Ok(())
+        }
+    }
+}
+
+/// What the link last saw of the game while the test pad is in (gamelink/src/probe.rs), or null.
+#[tauri::command]
+pub fn game_probe() -> Option<serde_json::Value> {
+    let path = game::maps_dir().ok()?.parent()?.join("studio-probe.json");
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+}
+
 /// Exports must already be done; (re)starts the game on `map_id`. Async: closing a running game takes a moment.
 #[tauri::command]
 pub async fn play_in_game(map_id: String, embed: bool) -> CmdResult<game::PlayOutcome> {

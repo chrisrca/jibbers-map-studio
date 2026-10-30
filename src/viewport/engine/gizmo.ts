@@ -287,7 +287,7 @@ export class GizmoControl {
    * What a moved piece snaps onto under the mouse: the nearest corner on the screen of a piece that isn't moving,
    * or the surface of one ( else the floor ).
   **/
-  private objectSnapPoint( x: number, y: number, to: "vertex" | "surface" ): THREE.Vector3 | null {
+  private objectSnapPoint( x: number, y: number, to: "vertex" | "edge" | "surface" ): THREE.Vector3 | null {
     const st = useEditor.getState(), moving = new Set( st.selection.map( ( s ) => s.uid ) );
     if ( to === "surface" ) {
       const hits = this.engine.ray( x, y ).intersectObjects( this.engine.customR.pickables(), false );
@@ -296,6 +296,36 @@ export class GizmoControl {
     }
     let best: THREE.Vector3 | null = null, bd = 20, budget = 200000;
     const v                        = new THREE.Vector3();
+    if ( to === "edge" ) {
+      // the nearest edge on the screen ( its triangles' sides ), where it passes closest to the mouse's ray
+      const ray = this.engine.ray( x, y ).ray, w = new THREE.Vector3();
+      for ( const o of st.customObjects ) {
+        if ( moving.has( o.uid ) ) continue;
+        const g = this.engine.customR.objectGroup( o.uid );
+        g?.updateMatrixWorld( true );
+        g?.traverse( ( m ) => {
+          const geo = ( m as THREE.Mesh ).isMesh ? ( m as THREE.Mesh ).geometry : null, pos = geo?.getAttribute( "position" ) as THREE.BufferAttribute | undefined;
+          if ( !geo || !pos || budget <= 0 ) return;
+          const idx = geo.index, n = idx ? idx.count : pos.count;
+          budget   -= n;
+          const at  = ( k: number ) => ( idx ? idx.getX( k ) : k );
+          for ( let t = 0; t + 2 < n; t += 3 )
+            for ( let s = 0; s < 3; s++ ) {
+              v.fromBufferAttribute( pos, at( t + s ) ).applyMatrix4( m.matrixWorld );
+              w.fromBufferAttribute( pos, at( t + ( ( s + 1 ) % 3 ) ) ).applyMatrix4( m.matrixWorld );
+              const [ax, ay, fa] = this.engine.screenOf( v ), [bx, by, fb] = this.engine.screenOf( w );
+              if ( !fa || !fb ) continue;
+              const dx = bx - ax, dy = by - ay, k = Math.max( 0, Math.min( 1, ( ( x - ax ) * dx + ( y - ay ) * dy ) / ( dx * dx + dy * dy || 1 ) ) );
+              const d  = Math.hypot( ax + dx * k - x, ay + dy * k - y );
+              if ( d >= bd ) continue;
+              bd   = d;
+              best = new THREE.Vector3();
+              ray.distanceSqToSegment( v, w, undefined, best );
+            }
+        } );
+      }
+      return best;
+    }
     for ( const o of st.customObjects ) {
       if ( moving.has( o.uid ) ) continue;
       const g = this.engine.customR.objectGroup( o.uid );

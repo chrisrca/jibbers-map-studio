@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cross, dot, edgesOf, ek, faceCenter, faceNormal, primitive, PRIMITIVES, recalcOutside, runs, type Mesh } from "../../src/model/mesh";
-import { duplicate, edgeLoop, edgeRing, extrudeEdges, extrudeFaces, fill, inset, loopCut, merge, remove, selFromFaces, subdivide } from "../../src/model/ops";
+import { duplicate, edgeLoop, edgeRing, extrudeEdges, extrudeFaces, faceLoop, fill, inset, loopCut, merge, remove, selFromFaces, subdivide } from "../../src/model/ops";
 
 /**
  * Signed volume ( positive: faces point outwards ).
@@ -92,6 +92,22 @@ describe( "edit operators", () => {
     const one  = [...r.sel.e][0];
     const loop = edgeLoop( r.mesh, one );
     expect( loop.length ).toBe( 4 );
+  } );
+
+  it( "loops along a grid's border, across it, and the faces round a ring ( Alt+click )", () => {
+    const g      = primitive( "grid", { segments: 3 } );
+    const border = [...edgesOf( g ).entries()].filter( ( [, e] ) => e.faces.length === 1 ).map( ( [k] ) => k );
+    // ( a corner has two border edges, a vertex between corners has three edges: the border runs round all of it )
+    expect( edgeLoop( g, border[0] ).sort() ).toEqual( [...border].sort() );
+    // across the grid: a line of three edges, end to end
+    const inner = [...edgesOf( g ).entries()].find( ( [, e] ) => e.faces.length === 2 )![0];
+    expect( edgeLoop( g, inner ).length ).toBe( 3 );
+    // the faces round the ring through an edge: a row of three quads
+    expect( faceLoop( g, inner ).length ).toBe( 3 );
+    // round a box: the four sides
+    const cube = primitive( "cube" );
+    const up   = [...edgesOf( cube ).entries()].find( ( [, e] ) => Math.abs( cube.v[e.a][1] - cube.v[e.b][1] ) > 1 )![0];
+    expect( faceLoop( cube, up ).length ).toBe( 4 );
   } );
 
   it( "loop cut on a grid stops at its edge; slide moves the cut", () => {

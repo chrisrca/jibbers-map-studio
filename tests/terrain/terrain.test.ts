@@ -58,3 +58,50 @@ describe( "chunk borders", () => {
     expect( terrain.heightAt( 64 - 1e-6, 32.5 ) ).toBeCloseTo( 11, 3 );
   } );
 } );
+
+describe( "chunk corners", () => {
+  // four 64 m chunks meeting at ( 64, 64 ), each on its own base
+  const four = () => {
+    const res = 65;
+    terrain.setChunks( [[0, 0], [64, 0], [0, 64], [64, 64]].map( ( [x, z], k ) => ( {
+      key:      `c${k}`,
+      position: [x, 10 + k * 0.7, z] as [number, number, number],
+      size:     [64, 50, 64] as [number, number, number],
+      res,
+      heights:  new Float32Array( res * res ).fill( 20 - k * 0.7 ),
+    } ) ) );
+  };
+  // each chunk's height at the corner they share
+  const corner = () => terrain.chunks.map( ( c ) => {
+    const i = Math.round( ( 64 - c.position[0] ) / c.spacing ), j = Math.round( ( 64 - c.position[2] ) / c.spacing );
+    return c.heights[j * c.res + i] + c.position[1];
+  } );
+  // a change at the corner, different in each chunk ( as each works out its own )
+  const change = ( by: number[] ) => terrain.chunks.forEach( ( c, k ) => {
+    const i = Math.round( ( 64 - c.position[0] ) / c.spacing ), j = Math.round( ( 64 - c.position[2] ) / c.spacing );
+    c.heights[j * c.res + i] += by[k];
+  } );
+
+  it( "where four chunks meet, all get the same height, and the change taken back comes back exactly", () => {
+    four();
+    const was = corner();
+    const by  = [0.4, 0.1, -0.2, 0.3];
+    change( by );
+    terrain.syncEdges( [0, 1, 2, 3] );
+    const laid = corner();
+    for ( const v of laid ) expect( v ).toBeCloseTo( laid[0], 4 );
+    expect( laid[0] ).toBeCloseTo( was[0] + ( 0.4 + 0.1 - 0.2 + 0.3 ) / 4, 4 );
+    // ( undone: each chunk's own change taken off what's there now )
+    change( by.map( ( d ) => -d ) );
+    terrain.syncEdges( [0, 1, 2, 3] );
+    for ( const [k, v] of corner().entries() ) expect( v ).toBeCloseTo( was[k], 4 );
+  } );
+
+  it( "only one of them changed: the others meet it there too", () => {
+    four();
+    change( [0.8, 0, 0, 0] );
+    terrain.syncEdges( [0] );
+    const laid = corner();
+    for ( const v of laid ) expect( v ).toBeCloseTo( laid[0], 4 );
+  } );
+} );

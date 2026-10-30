@@ -3,6 +3,7 @@
 
 import type { LibraryEntry, UserAsset, UserMaterial } from "../../core/ipc";
 import type { ChunkEntry, CustomObjectEntry, MapSettings, ObjectEntry, PlaceholderInfo, SpawnEntry } from "../../core/types";
+import type { Mesh, PrimitiveId, PrimitiveOpts, V3 } from "../../model/mesh";
 import type { PaintSettings } from "../../paint/settings";
 import type { BrushSettings, SculptState } from "../../sculpt/brushes";
 import type { Shape } from "../../terrain/shapes/shapes";
@@ -12,6 +13,20 @@ import type { TrailNet } from "../../trails/trails";
 export type ToolId = "select" | "sculpt" | "shape" | "trail" | "paint" | "place" | "spawn" | "scatter" | "model" | "material";
 
 export type CameraMode = "orbit" | "fly" | "rider";
+
+// The last Add › Mesh, while it can still be done again with other settings ( Blender's Adjust Last Operation ).
+export interface LastAdd {
+  // the piece it made ( Edit Mode's: the piece it went into )
+  uid:   string;
+  id:    PrimitiveId;
+  opts:  PrimitiveOpts;
+  // where it went ( Unity; Edit Mode's: in the piece ), and its turn ( degrees )
+  at:    V3;
+  rot:   V3;
+  into:  boolean;
+  // what it left ( the piece, or Edit Mode's mesh ): once that's changed, it's no longer the last thing done
+  made:  CustomObjectEntry | Mesh;
+}
 
 export type Selection = { kind: "object" | "spawn" | "custom" | "shape" | "trailNode" | "trailRun"; uid: string };
 
@@ -104,7 +119,7 @@ export interface EditorState {
   materialMode:            "object" | "paint";
   // the Assets workspace's active tool ( Blender's toolbar )
   modelTool:               AssetTool;
-  // pieces hidden in the 3D view ( the Outliner's eye, in the Assets workspace )
+  // what's hidden in the 3D view ( the Outliner's eye, H ): objects, spawns and pieces, by uid
   hiddenInView:            Record<string, true>;
   // how a click or box adds to what's selected ( Blender's select mode )
   selectOp:                "set" | "extend" | "subtract";
@@ -113,7 +128,8 @@ export interface EditorState {
   // the Assets workspace's 3D view: Blender's shading, X-ray and overlays
   view3d:                  View3d;
   // Edit Mode's snapping ( Shift+Tab, Ctrl flips it while held ), proportional editing ( O ) and pivot point
-  modelTools:              { snap: boolean; snapTo: "increment" | "vertex" | "surface"; proportional: boolean; propRadius: number; pivot: "median" | "bounds" | "individual" | "active" | "cursor" };
+  lastAdd:                 LastAdd | null;
+  modelTools:              { snap: boolean; snapTo: "increment" | "vertex" | "edge" | "surface"; proportional: boolean; propRadius: number; pivot: "median" | "bounds" | "individual" | "active" | "cursor" };
 
   placeholders:    PlaceholderInfo[];
   // the personal asset library ( see pieces/userAssets.ts )
@@ -175,6 +191,8 @@ export interface EditorState {
   renameItem(          item:   Selection, name: string ): void;
   setActiveCollection( id:     string | null ): void;
   setLocked(           uids:   string[], on: boolean ): void;
+  // hidden in the 3D view ( Blender's H ): not drawn or picked, still in the map; hidden ones are let go of
+  setHidden(           uids:   string[], on: boolean ): void;
 }
 
 // What one undo step puts back.
@@ -206,6 +224,8 @@ export interface TerrainView {
   // metres between lines ( 0: none )
   contours:       number;
   contourOpacity: number;
+  // the ground's shading by the map's own sun made deeper, to read its shape: 0 as the game draws it … 1
+  relief:         number;
 }
 
 export type Shading = "wire" | "solid" | "material" | "rendered";

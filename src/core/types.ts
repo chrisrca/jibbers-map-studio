@@ -98,6 +98,8 @@ export interface Rail {
   points:      [number, number, number][];
   // the rail's thickness ( radius, piece units )
   radius:      number;
+  // its colliders boxes, not capsules ( a box rail, a flat bar ): half their width and height ( piece units )
+  box?:        [number, number];
   // the rail's way up ( piece coordinates ): the side the game grabs from; straight up when not set
   up?:         [number, number, number];
   // the piece's "intended up" before it had a rail ( put back when the rail is removed )

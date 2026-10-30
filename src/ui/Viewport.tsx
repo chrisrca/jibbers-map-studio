@@ -3,6 +3,7 @@ import { PopupMenu, type MenuItem } from "./widgets/widgets";
 import { useEditor, workspaceOf } from "../map/store";
 import { useDecal, useStencil, type StencilState } from "../texture/stencil";
 import { TextureView } from "./panels/TextureView";
+import { UvEditor } from "./panels/UvEditor";
 import { ViewOverlays } from "./blender/ViewOverlays";
 import { Engine } from "../viewport/engine/engine";
 import { ToolColumn } from "./Toolbar";
@@ -235,6 +236,7 @@ export function Viewport( { onStats, hidden }: { onStats: ( s: Parameters<NonNul
       <StencilOverlay />
       <DecalCursor />
       <TextureView />
+      <UvEditor />
       <ViewOverlays />
       <ViewInfo />
       <LoadingVeil />

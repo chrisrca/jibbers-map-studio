@@ -469,7 +469,7 @@ export class ViewportInput {
         }
         return false;
       };
-      const hit = st.customObjects.filter( ( o ) => !st.locked[o.uid] && inBox( o.uid ) ).map( ( o ) => ( { kind: "custom" as const, uid: o.uid } ) );
+      const hit = st.customObjects.filter( ( o ) => !st.locked[o.uid] && !st.hiddenInView[o.uid] && inBox( o.uid ) ).map( ( o ) => ( { kind: "custom" as const, uid: o.uid } ) );
       const ids = new Set( hit.map( ( h ) => h.uid ) );
       st.setSelection( b.subtract ? st.selection.filter( ( s ) => !ids.has( s.uid ) ) : b.extend ? [...st.selection.filter( ( s ) => !ids.has( s.uid ) ), ...hit] : hit );
       return;

@@ -9,6 +9,7 @@ import { useAssetFile } from "../../pieces/assetFiles";
 import { useEditor } from "../../map/store";
 import { evaluate } from "../../model/build";
 import { getEngine } from "../Viewport";
+import { AdjustLast } from "./AdjustLast";
 import { BlIcon } from "./BlIcon";
 import { BL_AXES } from "../../core/blenderAxes";
 
@@ -247,6 +248,7 @@ export function ViewOverlays() {
       <TransformLine />
       {assets && <Cursor3D />}
       {assets && <ViewText />}
+      {assets && <AdjustLast />}
     </>
   );
 }

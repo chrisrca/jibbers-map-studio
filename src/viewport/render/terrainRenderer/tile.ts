@@ -140,6 +140,11 @@ export class Tile {
       const sun = vec3( cos( snowLook.sunHeight ).mul( sin( snowLook.sunDir ) ), sin( snowLook.sunHeight ), cos( snowLook.sunHeight ).mul( cos( snowLook.sunDir ) ).negate() );
       const lit = max( dot( nn, sun ), 0 ).mul( 1.25 ).add( 0.12 );
       col.assign( col.mul( mix( float( 1 ), lit, snowLook.hillshade ) ) );
+      // relief: lit by the map's own sun again, as much brighter or darker as the slope turns to it or away ( flat
+      // ground as it was; less as the sun gets low, none once it's down )
+      const n3    = vec3( nSample.x, nSample.y, nSample.z.negate() ).normalize();
+      const toSun = tclamp( max( dot( n3, snowLook.sunView ), 0 ).mul( 0.9 ).add( 0.45 ).div( max( snowLook.sunView.y, 0.05 ).mul( 0.9 ).add( 0.45 ) ), 0.45, 1.3 );
+      col.assign( col.mul( mix( float( 1 ), toSun, snowLook.relief.mul( tclamp( snowLook.sunView.y.mul( 6 ), 0, 1 ) ) ) ) );
       const h      = positionWorld.y, cs = max( snowLook.contours, 0.01 );
       const across = abs( fract( h.div( cs ).add( 0.5 ) ).sub( 0.5 ) ).mul( cs ).div( max( fwidth( h ), 1e-4 ) );
       const line   = float( 1 ).sub( tclamp( across.sub( 0.5 ), 0, 1 ) ).mul( step( 0.01, snowLook.contours ) );

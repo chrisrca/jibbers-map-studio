@@ -5,16 +5,19 @@
 // live under the mouse; Enter or a click keeps the result, Esc or a right-click puts it back; each kept one is one
 // undo step.
 
-import { cameraPosition, float, instancedBufferAttribute, positionLocal } from "three/tsl";
+import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
+import { LineSegments2 } from "three/addons/lines/webgpu/LineSegments2.js";
+import { cameraPosition, float, instancedBufferAttribute } from "three/tsl";
 import * as THREE from "three/webgpu";
 import { toThree, toUnity } from "../../../core/coords";
 import { pieceMatrix } from "../../../core/transform";
 import type { CustomObjectEntry } from "../../../core/types";
+import { history } from "../../../map/history";
 import { useEditor } from "../../../map/store";
 import type { ModelData } from "../../../model/build";
 import { edgesOf, ek, faceCenter, type Mesh, type V3 } from "../../../model/mesh";
 import { isModel, withModel } from "../../../model/objects";
-import { edgeLoop, emptySel, selFromEdges, selFromFaces, selFromVerts, type Sel, type SelectMode } from "../../../model/ops";
+import { edgeLoop, emptySel, faceLoop, selFromEdges, selFromFaces, selFromVerts, type Sel, type SelectMode } from "../../../model/ops";
 import type { MenuItem } from "../../../ui/widgets/widgets";
 import { ModelGizmo } from "./gizmo";
 import { ModelKeys } from "./keys";
@@ -45,11 +48,17 @@ export type TslNode = any;
 export const pull   = ( p: TslNode ): TslNode => p.add( cameraPosition.sub( p ).mul( 0.0025 ) );
 
 export const SELECTED = new THREE.Color( 0xffa033 ), ACTIVE = new THREE.Color( 0xffffff ), PLAIN = new THREE.Color( 0x101010 ), FACE_DOT = new THREE.Color( 0x4a4a4a );
+// a creased edge ( Blender's theme ), as strongly as it's creased
+export const CREASE   = new THREE.Color( 0xff1ef0 );
+// edges this wide ( CSS pixels, so as wide on a high-DPI screen ): a one-pixel line was lost on one
+export const EDGE_WIDTH = 2;
 
 export type Modal =
   | {
       kind:       "transform"; op: "g" | "r" | "s" | "slide"; o0: CustomObjectEntry; verts: number[]; pivot: THREE.Vector3; x0: number; y0: number;
       axis:       0 | 1 | 2 | null; local: boolean; dir: THREE.Vector3 | null; typed: string; label: string; pre?: Mesh;
+      // Shift with the axis: everything but it ( the plane square to it )
+      plane:      boolean;
       // the pointer as it counts ( Shift: a tenth as far ), and where the real one was
       vx:         number; vy: number; lx: number; ly: number;
       // proportional editing's reach ( metres )
@@ -60,12 +69,25 @@ export type Modal =
   | { kind: "loopcut"; cuts: number;            edge:  string | null; preview: THREE.Vector3[][] }
   | { kind: "slide";   o0:   CustomObjectEntry; mesh0: Mesh; edge: string; cuts: number; x0: number; y0: number; along: THREE.Vector2 }
   | { kind: "box";     x0:   number;            y0:    number; x1: number; y1: number; extend: boolean; subtract: boolean }
-  | { kind: "spin";    o0:   CustomObjectEntry; mesh0: Mesh; sel0: Sel; axis: 0 | 1 | 2; steps: number; x0: number; typed: string }
+  | { kind: "spin";    o0:   CustomObjectEntry; mesh0: Mesh; sel0: Sel; axis: 0 | 1 | 2; steps: number; typed: string; centre: V3; turned: number; last: number }
+  | { kind: "crease";  o0:   CustomObjectEntry; mesh0: Mesh; edges: string[]; pivot: THREE.Vector3; x0: number; y0: number; typed: string }
   | { kind: "knife";   o0:   CustomObjectEntry; pts:   KnifeHit[]; hover: KnifeHit | null; preview: THREE.Vector3[][] }
   | { kind: "drag";    o0:   CustomObjectEntry; mesh0: Mesh; x0: number; label: string; run: ( px: number ) => { mesh: Mesh; status: string } };
 
-// A knife point as picked: a corner, or a place on an edge ( t from a to b ).
-export type KnifeHit = { v: number } | { a: number; b: number; t: number };
+// What's selected, the active element and the select mode, as an undo step keeps them.
+export type Picked = { sel: Sel; active: number | string | null; mode: SelectMode };
+
+/**
+ * Wide lines' geometry: segments' ends ( xyz each ) and colours ( one segment, out of sight, when there are none: the
+ * material can't be made for no segments at all, and every material's made ready up front ).
+**/
+function edgeGeometry( pos: number[], col: number[] ) {
+  return new LineSegmentsGeometry().setPositions( pos.length ? pos : [0, 0, 0, 0, 0, 0] ).setColors( col.length ? col : [0, 0, 0, 0, 0, 0] );
+}
+
+// A knife point as picked: a corner, a place on an edge ( t from a to b ), or a place inside a face ( the piece's own
+// coordinates ).
+export type KnifeHit = { v: number } | { a: number; b: number; t: number } | { f: number; p: V3 };
 
 export class ModelEditor {
   // its parts, each in a file of its own beside this one
@@ -101,7 +123,7 @@ export class ModelEditor {
   }
   modal: Modal | null = null;
   mouse               = { x: 0, y: 0 };
-  private lines:   THREE.LineSegments;
+  private lines:   LineSegments2;
   private dots:    THREE.Sprite;
   private faces:   THREE.Mesh;
   private preview: THREE.LineSegments;
@@ -109,9 +131,12 @@ export class ModelEditor {
   boxRect: [number, number, number, number] | null = null;
 
   constructor( readonly view: EditView ) {
-    const lineMat               = new THREE.LineBasicNodeMaterial( { vertexColors: true, depthTest: true, transparent: true } );
-    lineMat.positionNode        = pull( positionLocal );
-    this.lines                  = new THREE.LineSegments( new THREE.BufferGeometry(), lineMat );
+    // ( drawn as thin quads, nudged towards the camera so they show on the faces they lie on )
+    const lineMat               = new THREE.Line2NodeMaterial( { vertexColors: true, depthTest: true, linewidth: EDGE_WIDTH } );
+    lineMat.polygonOffset       = true;
+    lineMat.polygonOffsetFactor = -2;
+    lineMat.polygonOffsetUnits  = -4;
+    this.lines                  = new LineSegments2( edgeGeometry( [], [] ), lineMat );
     const dotPos                = new THREE.InstancedBufferAttribute( new Float32Array( 3 ), 3 ), dotCol = new THREE.InstancedBufferAttribute( new Float32Array( 3 ), 3 );
     const dotMat                = new THREE.PointsNodeMaterial( { sizeAttenuation: false, depthTest: true } );
     dotMat.positionNode         = pull( instancedBufferAttribute( dotPos ) );
@@ -177,6 +202,32 @@ export class ModelEditor {
   }
 
   /**
+   * What's selected, and how, as it is now ( to put back ).
+  **/
+  snapshot(): Picked {
+    return { sel: { v: new Set( this.sel.v ), e: new Set( this.sel.e ), f: new Set( this.sel.f ) }, active: this.active, mode: this.mode };
+  }
+
+  /**
+   * A change of selection kept as an undo step ( Blender's: Ctrl+Z puts the last selection back, a miss-click
+   * undone ), from what it was ( `before` ).
+  **/
+  selected( before: Picked ) {
+    const after = this.snapshot(), uid = this.uid;
+    const same  = ( a: Set<unknown>, b: Set<unknown> ) => a.size === b.size && [...a].every( ( x ) => b.has( x ) );
+    if ( before.mode === after.mode && before.active === after.active && same( before.sel.v, after.sel.v ) && same( before.sel.e, after.sel.e ) && same( before.sel.f, after.sel.f ) ) return;
+    const put = ( p: Picked ) => {
+      if ( this.uid !== uid ) return;
+      this.sel    = { v: new Set( p.sel.v ), e: new Set( p.sel.e ), f: new Set( p.sel.f ) };
+      this.active = p.active;
+      this.mode   = p.mode;
+      this.sync();
+      this.publish();
+    };
+    history.push( { label: before.mode === after.mode ? "Select" : "Select mode", undo: () => put( before ), redo: () => put( after ) } );
+  }
+
+  /**
    * The selection kept to what still exists ( after an undo, say ).
   **/
   private clampSel( g: Mesh ) {
@@ -211,16 +262,15 @@ export class ModelEditor {
     for ( const [k, e] of edges ) {
       if ( !vis.e.has( k ) ) continue;
       const on = this.mode === "face" ? [...e.faces].some( ( f ) => this.sel.f.has( f ) ) && this.sel.e.has( k ) : this.sel.e.has( k );
-      const ca = this.mode === "vert" ? ( this.sel.v.has( e.a ) ? SELECTED : PLAIN ) : on ? SELECTED : PLAIN;
-      const cb = this.mode === "vert" ? ( this.sel.v.has( e.b ) ? SELECTED : PLAIN ) : on ? SELECTED : PLAIN;
+      const cr = g.c?.[k] ? PLAIN.clone().lerp( CREASE, 0.35 + 0.65 * g.c[k] ) : PLAIN;
+      const ca = this.mode === "vert" ? ( this.sel.v.has( e.a ) ? SELECTED : cr ) : on ? SELECTED : cr;
+      const cb = this.mode === "vert" ? ( this.sel.v.has( e.b ) ? SELECTED : cr ) : on ? SELECTED : cr;
       lp.push( W[e.a].x, W[e.a].y, W[e.a].z, W[e.b].x, W[e.b].y, W[e.b].z );
       lc.push( ca.r, ca.g, ca.b, cb.r, cb.g, cb.b );
     }
-    const lg = new THREE.BufferGeometry();
-    lg.setAttribute( "position", new THREE.Float32BufferAttribute( lp, 3 ) );
-    lg.setAttribute( "color",    new THREE.Float32BufferAttribute( lc, 3 ) );
     this.lines.geometry.dispose();
-    this.lines.geometry = lg;
+    this.lines.geometry = edgeGeometry( lp, lc );
+    this.lines.visible  = lp.length > 0;
     // dots: vertices ( vertex mode ) or face centres ( face mode )
     const dp: number[]  = [], dc: number[] = [];
     if ( this.mode === "vert" )
@@ -311,7 +361,8 @@ export class ModelEditor {
       }
       if ( e.button !== 0 ) return false;
       if ( m.kind === "loopcut" ) {
-        this.loopCut.apply();
+        // ( a click off the mesh keeps the tool going )
+        if ( m.edge ) this.loopCut.apply();
         return true;
       }
       if ( m.kind === "knife" ) {
@@ -323,17 +374,22 @@ export class ModelEditor {
       return true;
     }
     if ( e.button !== 0 ) return false;
-    const el = this.picking.pick( x, y );
-    if ( e.altKey && typeof el === "string" ) {
-      // Alt+click: the edge loop ( Shift adds it )
-      const o     = this.obj()!;
-      const loop  = edgeLoop( o.model.mesh, el );
-      const edges = e.shiftKey ? [...this.sel.e, ...loop] : loop;
-      this.sel    = this.mode === "face" ? selFromFaces( o.model.mesh, [...selFromEdges( o.model.mesh, edges ).f] ) : selFromEdges( o.model.mesh, edges );
+    if ( e.altKey ) {
+      // Alt+click: the loop through the edge nearest the mouse, whatever the select mode ( faces: the faces round it;
+      // Shift adds it )
+      const k = this.picking.pickEdge( x, y );
+      if ( k === null ) return true;
+      const g   = this.obj()!.model.mesh;
+      const was = this.snapshot();
+      if ( this.mode === "face" ) this.sel = selFromFaces( g, [...( e.shiftKey ? this.sel.f : [] ), ...faceLoop( g, k )] );
+      else this.sel = selFromEdges( g, [...( e.shiftKey ? this.sel.e : [] ), ...edgeLoop( g, k )] );
+      this.active = k;
+      this.selected( was );
       this.sync();
       this.publish();
       return true;
     }
+    const el = this.picking.pick( x, y );
     const op     = useEditor.getState().selectOp;
     const extend = e.shiftKey || op === "extend", subtract = e.ctrlKey || op === "subtract";
     if ( el === null ) {
@@ -366,6 +422,7 @@ export class ModelEditor {
       case "loopcut":   return this.loopCut.hover( x, y ), true;
       case "slide":     return this.loopCut.runSlide(), true;
       case "spin":      return this.ops.runSpin( e ), true;
+      case "crease":    return this.ops.runCrease( e ), true;
       case "knife":     return this.knife.hover( x, y, e.ctrlKey ), true;
       case "drag":      return this.toolbar.runDrag(), true;
     }
@@ -410,7 +467,9 @@ export class ModelEditor {
       const verts = m.subtract ? [...this.sel.v].filter( ( v ) => !hitV.has( v ) ) : m.extend ? [...this.sel.v, ...hitV] : [...hitV];
       next        = selFromVerts( g, verts );
     }
-    this.sel = next;
+    const was = this.snapshot();
+    this.sel  = next;
+    this.selected( was );
     this.sync();
     this.publish();
     return true;
@@ -494,6 +553,7 @@ export class ModelEditor {
     if ( m?.kind === "inset"     ) this.ops.runInset( e as unknown as PointerEvent );
     if ( m?.kind === "bevel"     ) this.ops.runBevel( e as unknown as PointerEvent );
     if ( m?.kind === "spin"      ) this.ops.runSpin( e as unknown as PointerEvent );
+    if ( m?.kind === "crease"    ) this.ops.runCrease( e );
   }
 
   // ---------------------------------------------------------------- keeping or putting back
@@ -511,7 +571,7 @@ export class ModelEditor {
     const m = this.modal;
     if ( !m || m.kind === "box" || m.kind === "loopcut" ) return;
     this.modal      = null;
-    const label     = m.kind === "transform" ? m.label : m.kind === "inset" ? "Inset faces" : m.kind === "bevel" ? "Bevel" : m.kind === "spin" ? "Spin" : m.kind === "drag" ? m.label : "Loop cut";
+    const label     = m.kind === "transform" ? m.label : m.kind === "inset" ? "Inset faces" : m.kind === "bevel" ? "Bevel" : m.kind === "spin" ? "Spin" : m.kind === "crease" ? "Edge crease" : m.kind === "drag" ? m.label : "Loop cut";
     this.statusText = "";
     this.commitFrom( m.o0, label );
   }

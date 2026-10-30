@@ -102,17 +102,47 @@ export function withModel( o: CustomObjectEntry, model: ModelData ): CustomObjec
 **/
 function curveColliders( o: CustomObjectEntry & { model: ModelData }, own: CustomCollider[] ): CustomObjectEntry {
   const c     = o.model.curve!;
-  const rails = c.splines.map( ( s ) => ( { points: samplePath( s, Math.min( 8, c.resolution ) ).map( ( q ) => q.p ), radius: styleOf( c, s ).radius } ) );
+  // ( a square tube or a flat bar is boxes along it, as wide and as high as it is )
+  const rails = c.splines.map( ( s ) => {
+    const st = styleOf( c, s );
+    return { points: samplePath( s, Math.min( 8, c.resolution ) ).map( ( q ) => q.p ), radius: st.radius, ...( st.profile === "round" ? {} : { box: [st.radius, st.profile === "flat" ? st.thickness : st.radius] as [number, number] } ) };
+  } );
   const jib   = o.surface_type === "Jib";
   const plain = jib ? ( "Generic" as const ) : o.surface_type;
   const caps  = rails.flatMap( ( r, i ) => railColliders( o, r ).map( ( x ) => ( { ...x, surface_type: jib && i === 0 ? ( "Jib" as const ) : plain } ) ) );
   const body  = own.map( ( x ) => ( { ...x, surface_type: plain } ) );
   if ( jib && rails[0]?.points.length >= 2 ) {
-    const railed = withRail( { ...o, colliders: [] }, { ...rails[0], solid: false } );
+    const railed = withRail( { ...o, colliders: [] }, { ...rails[0], solid: false, ...( o.rail?.up ? { up: o.rail.up } : {} ) } );
     return { ...railed, colliders: [...body, ...caps] };
   }
   const { rail: _r, ...rest } = o;
   return { ...rest, colliders: [...body, ...caps] };
+}
+
+/**
+ * A curve piece's rail as Edit Points shows it: its first spline's own points, not the curve sampled along them.
+**/
+export function railOfCurve( o: CustomObjectEntry ): CustomObjectEntry {
+  const c = o.model?.curve, s = c?.splines[0];
+  if ( !c || !s || !o.rail ) return o;
+  return { ...o, rail: { ...o.rail, points: s.points.map( ( q ) => [...q.p] as V3 ) } };
+}
+
+/**
+ * The curve piece with its first spline's points as Edit Points left them ( moved, added, taken away ), and its rail's
+ * way up; each point keeps its size and sharpness, a new one is plain.
+**/
+export function withCurvePoints( o: CustomObjectEntry & { model: ModelData }, points: V3[], up?: V3 ): CustomObjectEntry {
+  const c = o.model.curve;
+  if ( !c?.splines.length ) return o;
+  const old  = c.splines[0].points;
+  const same = ( a: V3, b: V3 ) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+  const next = points.map( ( p, i ) => {
+    const was = old.length === points.length ? old[i] : old.find( ( q ) => same( q.p, p ) );
+    return { p: [...p] as V3, r: was?.r ?? 1, sharp: was?.sharp ?? false };
+  } );
+  const curve = { ...c, splines: [{ ...c.splines[0], points: next }, ...c.splines.slice( 1 )] };
+  return withModel( o.rail && up ? { ...o, rail: { ...o.rail, up } } : o, { ...o.model, curve } );
 }
 
 /**

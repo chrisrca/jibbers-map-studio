@@ -75,6 +75,7 @@ async function applyProject( dir: string, p: Project, heights: Float32Array[] ) 
     spawns:           p.spawns,
     customObjects,
     locked:           Object.fromEntries( locked.map( ( u ) => [u, true as const] ) ),
+    hiddenInView:     Object.fromEntries( ( editor.hidden ?? [] ).map( ( u ) => [u, true as const] ) ),
     collections:      editor.collections ?? [],
     membership:       editor.membership ?? {},
     labels:           editor.labels ?? {},
@@ -160,7 +161,7 @@ export async function closeProject() {
   terrain.setChunks( [] );
   useEditor.setState( {
     projectDir:  null, map: null, objects: [], spawns: [], customObjects: [], shapes: [], selection: [],
-    collections: [], membership: {}, labels: {}, activeCollection: null, locked: {},
+    collections: [], membership: {}, labels: {}, activeCollection: null, locked: {}, hiddenInView: {},
     library:     null, chunkExtras: {}, dirty: false, centerTab: "editor", tool: "select", gameCopy: "none", lastSavedAt: null,
   } );
 }

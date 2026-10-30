@@ -17,9 +17,9 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetParent, GetWindowLongPtrW, PostMessageW, WM_CLOSE, GetWindowRect, GetWindowTextW, IsWindow, IsWindowVisible,
-    SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_TOP, SWP_FRAMECHANGED,
-    SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, WS_CAPTION, WS_CHILD, WS_EX_APPWINDOW,
+    EnumWindows, GetClassNameW, GetParent, GetWindowLongPtrW, PostMessageW, WM_CLOSE, GetWindowRect, GetWindowTextW, IsIconic, IsWindow, IsWindowVisible,
+    SetForegroundWindow, SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_TOP, SWP_FRAMECHANGED,
+    SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_RESTORE, SW_SHOW, WS_CAPTION, WS_CHILD, WS_EX_APPWINDOW,
     WS_EX_DLGMODALFRAME, WS_EX_TOOLWINDOW, WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
 };
 
@@ -386,9 +386,20 @@ pub fn set_visible(visible: bool) -> bool {
 }
 
 /// Gives keyboard input to the game. On the studio's own thread (the one its window and the game's share input with).
+/// Popped out, the game's window is brought to the front instead (the studio in front, having just been clicked,
+/// Windows lets it hand that on).
 pub fn focus() {
     if let Some(e) = EMBEDDED.lock().unwrap().as_ref().filter(|e| alive(e)) {
         unsafe { SetFocus(e.hwnd as HWND) };
+        return;
+    }
+    if let Some(h) = find_game_window() {
+        unsafe {
+            if IsIconic(h) != 0 {
+                ShowWindow(h, SW_RESTORE);
+            }
+            SetForegroundWindow(h);
+        }
     }
 }
 

@@ -642,6 +642,9 @@ html.scrubbing, html.scrubbing * { cursor: none !important; user-select: none !i
 .texture-view { position: absolute; left: 0; top: 0; bottom: 0; width: 45%; z-index: 6; background: #282828; border-right: 2px solid var(--c-backdrop); }
 .texture-view canvas { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
 .texture-view .close { position: absolute; top: 6px; right: 6px; }
+.uv-editor { position: absolute; left: 0; top: 0; bottom: 0; width: 42%; z-index: 6; background: #282828; border-right: 2px solid var(--c-backdrop); }
+.uv-editor canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+.uv-editor .close { position: absolute; top: 6px; right: 6px; }
 .stencil { position: absolute; z-index: 4; pointer-events: none; }
 .stencil img { width: 100%; height: 100%; display: block; image-rendering: auto; }
 .stencil.adjust { pointer-events: auto; cursor: move; outline: 1px dashed rgba(255, 255, 255, .8); }
@@ -711,6 +714,12 @@ html.scrubbing, html.scrubbing * { cursor: none !important; user-select: none !i
 .view-text { position: absolute; left: 58px; top: 8px; z-index: 3; pointer-events: none; color: #e6e6e6; font-size: 11px; line-height: 15px; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); }
 .view-text .stats { margin-top: 6px; }
 .view-text .stats b { font-weight: 500; margin-left: 4px; }
+
+/* Adjust Last Operation ( the redo panel, bottom left ) */
+.adjust-last { position: absolute; left: 58px; bottom: 8px; z-index: 4; width: 250px; padding: 2px 6px 6px; border-radius: var(--r-area); background: var(--c-panel); box-shadow: inset 0 0 0 1px var(--c-hairline), 0 4px 14px rgba(0, 0, 0, .35); }
+.adjust-last .al-head { display: flex; align-items: center; gap: 4px; width: 100%; height: var(--row); padding: 0 2px; border: 0; background: none; color: var(--c-text); text-align: left; }
+.adjust-last .props { margin-top: 2px; }
+.adjust-last .props > label { text-align: right; }
 
 /* Blender's popovers (a panel of settings under a header button) */
 .popover { position: fixed; z-index: 1000; width: 240px; padding: 4px 8px 8px; border-radius: var(--r-area); background: var(--c-menu); border: 1px solid var(--c-menu-line); box-shadow: 0 10px 28px rgba(0, 0, 0, .45); }

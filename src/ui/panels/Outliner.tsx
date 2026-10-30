@@ -207,18 +207,16 @@ export function Outliner() {
       {renaming === it.sel.uid ? nameField( it.name, ( v ) => v.trim() && v !== it.name && st().renameItem( it.sel, v ) ) : <span className="name">{it.name}</span>}
       {assets && it.bl && <span className="ol-data"><BlIcon name={it.bl === "outliner_ob_curve" ? "outliner_data_curve" : "outliner_data_mesh"} size={14} /></span>}
       {assets && <span className="spacer" />}
-      { assets && (
+      { ( it.sel.kind === "object" || it.sel.kind === "spawn" || it.sel.kind === "custom" ) && (
         <span
           className={`ol-toggle${hidden[it.sel.uid] ? " on" : ""}`}
-          title={hidden[it.sel.uid] ? "Show in Viewport" : "Hide in Viewport"}
+          title={hidden[it.sel.uid] ? "Show in Viewport (Alt H)" : "Hide in Viewport (H)"}
           onPointerDown={( e ) => e.stopPropagation()}
           onDoubleClick={( e ) => e.stopPropagation()}
           onClick={( e ) => {
             e.stopPropagation();
-            const h = { ...hidden };
-            if ( h[it.sel.uid] ) delete h[it.sel.uid];
-            else h[it.sel.uid] = true;
-            useEditor.setState( { hiddenInView: h } );
+            // ( the whole selection when the row is in it, as Blender's toggles do )
+            st().setHidden( sel.has( it.sel.uid ) ? selection.map( ( s ) => s.uid ) : [it.sel.uid], !hidden[it.sel.uid] );
           }}
         >
           <BlIcon name={hidden[it.sel.uid] ? "hide_on" : "hide_off"} size={14} />

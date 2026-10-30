@@ -15,7 +15,7 @@ import { GizmoLook } from "./look";
 
 export type GizmoMode = "translate" | "rotate" | "scale" | "transform";
 export type Handle    = { kind: "axis" | "plane" | "view" | "ring" | "viewRing" | "uniform" | "trackball"; axis: 0 | 1 | 2 };
-export type SnapTo    = "increment" | "vertex" | "surface";
+export type SnapTo    = "increment" | "vertex" | "edge" | "surface";
 
 // Blender's axis colours ( its theme's )
 export const AXIS  = [new THREE.Color( 0xff3352 ), new THREE.Color( 0x8bdc00 ), new THREE.Color( 0x2890ff )];
@@ -31,7 +31,7 @@ export interface GizmoView {
   // the header's snapping: on or off, and onto what
   snapping:   () => { on: boolean; to: SnapTo };
   // a vertex or surface point under a screen point ( not on what's being moved ), for snapping onto
-  snapPoint?: ( x: number, y: number, to: "vertex" | "surface" ) => THREE.Vector3 | null;
+  snapPoint?: ( x: number, y: number, to: Exclude<SnapTo, "increment"> ) => THREE.Vector3 | null;
 }
 
 export class BlGizmo {

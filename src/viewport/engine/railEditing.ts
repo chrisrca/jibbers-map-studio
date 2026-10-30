@@ -2,6 +2,7 @@
 
 import { type CustomObjectEntry } from "../../core/types";
 import { useEditor } from "../../map/store";
+import { isModel, railOfCurve, withCurvePoints } from "../../model/objects";
 import { partsFor } from "../../pieces/library";
 import { insertAt, railPath, withRail, type P3 } from "../../pieces/rail";
 import type { Engine } from "./engine";
@@ -16,7 +17,9 @@ export class RailEditing {
   sync() {
     const st    = useEditor.getState();
     const re    = st.railEdit;
-    const piece = re ? ( st.customObjects.find( ( o ) => o.uid === re.uid ) ?? null ) : null;
+    const found = re ? st.customObjects.find( ( o ) => o.uid === re.uid ) : undefined;
+    // ( a curve piece's rail is its curve: its own points are edited )
+    const piece = found ? railOfCurve( found ) : null;
     if ( !this.drag ) this.engine.railTool.sync( piece, re?.point ?? null, st.gizmoMode === "rotate" );
     this.engine.customR.guides.hide( piece?.rail ? piece.uid : null );
     if ( !this.drag ) this.engine.gizmo.sync();
@@ -39,7 +42,7 @@ export class RailEditing {
     const st  = useEditor.getState();
     const uid = st.railEdit?.uid;
     if ( !st.customObjects.some( ( x ) => x.uid === uid && x.rail ) ) return;
-    st.commit( label, { customObjects: st.customObjects.map( ( x ) => ( x.uid === uid && x.rail ? withRail( x, { ...x.rail, points, up } ) : x ) ) } );
+    st.commit( label, { customObjects: st.customObjects.map( ( x ) => ( x.uid !== uid || !x.rail ? x : isModel( x ) && x.model.curve ? withCurvePoints( x, points, up ) : withRail( x, { ...x.rail, points, up } ) ) ) } );
   }
 
   /**

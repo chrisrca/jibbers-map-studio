@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { curveMesh, newCurve, samplePath } from "../../src/model/curve";
+import type { CustomObjectEntry } from "../../src/core/types";
+import type { ModelData } from "../../src/model/build";
 import { cross, dot, edgesOf, runs, type Mesh } from "../../src/model/mesh";
 
 const volume = ( g: Mesh ) => {
@@ -57,6 +59,40 @@ describe( "curve pieces in the map", () => {
     const leg = newCurveObject( "l1", newCurve( [[0, 0, 0], [0, 0.6, 0]] ), [0, 0, 0], false );
     expect( leg.rail ).toBeUndefined();
     expect( leg.colliders.every( ( c ) => c.surface_type === "Generic" ) ).toBe( true );
+  } );
+
+  it( "a box rail or a flat bar rides on boxes its own size, not capsules", async () => {
+    const { newCurveObject } = await import( "../../src/model/objects" );
+    const box                = newCurveObject( "b1", { ...newCurve( [[-2, 0, 0], [2, 0, 0]] ), profile: "square", radius: 0.08 }, [0, 1, 0] );
+    expect( box.rail?.box                                     ).toEqual( [0.08, 0.08] );
+    expect( box.colliders.every( ( c ) => c.shape === "Box" ) ).toBe( true );
+    expect( box.colliders[0].size.x                           ).toBeCloseTo( 2 * ( 0.08 + 0.012 ), 5 );
+    const bar = newCurveObject( "f1", { ...newCurve( [[-2, 0, 0], [2, 0, 0]] ), profile: "flat", radius: 0.04, thickness: 0.004 }, [0, 1, 0] );
+    expect( bar.rail?.box                                     ).toEqual( [0.04, 0.004] );
+    expect( bar.colliders.every( ( c ) => c.shape === "Box" ) ).toBe( true );
+    expect( bar.colliders[0].size.z                           ).toBeCloseTo( 2 * ( 0.004 + 0.012 ), 5 );
+  } );
+
+  it( "edits a rail's own points in Design ( moved, added, taken away ), its curve and colliders following", async () => {
+    const { newCurveObject, railOfCurve, withCurvePoints } = await import( "../../src/model/objects" );
+    const { CURVE_PRESETS, presetCurve }                   = await import( "../../src/model/curve" );
+    const kinked                                           = CURVE_PRESETS.find( ( p ) => p.label === "Kinked Rail" )!;
+    const o                                                = newCurveObject( "k1", presetCurve( kinked ), [0, 1, 0] ) as CustomObjectEntry & { model: ModelData };
+    // Edit Points shows its three points, not the curve sampled along them
+    const shown = railOfCurve( o ).rail!.points;
+    expect( shown ).toEqual( kinked.points );
+    // the end lifted a metre: the curve's point moves, the kink stays sharp, the rail ends a metre up
+    const moved = withCurvePoints( o, [shown[0], shown[1], [3, 0.4, 0]], [0, 1, 0] ) as CustomObjectEntry & { model: ModelData };
+    expect( moved.model.curve!.splines[0].points.map( ( q ) => q.p ) ).toEqual( [shown[0], shown[1], [3, 0.4, 0]] );
+    expect( moved.model.curve!.splines[0].points[1].sharp           ).toBe( true );
+    expect( moved.rail!.points[moved.rail!.points.length - 1]       ).toEqual( [3, 0.4, 0] );
+    expect( moved.rail!.up                                          ).toEqual( [0, 1, 0] );
+    expect( moved.colliders.length                                  ).toBeGreaterThan( 0 );
+    // a point put in, then one taken away: the others keep what they were
+    const more = withCurvePoints( moved, [shown[0], [-2, 0.6, 0.5], shown[1], [3, 0.4, 0]] ) as CustomObjectEntry & { model: ModelData };
+    expect( more.model.curve!.splines[0].points.map( ( q ) => q.sharp ) ).toEqual( [false, false, true, false] );
+    const less = withCurvePoints( more, [shown[0], shown[1], [3, 0.4, 0]] ) as CustomObjectEntry & { model: ModelData };
+    expect( less.model.curve!.splines[0].points.map( ( q ) => q.sharp ) ).toEqual( [false, true, false] );
   } );
 
   it( "converts to a mesh piece that edits like any other", async () => {

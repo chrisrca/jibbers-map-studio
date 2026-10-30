@@ -32,6 +32,9 @@ pub struct Api {
     image_get_class_count: unsafe extern "C" fn(Ptr) -> usize,
     image_get_class: unsafe extern "C" fn(Ptr, usize) -> Ptr,
     class_get_method_from_name: unsafe extern "C" fn(Ptr, *const c_char, i32) -> Ptr,
+    class_get_parent: unsafe extern "C" fn(Ptr) -> Ptr,
+    class_get_field_from_name: unsafe extern "C" fn(Ptr, *const c_char) -> Ptr,
+    field_get_value: unsafe extern "C" fn(Ptr, Ptr, *mut c_void),
 }
 
 static API: OnceLock<Api> = OnceLock::new();
@@ -79,6 +82,9 @@ pub fn api() -> Option<&'static Api> {
             image_get_class_count: f!("il2cpp_image_get_class_count"),
             image_get_class: f!("il2cpp_image_get_class"),
             class_get_method_from_name: f!("il2cpp_class_get_method_from_name"),
+            class_get_parent: f!("il2cpp_class_get_parent"),
+            class_get_field_from_name: f!("il2cpp_class_get_field_from_name"),
+            field_get_value: f!("il2cpp_field_get_value"),
         };
         if (a.domain_get)().is_null() {
             return None;
@@ -125,8 +131,20 @@ impl Api {
         }
     }
 
-    /// A method of `class` by name and its parameters' type names (e.g. ["System.String"]): overloads told apart.
+    /// A method of `class` (or a class it comes from) by name and its parameters' type names (e.g. ["System.String"]):
+    /// overloads told apart.
     pub fn method(&self, class: Ptr, name: &str, params: &[&str]) -> Option<Ptr> {
+        let mut c = class;
+        while !c.is_null() {
+            if let Some(m) = self.own_method(c, name, params) {
+                return Some(m);
+            }
+            c = unsafe { (self.class_get_parent)(c) };
+        }
+        None
+    }
+
+    fn own_method(&self, class: Ptr, name: &str, params: &[&str]) -> Option<Ptr> {
         unsafe {
             let mut iter: Ptr = std::ptr::null_mut();
             loop {
@@ -183,6 +201,40 @@ impl Api {
     /// The value inside a boxed value type, read as `T`.
     pub unsafe fn unbox<T: Copy>(&self, o: Ptr) -> Option<T> {
         (!o.is_null()).then(|| *((self.object_unbox)(o) as *const T))
+    }
+
+    /// An object's field by name, in its class or one it comes from, read as `T` (a `Ptr` for one holding an object).
+    pub fn field<T: Copy>(&self, o: Ptr, name: &str) -> Option<T> {
+        if o.is_null() {
+            return None;
+        }
+        let n = CString::new(name).ok()?;
+        unsafe {
+            let mut c = (self.object_get_class)(o);
+            while !c.is_null() {
+                let f = (self.class_get_field_from_name)(c, n.as_ptr());
+                if !f.is_null() {
+                    let mut v = std::mem::MaybeUninit::<T>::zeroed();
+                    (self.field_get_value)(o, f, v.as_mut_ptr() as *mut c_void);
+                    return Some(v.assume_init());
+                }
+                c = (self.class_get_parent)(c);
+            }
+            None
+        }
+    }
+
+    /// An object's field holding an object, by name (see field).
+    pub fn field_object(&self, o: Ptr, name: &str) -> Option<Ptr> {
+        self.field::<Ptr>(o, name).filter(|v| !v.is_null())
+    }
+
+    /// The full name of an object's class.
+    pub fn class_name(&self, o: Ptr) -> String {
+        if o.is_null() {
+            return String::new();
+        }
+        unsafe { self.type_name((self.class_get_type)((self.object_get_class)(o))) }
     }
 
     pub fn class_of(&self, o: Ptr) -> Ptr {

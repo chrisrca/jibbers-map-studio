@@ -13,8 +13,8 @@ import { loadPaint, loadSculpt, saveSculpt } from "./remembered";
 import type { Collection, EditorState, Selection, Undoable } from "./types";
 
 export type { SculptState } from "../../sculpt/brushes";
-export { type ToolId, type CameraMode, type Selection, type Collection, type Toast, type ChunkExtras, type GameLaunch, type EditorState, type TerrainView, type Shading, type AssetTool, type View3d } from "./types";
-export { newUid, workspaceOf, unlocked, paramDefault } from "./helpers";
+export { type ToolId, type CameraMode, type LastAdd, type Selection, type Collection, type Toast, type ChunkExtras, type GameLaunch, type EditorState, type TerrainView, type Shading, type AssetTool, type View3d } from "./types";
+export { newUid, workspaceOf, unlocked, toHide, paramDefault } from "./helpers";
 
 // Set while the automated self-test runs: it mustn't change what the user's own settings/lists remember.
 export const testRun = { active: false };
@@ -35,7 +35,7 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
   shapeKind:        "curve",
   gizmoMode:        "translate",
   scatter:          { picks: [], radius: 8, spacing: 4, scaleJitter: 0.15, followSlope: 0.5, tilt: 4 },
-  terrainView:      { slope: false, slopeMin: 10, slopeMax: 45, slopeStep: 0, slopeOpacity: 0.85, hillshade: 0, exaggeration: 2, sunDir: 315, sunHeight: 35, contours: 0, contourOpacity: 0.5 },
+  terrainView:      { slope: false, slopeMin: 10, slopeMax: 45, slopeStep: 0, slopeOpacity: 0.85, hillshade: 0, exaggeration: 2, sunDir: 315, sunHeight: 35, contours: 0, contourOpacity: 0.5, relief: 0.75 },
   library:          null,
   objects:          [],
   spawns:           [],
@@ -65,6 +65,7 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
   hiddenInView:            {},
   cursor3d:                [0, 0, 0],
   view3d:                  { shading: "solid", xray: false, gizmos: true, orientation: "global", overlays: { grid: true, faceOrientation: false, stats: false } },
+  lastAdd:                 null,
   modelTools:              { snap: false, snapTo: "increment", proportional: false, propRadius: 1, pivot: "median" },
 
   placeholders:    [],
@@ -290,6 +291,15 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
       else delete locked[u];
     }
     get().commit( `${on ? "Lock" : "Unlock"} ${uids.length > 1 ? `${uids.length} items` : "item"}`, { locked } );
+  },
+  setHidden( uids, on ) {
+    const hiddenInView = { ...get().hiddenInView };
+    for ( const u of uids ) {
+      if ( on ) hiddenInView[u] = true;
+      else delete hiddenInView[u];
+    }
+    const gone = new Set( on ? uids : [] );
+    set( { hiddenInView, selection: get().selection.filter( ( s ) => !gone.has( s.uid ) ) } );
   },
 } ) );
 

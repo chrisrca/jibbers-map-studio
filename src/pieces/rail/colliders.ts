@@ -52,34 +52,35 @@ export function unityEuler( x: THREE.Vector3, y: THREE.Vector3, z: THREE.Vector3
 }
 
 /**
- * The capsules along a rail, placed where the piece is now.
+ * The capsules along a rail ( boxes, for a box rail ), placed where the piece is now.
 **/
 export function railColliders( o: CustomObjectEntry, rail: Rail ): CustomCollider[] {
   const path = railPath( rail );
   if ( path.length < 2 ) return [];
   const R                      = rail.radius + PROUD;
-  const all                    = runs( path, clamp( rail.radius * 6, 0.2, 1 ), 2 * R + MIN_LENGTH );
+  const box                    = rail.box ? ( [rail.box[0] + PROUD, rail.box[1] + PROUD] as const ) : null;
+  const all                    = runs( path, clamp( rail.radius * 6, 0.2, 1 ), box ? MIN_LENGTH : 2 * R + MIN_LENGTH );
   const want                   = vec( rail.up ?? [0, 1, 0] ).normalize();
   const caps: CustomCollider[] = all.map( ( [a0, b0], i ) => {
     const along  = b0.clone().sub( a0 ).normalize();
     // a capsule's round ends reach past its ends: the rail's two end capsules are pulled in, as far as they have
-    // room, so it stops where it does ( the ones between overlap their neighbours, so the joins are smooth )
+    // room, so it stops where it does ( the ones between overlap their neighbours, so the joins are smooth ); a box
+    // stops at its ends: the ones between reach on into their neighbours instead
     const room   = Math.max( 0, a0.distanceTo( b0 ) - MIN_LENGTH ) / ( all.length === 1 ? 2 : 1 );
-    const a      = i === 0 ? a0.clone().addScaledVector( along, Math.min( R, room ) ) : a0;
-    const b      = i === all.length - 1 ? b0.clone().addScaledVector( along, -Math.min( R, room ) ) : b0;
+    const over   = box ? Math.max( box[0], box[1] ) : 0;
+    const a      = i === 0 ? a0.clone().addScaledVector( along, box ? 0 : Math.min( R, room ) ) : a0.clone().addScaledVector( along, -over );
+    const b      = i === all.length - 1 ? b0.clone().addScaledVector( along, box ? 0 : -Math.min( R, room ) ) : b0.clone().addScaledVector( along, over );
     const length = Math.max( MIN_LENGTH, a.distanceTo( b ) );
     // its Z up ( as close to the rail's way up as its direction allows ), its Y along the rail
     const up     = want.clone().addScaledVector( along, -want.dot( along ) );
     if ( up.lengthSq() < 1e-6 ) up.set( 0, 1, 0 ).addScaledVector( along, -along.y );
     if ( up.lengthSq() < 1e-6 ) up.set( 0, 0, 1 ).addScaledVector( along, -along.z );
     up.normalize();
-    const x   = new THREE.Vector3().crossVectors( along, up ).normalize();
-    const mid = a.clone().add( b ).multiplyScalar( 0.5 );
-    return {
-      shape:          "Capsule", surface_type: "Jib",
-      local_position: xyz( [mid.x, mid.y, mid.z] ), local_rotation: xyz( unityEuler( x, along, up ) ), local_scale: xyz( [1, 1, 1] ),
-      center:         xyz( [0, 0, 0] ), size: xyz( [0, 0, 0] ), radius: R, height: length + 2 * R, direction: 1, mesh_ref: RAIL_MARK,
-    };
+    const x     = new THREE.Vector3().crossVectors( along, up ).normalize();
+    const mid   = a.clone().add( b ).multiplyScalar( 0.5 );
+    const place = { local_position: xyz( [mid.x, mid.y, mid.z] ), local_rotation: xyz( unityEuler( x, along, up ) ), local_scale: xyz( [1, 1, 1] ), center: xyz( [0, 0, 0] ) };
+    if ( box ) return { shape: "Box", surface_type: "Jib", ...place, size: xyz( [2 * box[0], length, 2 * box[1]] ), radius: 0.5, height: 1, direction: 1, mesh_ref: RAIL_MARK };
+    return { shape: "Capsule", surface_type: "Jib", ...place, size: xyz( [0, 0, 0] ), radius: R, height: length + 2 * R, direction: 1, mesh_ref: RAIL_MARK };
   } );
   return placeWith( o, caps );
 }

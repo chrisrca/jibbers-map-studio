@@ -320,6 +320,35 @@ describe( "rail colliders", () => {
     }
   } );
 
+  it( "are boxes along a box rail, end to end, its width across and its height up", () => {
+    const o     = piece( { position: xyz( [0, 0, 0] ), rotation: xyz( [0, 0, 0] ), scale: xyz( [1, 1, 1] ) } );
+    const boxes = railColliders( o, { points: [[-1, 0, 0], [0, 0, 0], [1, 0, 0]], radius: 0.05, box: [0.08, 0.02] } );
+    expect( boxes.length                                         ).toBeGreaterThan( 2 );
+    expect( boxes.every( ( c ) => c.shape === "Box" )            ).toBe( true );
+    expect( boxes.every( ( c ) => c.mesh_ref === "studio-rail" ) ).toBe( true );
+    for ( const c of boxes ) {
+      expect( c.size.x ).toBeCloseTo( 2 * ( 0.08 + 0.012 ), 5 );
+      expect( c.size.z ).toBeCloseTo( 2 * ( 0.02 + 0.012 ), 5 );
+    }
+    // ( lying along X, Y along the rail: its ends are where the rail's are, square, not rounded off short )
+    const ends = boxes.flatMap( ( c ) => [c.local_position.x - c.size.y / 2, c.local_position.x + c.size.y / 2] );
+    expect( Math.min( ...ends ) ).toBeCloseTo( -1, 4 );
+    expect( Math.max( ...ends ) ).toBeCloseTo( 1,  4 );
+    // ( no gaps between them )
+    const sorted = [...boxes].sort( ( a, b ) => a.local_position.x - b.local_position.x );
+    for ( let i = 1; i < sorted.length; i++ ) expect( sorted[i].local_position.x - sorted[i].size.y / 2 ).toBeLessThan( sorted[i - 1].local_position.x + sorted[i - 1].size.y / 2 );
+  } );
+
+  it( "keep a box rail's boxes through a change of thickness, and turn back into capsules", () => {
+    const railed = withRail( piece(), { points: [[-1, 0, 0], [1, 0, 0]], radius: 0.05, box: [0.05, 0.05] } );
+    expect( railed.rail!.box ).toEqual( [0.05, 0.05] );
+    expect( railed.colliders.filter( isRailCollider ).every( ( c ) => c.shape === "Box" ) ).toBe( true );
+    const { box: _b, ...line } = railed.rail!;
+    const round                = withRail( railed, line );
+    expect( round.rail!.box ).toBeUndefined();
+    expect( round.colliders.filter( isRailCollider ).every( ( c ) => c.shape === "Capsule" ) ).toBe( true );
+  } );
+
   it( "unityEuler turns back into the same axes", () => {
     const deg = THREE.MathUtils.DEG2RAD;
     for ( const [ax, ay, az] of [[0.3, 1.1, -0.4], [Math.PI / 2, 0.7, 0], [-Math.PI / 2, -2, 0], [0.01, 3, 2]] ) {
