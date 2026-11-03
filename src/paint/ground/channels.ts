@@ -7,27 +7,43 @@
  * nearby ), so its soft edge shows. Works on the pixels x0..x1, y0..y1 ( and up to `reach` around them ).
 **/
 export function spreadHue( rgba: Uint8Array, m: number, x0 = 0, y0 = 0, x1 = m - 1, y1 = m - 1, reach = 2 ) {
-  const bx0  = Math.max( 0, x0 - reach ), by0 = Math.max( 0, y0 - reach ), bx1 = Math.min( m - 1, x1 + reach ), by1 = Math.min( m - 1, y1 + reach );
-  const W    = bx1 - bx0 + 1;
-  const best = new Uint8Array( W * ( by1 - by0 + 1 ) );
-  const r2   = reach * reach + 0.5;
-  for ( let y = Math.max( 0, y0 ); y <= Math.min( m - 1, y1 ); y++ )
-    for ( let x = Math.max( 0, x0 ); x <= Math.min( m - 1, x1 ); x++ ) {
-      const o = ( y * m + x ) * 4, b = rgba[o + 2];
-      if ( b < 8 || rgba[o + 1] === 0 ) continue;
-      for ( let dy = -reach; dy <= reach; dy++ ) {
-        const yy = y + dy;
-        if ( yy < by0 || yy > by1 ) continue;
-        for ( let dx = -reach; dx <= reach; dx++ ) {
-          const xx = x + dx;
-          if ( xx < bx0 || xx > bx1 || dx * dx + dy * dy > r2 ) continue;
-          const q = ( yy * m + xx ) * 4, bk = ( yy - by0 ) * W + ( xx - bx0 );
-          if ( rgba[q + 2] >= 8 || b <= best[bk] ) continue;
-          best[bk]    = b;
-          rgba[q + 1] = rgba[o + 1];
-        }
-      }
+  // ( looked at from the uncovered pixels: each takes the hue of the strongest marking within reach, the first in
+  // row order of the strongest; a marking's covered middle, most of a big brush's pixels, costs nothing )
+  const ax0 = Math.max( 0, x0 ), ay0 = Math.max( 0, y0 ), ax1 = Math.min( m - 1, x1 ), ay1 = Math.min( m - 1, y1 );
+  const bx0 = Math.max( 0, ax0 - reach ), by0 = Math.max( 0, ay0 - reach ), bx1 = Math.min( m - 1, ax1 + reach ), by1 = Math.min( m - 1, ay1 + reach );
+  const r2  = reach * reach + 0.5;
+  if ( ax0 > ax1 || ay0 > ay1 ) return;
+  // how many marked pixels up and left of each ( a summed-area table ): a pixel with none within reach skips at once
+  const W   = ax1 - ax0 + 2, sat = new Int32Array( W * ( ay1 - ay0 + 2 ) );
+  for ( let y = ay0; y <= ay1; y++ ) {
+    let row = 0;
+    for ( let x = ax0, o = ( y * m + x ) * 4; x <= ax1; x++, o += 4 ) {
+      if ( rgba[o + 2] >= 8 && rgba[o + 1] !== 0 ) row++;
+      sat[( y - ay0 + 1 ) * W + x - ax0 + 1] = sat[( y - ay0 ) * W + x - ax0 + 1] + row;
     }
+  }
+  for ( let yy = by0; yy <= by1; yy++ ) {
+    const sy0 = Math.max( ay0, yy - reach ), sy1 = Math.min( ay1, yy + reach );
+    if ( sy0 > sy1 ) continue;
+    const t0  = ( sy0 - ay0 ) * W, t1 = ( sy1 - ay0 + 1 ) * W;
+    for ( let xx = bx0; xx <= bx1; xx++ ) {
+      const q = ( yy * m + xx ) * 4;
+      if ( rgba[q + 2] >= 8 ) continue;
+      const sx0 = Math.max( ax0, xx - reach ), sx1 = Math.min( ax1, xx + reach );
+      if ( sx0 > sx1 ) continue;
+      const c0  = sx0 - ax0, c1 = sx1 - ax0 + 1;
+      if ( sat[t1 + c1] - sat[t0 + c1] - sat[t1 + c0] + sat[t0 + c0] === 0 ) continue;
+      let best  = 0, hue = -1;
+      for ( let y = sy0; y <= sy1; y++ )
+        for ( let x = sx0, o = ( y * m + x ) * 4; x <= sx1; x++, o += 4 ) {
+          const b = rgba[o + 2];
+          if ( b <= best || b < 8 || rgba[o + 1] === 0 || ( x - xx ) * ( x - xx ) + ( y - yy ) * ( y - yy ) > r2 ) continue;
+          best = b;
+          hue  = rgba[o + 1];
+        }
+      if ( hue >= 0 ) rgba[q + 1] = hue;
+    }
+  }
 }
 
 /**
@@ -39,13 +55,33 @@ export function encodeAngle( dx: number, dz: number ) {
   return Math.round( a * 255 ) % 256;
 }
 
+// ( each byte's direction, worked out once )
+const SIN = new Float64Array( 256 ), COS = new Float64Array( 256 );
+for ( let b = 0; b < 256; b++ ) {
+  SIN[b] = Math.sin( ( b / 255 ) * Math.PI * 2 );
+  COS[b] = Math.cos( ( b / 255 ) * Math.PI * 2 );
+}
+
 export function decodeAngle( b: number ): [number, number] {
+  if ( b >= 0 && b < 256 && b === Math.floor( b ) ) return [SIN[b], COS[b]];
   const a = ( b / 255 ) * Math.PI * 2;
   return [Math.sin( a ), Math.cos( a )];
 }
 
 export function blendAngle( cur: number, target: number, w: number ) {
-  const [ax, az] = decodeAngle( cur ), [bx, bz] = decodeAngle( target );
-  const x        = ax + ( bx - ax ) * w, z = az + ( bz - az ) * w;
+  const x = SIN[cur] + ( SIN[target] - SIN[cur] ) * w, z = COS[cur] + ( COS[target] - COS[cur] ) * w;
   return Math.hypot( x, z ) < 1e-4 ? target : encodeAngle( x, z );
+}
+
+/**
+ * blendAngle towards one direction, for many pixels ( a dab's ): each byte and weight ( in 128ths ) blended once.
+**/
+export function angleTowards( target: number ) {
+  const memo = new Int16Array( 256 * 129 ).fill( -1 );
+  return ( cur: number, w: number ) => {
+    const k = cur * 129 + Math.round( Math.min( 1, Math.max( 0, w ) ) * 128 );
+    let v   = memo[k];
+    if ( v < 0 ) v = memo[k] = blendAngle( cur, target, ( k % 129 ) / 128 );
+    return v;
+  };
 }

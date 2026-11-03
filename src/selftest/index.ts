@@ -16,6 +16,7 @@ import { convertSelftest } from "./model/convert";
 import { curveSelftest } from "./model/curve";
 import { demsSelftest } from "./realmap/dems";
 import { designToolsSelftest } from "./app/designTools";
+import { toolsParitySelftest } from "./app/toolsParity";
 import { designLookSelftest } from "./look/designLook";
 import { dragAimSelftest } from "./assets/dragAim";
 import { droneLookSelftest, droneRawSelftest } from "./game/droneLook";
@@ -45,6 +46,7 @@ import { liftsSelftest } from "./pieces/lifts";
 import { mapPiecesSelftest } from "./pieces/mapPieces";
 import { loadVeilSelftest } from "./perf/loadVeil";
 import { mapNavSelftest } from "./perf/mapNav";
+import { userPerfSelftest } from "./perf/userPerf";
 import { lookSelftest } from "./look/look";
 import { mapTreesSelftest } from "./realmap/mapTrees";
 import { materialSelftest } from "./assets/material";
@@ -52,6 +54,7 @@ import { modelSelftest } from "./model/model";
 import { mountainLagSelftest } from "./realmap/mountainLag";
 import { mountainSelftest } from "./realmap/mountain";
 import { mountainStressSelftest } from "./realmap/mountainStress";
+import { newMapLookSelftest } from "./look/newMapLook";
 import { newMapSelftest } from "./terrain/newMap";
 import { nightSelftest } from "./look/night";
 import { objectLookSelftest } from "./look/objectLook";
@@ -114,6 +117,7 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   recycle:      recycleSelftest,
   saving:       savingSelftest,
   startup:      startupSelftest,
+  toolsparity:  toolsParitySelftest,
   ui:           uiSelftest,
   uifixes:      uiFixesSelftest,
   updates:      updatesSelftest,
@@ -122,6 +126,7 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   brushdrag:    brushDragSelftest,
   brushstress:  brushStressSelftest,
   newmap:       newMapSelftest,
+  newmaplook:   newMapLookSelftest,
   rampdrag:     rampDragSelftest,
   repeats:      repeatsSelftest,
   resort:       resortSelftest,
@@ -219,6 +224,7 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   idlefps:      idleFpsSelftest,
   loadveil:     loadVeilSelftest,
   mapnav:       mapNavSelftest,
+  userperf:     userPerfSelftest,
   vram:         vramSelftest,
 };
 

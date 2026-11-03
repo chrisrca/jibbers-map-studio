@@ -218,13 +218,27 @@ function Editor( { onShortcuts }: { onShortcuts: () => void } ) {
   useEffect( () => startDiscordPresence(), [] );
 
   // an untitled map is kept in the studio's own data every 30 seconds ( recovered with Recover Last Session ); a map of
-  // yours is only written when you save it
+  // yours is only written when you save it. It waits for a pause in the work ( 3 s without the mouse, keys or a stroke
+  // being laid down ): writing a big map's ground holds the page up a moment, which mid-stroke is a hitch
   useEffect( () => {
-    const t = setInterval( () => {
+    let lastInput  = performance.now(), due = false;
+    const touched  = () => void ( lastInput = performance.now() );
+    const opts     = { capture: true, passive: true };
+    for ( const ev of ["pointerdown", "pointermove", "keydown", "wheel"] ) window.addEventListener( ev, touched, opts );
+    const save     = () => {
       const st = useEditor.getState();
-      if ( st.dirty && isUntitled( st.projectDir ) ) saveProject().catch( () => {} );
-    }, 30_000 );
-    return () => clearInterval( t );
+      if ( !st.dirty || !isUntitled( st.projectDir ) ) return void ( due = false );
+      if ( performance.now() - lastInput < 3000 || getEngine()?.input.sculpting ) return void ( due = true );
+      due = false;
+      saveProject().catch( () => {} );
+    };
+    const t        = setInterval( save, 30_000 );
+    const retry    = setInterval( () => due && save(), 1000 );
+    return () => {
+      clearInterval( t );
+      clearInterval( retry );
+      for ( const ev of ["pointerdown", "pointermove", "keydown", "wheel"] ) window.removeEventListener( ev, touched, opts );
+    };
   }, [] );
   // closing the studio: unsaved changes asked about first
   useEffect( () => {

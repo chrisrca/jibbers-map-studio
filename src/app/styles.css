@@ -347,6 +347,9 @@ input[type="range"] { accent-color: var(--c-accent); height: 14px; }
 .props { display: grid; grid-template-columns: minmax(70px, 38%) minmax(0, 1fr); gap: 2px 8px; align-items: center; }
 .props > label, .props > .lbl { text-align: right; color: var(--c-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .props > label:has(input[type="checkbox"]) { text-align: left; color: var(--c-text); }
+/* rows wrapped for a key (display: contents): their labels are the grid's own, lined up the same */
+.props > [style*="contents"] > label, .props > [style*="contents"] > .lbl { text-align: right; color: var(--c-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.props > [style*="contents"] > label:has(input[type="checkbox"]) { text-align: left; color: var(--c-text); }
 .props .note { grid-column: 1 / -1; color: var(--c-text-faint); line-height: 1.5; padding: 2px 0; }
 .props .note.warn { color: var(--c-warning); }
 .props > .section { grid-column: 1 / -1; margin-top: 6px; color: var(--c-text-dim); }
@@ -719,7 +722,7 @@ html.scrubbing, html.scrubbing * { cursor: none !important; user-select: none !i
 .adjust-last { position: absolute; left: 58px; bottom: 8px; z-index: 4; width: 250px; padding: 2px 6px 6px; border-radius: var(--r-area); background: var(--c-panel); box-shadow: inset 0 0 0 1px var(--c-hairline), 0 4px 14px rgba(0, 0, 0, .35); }
 .adjust-last .al-head { display: flex; align-items: center; gap: 4px; width: 100%; height: var(--row); padding: 0 2px; border: 0; background: none; color: var(--c-text); text-align: left; }
 .adjust-last .props { margin-top: 2px; }
-.adjust-last .props > label { text-align: right; }
+.adjust-last .props label { text-align: right; color: var(--c-text); }
 
 /* Blender's popovers (a panel of settings under a header button) */
 .popover { position: fixed; z-index: 1000; width: 240px; padding: 4px 8px 8px; border-radius: var(--r-area); background: var(--c-menu); border: 1px solid var(--c-menu-line); box-shadow: 0 10px 28px rgba(0, 0, 0, .45); }

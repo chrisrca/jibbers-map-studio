@@ -146,6 +146,22 @@ describe( "brushes", () => {
     expect( stdDev( t, 48, 52, 50, 50 ) ).toBeLessThan( 0.1 ); // bumps across the slope gone
   } );
 
+  it( "erode slumps a cliff towards its angle, keeping the ground it moves", () => {
+    const t   = new Terrain();
+    const res = 101, h = new Float32Array( res * res );
+    for ( let j = 0; j < res; j++ ) for ( let i = 0; i < res; i++ ) h[j * res + i] = 20 + ( i > 50 ? 10 : 0 );
+    t.setChunks( [{ key: "a", position: [0, 0, 0], size: [100, 200, 100], res, heights: h }] );
+    const sum = () => { let n = 0; for ( let x = 30; x <= 70; x++ ) for ( let z = 40; z <= 60; z++ ) n += t.heightAt( x, z ); return n; };
+    const was = sum();
+    const s   = new BrushStroke( t, sculpt( "erode", { erodeAngle: 30, strength: 1 } ), [50, 50] );
+    s.move( { x: 50, z: 50 } );
+    for ( let k = 0; k < 40; k++ ) s.dab( 50, 50 );
+    s.end();
+    const steepest = Math.max( ...[46, 47, 48, 49, 50, 51, 52, 53, 54].map( ( x ) => Math.abs( t.heightAt( x + 1, 50 ) - t.heightAt( x, 50 ) ) ) );
+    expect( steepest ).toBeLessThan( 6 );
+    expect( Math.abs( sum() - was ) / was ).toBeLessThan( 0.002 );
+  } );
+
   it( "terrace makes steps", () => {
     const t   = new Terrain();
     const res = 101, h = new Float32Array( res * res );

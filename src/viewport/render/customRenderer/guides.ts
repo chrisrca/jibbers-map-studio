@@ -16,6 +16,10 @@ export class GrindGuides {
   private all = false;
   // a piece whose rail is being edited ( its curve is drawn instead )
   private hidden: string | null = null;
+  // when each piece was last seen changed: one changing frame after frame ( dragged ) keeps its old guide until it's
+  // still a moment ( made again from its surface every frame, that was a few ms a frame )
+  private changedAt = new Map<string, number>();
+  private later: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Grind guides on every jib, not just selected ones.
@@ -43,8 +47,21 @@ export class GrindGuides {
     for ( const [uid, s] of this.renderer.shown ) {
       if ( s.data.surface_type === "Jib" && uid !== this.hidden && ( this.all || this.renderer.selected.has( uid ) ) ) want.add( uid );
     }
+    const now = performance.now();
     for ( const [uid, c] of this.cache ) {
       const s = this.renderer.shown.get( uid );
+      // ( changed again within a moment of the last change: kept as it is, looked at again once it's still )
+      if ( want.has( uid ) && s && s.built !== c.data && s.built === s.data ) {
+        const prev = this.changedAt.get( uid );
+        this.changedAt.set( uid, now );
+        if ( prev !== undefined && now - prev < 150 ) {
+          this.later ??= setTimeout( () => {
+            this.later = null;
+            this.update();
+          }, 180 );
+          continue;
+        }
+      }
       if ( !want.has( uid ) || !s || s.built !== c.data ) {
         if ( c.obj ) {
           this.group.remove( c.obj );

@@ -160,13 +160,30 @@ export function texelMap( g: Mesh, atlas: Atlas, n: number ): TexelMap {
  * The texels within `r` of a point ( piece coordinates ).
 **/
 export function texelsNear( m: TexelMap, p: V3, r: number, f: ( k: number, d2: number ) => void ) {
-  const c  = m.cell, reach = Math.ceil( r / c );
+  const g = texelsNearSteps( m, p, r, f );
+  while ( !g.next().done );
+}
+
+/**
+ * texelsNear, stopping every `every` texels it looks at ( a big brush's dab carried on over frames ).
+**/
+export function* texelsNearSteps( m: TexelMap, p: V3, r: number, f: ( k: number, d2: number ) => void, every = 4096 ): Generator<void, void, void> {
+  const c  = m.cell, reach = Math.ceil( r / c ), r2 = r * r;
   const cx = Math.floor( p[0] / c ), cy = Math.floor( p[1] / c ), cz = Math.floor( p[2] / c );
+  let n    = 0;
   for ( let x = cx - reach; x <= cx + reach; x++ )
     for ( let y = cy - reach; y <= cy + reach; y++ )
-      for ( let z = cz - reach; z <= cz + reach; z++ )
-        for ( const k of m.grid.get( cellKey( x, y, z ) ) ?? [] ) {
+      for ( let z = cz - reach; z <= cz + reach; z++ ) {
+        const cell = m.grid.get( cellKey( x, y, z ) );
+        if ( !cell ) continue;
+        for ( let q = 0; q < cell.length; q++ ) {
+          const k  = cell[q];
           const dx = m.pos[k * 3] - p[0], dy = m.pos[k * 3 + 1] - p[1], dz = m.pos[k * 3 + 2] - p[2], d2 = dx * dx + dy * dy + dz * dz;
-          if ( d2 <= r * r ) f( k, d2 );
+          if ( d2 <= r2 ) f( k, d2 );
         }
+        if ( ( n += cell.length ) >= every ) {
+          n = 0;
+          yield;
+        }
+      }
 }

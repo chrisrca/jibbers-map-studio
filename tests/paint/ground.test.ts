@@ -46,6 +46,53 @@ describe( "spreadHue", () => {
   } );
 } );
 
+// spreadHue as it was first written ( every marked pixel giving its hue to the uncovered ones round it ): the faster
+// one must give the same masks
+function spreadHueAsWas( rgba: Uint8Array, m: number, x0 = 0, y0 = 0, x1 = m - 1, y1 = m - 1, reach = 2 ) {
+  const bx0  = Math.max( 0, x0 - reach ), by0 = Math.max( 0, y0 - reach ), bx1 = Math.min( m - 1, x1 + reach ), by1 = Math.min( m - 1, y1 + reach );
+  const W    = bx1 - bx0 + 1;
+  const best = new Uint8Array( W * ( by1 - by0 + 1 ) );
+  const r2   = reach * reach + 0.5;
+  for ( let y = Math.max( 0, y0 ); y <= Math.min( m - 1, y1 ); y++ )
+    for ( let x = Math.max( 0, x0 ); x <= Math.min( m - 1, x1 ); x++ ) {
+      const o = ( y * m + x ) * 4, b = rgba[o + 2];
+      if ( b < 8 || rgba[o + 1] === 0 ) continue;
+      for ( let dy = -reach; dy <= reach; dy++ ) {
+        const yy = y + dy;
+        if ( yy < by0 || yy > by1 ) continue;
+        for ( let dx = -reach; dx <= reach; dx++ ) {
+          const xx = x + dx;
+          if ( xx < bx0 || xx > bx1 || dx * dx + dy * dy > r2 ) continue;
+          const q = ( yy * m + xx ) * 4, bk = ( yy - by0 ) * W + ( xx - bx0 );
+          if ( rgba[q + 2] >= 8 || b <= best[bk] ) continue;
+          best[bk]    = b;
+          rgba[q + 1] = rgba[o + 1];
+        }
+      }
+    }
+}
+
+describe( "spreadHue, faster", () => {
+  it( "gives the same masks as the plain way, over the whole mask and a part of it", () => {
+    let seed = 7;
+    const rnd = () => ( ( seed = ( seed * 1103515245 + 12345 ) & 0x7fffffff ) / 0x7fffffff );
+    for ( let n = 0; n < 40; n++ ) {
+      const m  = 24, px = new Uint8Array( m * m * 4 );
+      // ( blotches of markings with soft edges, some hues, some coverage under 8 )
+      for ( let k = 0; k < m * m; k++ ) {
+        px[k * 4]     = 255;
+        px[k * 4 + 1] = rnd() < 0.5 ? Math.floor( rnd() * 6 ) * 40 : 0;
+        px[k * 4 + 2] = rnd() < 0.4 ? Math.floor( rnd() * 255 ) : rnd() < 0.5 ? Math.floor( rnd() * 10 ) : 0;
+      }
+      const box: [number, number, number, number] = n % 2 ? [0, 0, m - 1, m - 1] : [Math.floor( rnd() * 10 ), Math.floor( rnd() * 10 ), 12 + Math.floor( rnd() * 11 ), 12 + Math.floor( rnd() * 11 )];
+      const a  = px.slice(), b = px.slice();
+      spreadHue( a, m, ...box, 1 + ( n % 3 ) );
+      spreadHueAsWas( b, m, ...box, 1 + ( n % 3 ) );
+      expect( a ).toEqual( b );
+    }
+  } );
+} );
+
 describe( "upsampleMask", () => {
   it( "blends snow and coverage between pixels and keeps each hue whole", () => {
     // 2 x 2: left column rock with a red marking, right column snow with a blue one

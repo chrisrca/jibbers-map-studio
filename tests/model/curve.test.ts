@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { curveMesh, newCurve, samplePath } from "../../src/model/curve";
+import { archPoints, CURVE_PRESETS, curveMesh, DEFAULT_ARCH, newCurve, presetCurve, samplePath } from "../../src/model/curve";
 import type { CustomObjectEntry } from "../../src/core/types";
 import type { ModelData } from "../../src/model/build";
 import { cross, dot, edgesOf, runs, type Mesh } from "../../src/model/mesh";
@@ -100,5 +100,33 @@ describe( "curve pieces in the map", () => {
     const g = curveMesh( c );
     expect( closed( g ) ).toBe( true   );
     expect( g.f.length  ).toBe( 16 + 2 );
+  } );
+} );
+
+describe( "an arch", () => {
+  it( "spans its width end to end, peaks at its height in the middle, and stays above its ends", () => {
+    const p = archPoints( { span: 8, height: 3, exponent: 1, twist: 0, points: 9 } );
+    expect( p[0][0]                ).toBeCloseTo( -4, 5 );
+    expect( p[8][0]                ).toBeCloseTo( 4,  5 );
+    expect( p[4][1]                ).toBeCloseTo( 3,  5 );
+    expect( p[0][1]                ).toBeCloseTo( 0,  5 );
+    expect( Math.min( ...p.map( ( q ) => q[1] ) ) ).toBeGreaterThanOrEqual( 0 );
+    // ( an ellipse: x² / a² + y² / b² = 1 )
+    for ( const [x, y] of p ) expect( ( x / 4 ) ** 2 + ( y / 3 ) ** 2 ).toBeCloseTo( 1, 5 );
+  } );
+
+  it( "a lower exponent is fuller, a higher one pointier; the twist goes end to end across it", () => {
+    const at = ( exponent: number ) => archPoints( { span: 8, height: 3, exponent, twist: 2, points: 9 } );
+    // ( a quarter of the way along: higher up the fuller it is )
+    expect( at( 0.5 )[2][1] ).toBeGreaterThan( at( 1 )[2][1] );
+    expect( at( 2 )[2][1]   ).toBeLessThan( at( 1 )[2][1] );
+    expect( at( 1 )[0][2]   ).toBeCloseTo( -1, 5 );
+    expect( at( 1 )[8][2]   ).toBeCloseTo( 1,  5 );
+  } );
+
+  it( "Add › Rail › Arch: a rail along the arch's points, the shape kept with it", () => {
+    const c = presetCurve( CURVE_PRESETS.find( ( p ) => p.label === "Arch" )! );
+    expect( c.arch ).toEqual( DEFAULT_ARCH );
+    expect( c.splines[0].points.map( ( q ) => q.p ) ).toEqual( archPoints( DEFAULT_ARCH ) );
   } );
 } );

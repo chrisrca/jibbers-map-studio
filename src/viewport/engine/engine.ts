@@ -1,6 +1,7 @@
 // The 3D view: its renderer, scene and camera, what's drawn, the frame loop and picking. Its parts ( the mouse, the
 // keys, placing, the gizmo, the time of day… ) are each in a file beside this one.
 
+import { useMotionPreview } from "../../pieces/motion";
 import * as THREE from "three/webgpu";
 import { toUnity, type V3 } from "../../core/coords";
 import { ipc } from "../../core/ipc";
@@ -22,6 +23,7 @@ import { Stage } from "../render/stage";
 import { TerrainRenderer, type GpuAccess } from "../render/terrainRenderer";
 import { BlGizmo } from "../tools/gizmo/blGizmo";
 import { LiftTool } from "../tools/liftTool";
+import { FenceTool } from "../tools/fenceTool";
 import { RailTool } from "../tools/railTool";
 import { ShapeTool } from "../tools/shapeTool";
 import { TrailTool } from "../tools/trail/trailTool";
@@ -103,6 +105,7 @@ export class Engine {
   shapeTool!: ShapeTool;
   trailTool!: TrailTool;
   liftTool!:  LiftTool;
+  fenceTool!: FenceTool;
   // a piece's grind rail being edited ( Properties › Rail › Edit points )
   readonly railTool                 = new RailTool();
   // the mouse
@@ -116,6 +119,8 @@ export class Engine {
   private unsub: ( () => void )[]   = [];
   onStats?: ( s: { fps: number; tiles: number; visible: number; triangles: number; cursor: V3 | null; slope: number | null } ) => void;
   private frames = 0;
+  // the moving parts' preview was on last frame ( put back at rest once it's off )
+  private motionOn = false;
   private fpsT   = 0;
   constructor( readonly host: HTMLElement ) {
     this.firstDrawn = new Promise( ( r ) => ( this.drewFirst = r ) );
@@ -140,6 +145,8 @@ export class Engine {
     this.terrainR                      = new TerrainRenderer( terrain, ( p ) => this.ground.loadMask( p ) );
     const backend                      = ( this.renderer as unknown as { backend: { device?: GpuAccess["device"]; get( o: object ): { texture?: unknown } } } ).backend;
     if ( backend.device ) this.terrainR.gpu = { device: backend.device, textureOf: ( t ) => backend.get( t ).texture };
+    this.terrainR.prepare              = ( o ) => this.renderer.compileAsync( o, this.camera, this.scene );
+    this.terrainR.initTarget           = ( rt ) => this.renderer.initRenderTarget( rt );
     this.modelEd = new ModelEditor( {
       camera: this.camera,
       host:   this.host,
@@ -174,13 +181,18 @@ export class Engine {
     const dom      = this.renderer.domElement;
     this.controls  = new CameraController( this.camera, dom, terrain, ( x, y ) => this.pickTerrain( x, y ) );
     this.shapeTool = new ShapeTool( ( x, y ) => this.ray( x, y ), ( x, y ) => this.pickTerrain( x, y ) );
+    this.shapeTool.onPicked = () => this.gizmo.sync();
     this.trailTool = new TrailTool( ( x, y ) => this.ray( x, y ), ( x, y ) => this.pickTerrain( x, y ), () => this.camera, () => this.host.clientHeight );
     this.scene.add( this.trailTool.group );
     this.liftTool = new LiftTool( ( x, y ) => this.ray( x, y ), () => this.camera, () => this.host.clientHeight, ( o ) => !!this.lib.info( o.id )?.lift, ( o ) => !!this.lib.info( o.id )?.lift?.mast, ( uid ) => this.objectsR.liftPieceMeshes( uid ) );
     this.scene.add( this.liftTool.group );
+    this.fenceTool = new FenceTool( ( x, y ) => this.ray( x, y ), () => this.camera, () => this.host.clientHeight );
+    this.scene.add( this.fenceTool.group );
     // ( the gizmo and the selection box go to the lift's piece picked )
-    this.liftTool.onPicked   = () => this.syncObjects();
-    this.objectsR.liftPicked = ( uid ) => this.liftTool.pickedOf( uid );
+    this.liftTool.onPicked       = () => this.syncObjects();
+    this.fenceTool.onPicked      = () => this.syncObjects();
+    this.fenceTool.localVertices = ( o ) => this.customR.localVertices( o );
+    this.objectsR.liftPicked     = ( uid ) => this.liftTool.pickedOf( uid );
     this.scene.add( this.shapeTool.group, this.growPreview.group, this.railTool.group, this.stage.group, this.emptyFloor.group );
     this.unsub.push( onGrowPreview( ( p ) => this.growPreview.show( p ) )                        );
     this.unsub.push( onPaintChange( ( key ) => ( this.terrainR.paintChanged( key ), redraw() ) ) );
@@ -286,8 +298,26 @@ export class Engine {
     const view    = `${e.join( "," )}|${p[0]},${p[5]},${p[10]}|${c.width}x${c.height}`;
     const moved   = view !== this.lastView;
     this.lastView = view;
-    const busy    = this.veil.loading || !!this.input.stroke || !!this.input.paintStroke || !!this.input.scatterStroke || this.blGizmo.dragging || !!this.input.sizeDrag || this.meshPainter.painting;
+    const busy    = this.veil.loading || this.input.sculpting || !!this.input.paintStroke || !!this.input.scatterStroke || this.blGizmo.dragging || !!this.input.sizeDrag || this.meshPainter.busy;
     return takeRedraw() || moved || busy || performance.now() - this.lastDrawn > 1000;
+  }
+
+  // the scene's lighting as shaders are made for it ( three's key for it, and its renderer's context )
+  private envKey = "";
+
+  /**
+   * The lighting changed ( the map's lamps and sun in, a lamp lit ): a shader is made for the lights it's drawn
+   * with, so the ground's tiles are made ready again in the background, or each would be made on the frame it next
+   * came into view ( turning the camera, a hitch of a tenth of a second ).
+  **/
+  private watchLights() {
+    const r  = this.renderer as unknown as { _renderLists?: { get( s: THREE.Scene, c: THREE.Camera, l: unknown ): { lightsNode?: unknown } }; _nodes?: { getCacheKey( s: THREE.Scene, l: unknown ): number }; contextNode?: { id: number; version: number }; lighting: unknown };
+    const ln = r._renderLists?.get( this.scene, this.camera, r.lighting )?.lightsNode;
+    if ( !ln || !r._nodes ) return;
+    const k  = `${r._nodes.getCacheKey( this.scene, ln )}:${r.contextNode?.id}:${r.contextNode?.version}`;
+    if ( k === this.envKey ) return;
+    this.envKey = k;
+    void this.terrainR.rewarm();
   }
 
   private frame() {
@@ -298,6 +328,7 @@ export class Engine {
       this.needsResize = false;
       this.resize();
     }
+    this.input.workStrokes();
     if ( terrain.flush() ) redraw(); // sculpt dabs since the last frame → one upload per changed tile
     this.input.updateBrushLook();
     this.clock.update();
@@ -315,20 +346,32 @@ export class Engine {
     this.blGizmo.look.update();
     this.trailTool?.frame();
     this.liftTool?.frame();
+    this.fenceTool?.frame();
     // ( the map's lights, once it's dark: the nearest few )
     if ( this.sceneLights.update( this.camera, this.daylight.night ) ) redraw();
     // ( the lifts' chairs going round )
     if ( this.objectsR.animate( this.camera ) ) redraw();
+    // ( pieces' moving parts, while the preview's on: the time on while it plays, shown again when it's moved )
+    const mp = useMotionPreview.getState();
+    if ( mp.on && mp.playing ) useMotionPreview.setState( { t: mp.t + dt } );
+    if ( mp.on || this.motionOn ) {
+      this.motionOn = mp.on;
+      if ( this.customR.animate( mp.on ? useMotionPreview.getState().t : null ) ) redraw();
+    }
     this.customR.paint.update();
     if ( this.input.stroke ) this.input.stroke.hold( dt * 1000, this.input.strokePressure );
     this.meshPainter.hold( dt * 1000 );
     // drawn when something may have changed ( viewport/redraw.ts ); a still view isn't drawn again
     if ( this.needsDrawing() ) {
       this.lastDrawn = performance.now();
-      // ( what's selected is outlined, as Blender does )
-      if ( this.stage.shown || useEditor.getState().selection.some( ( x ) => x.kind === "custom" ) ) this.look.outlined().render();
+      // ( what's selected is outlined, as Blender does; not in Texture Paint, as in Blender: the piece painted is drawn
+      // plain, the outline's passes a good share of a frame while painting it )
+      const st      = useEditor.getState();
+      const outline = ( this.stage.shown || st.selection.some( ( x ) => x.kind === "custom" ) ) && !( st.tool === "material" && st.materialMode === "paint" );
+      if ( outline ) this.look.outlined().render();
       else this.renderer.render( this.scene, this.camera );
       this.drewFirst();
+      this.watchLights();
     }
 
     this.frames++;

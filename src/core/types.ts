@@ -84,6 +84,9 @@ export interface CustomObjectEntry {
   lights:                   CustomLight[];
   // a grind rail drawn along the piece ( studio only; the game gets the colliders made from it: pieces/rail.ts )
   rail?:                    Rail;
+  // a fence's colliders copied from the map's pieces it uses for posts or panels ( studio only, world space: kept
+  // apart so a change of its model keeps them; pieces/fence.ts )
+  kitColliders?:            CustomCollider[];
   // a real-world map's surroundings: how its texture was last painted ( studio only; geo/scenery/inner.ts )
   scenery?:                 { rockAngle: number };
   // the library asset it was placed from, and that file's date then ( studio only: overwriting the asset brings the

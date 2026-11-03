@@ -6,7 +6,7 @@
 import type { TrailNet } from "./net";
 import { runStrip, skirtOf } from "./strip";
 
-export { type TrailNode, type TrailRun, type TrailNet, NET_VERSION, emptyNet, defaultEdge, trailId, newRun, nodeOf, runsAt, RUN_PROFILES } from "./net";
+export { type TrailNode, type TrailRun, type TrailNet, type TrailFeature, type TrailStripe, NET_VERSION, emptyNet, defaultEdge, trailId, newRun, nodeOf, runsAt, RUN_PROFILES } from "./net";
 export { controls, runLength, pointOnRun, nearestOnRun } from "./line";
 export { type Strip, skirtOf, runStrip, junctionPad, handlePoints, stripTriangles } from "./strip";
 export { splitRun, fitToGround, mergePoints, smoothedGround, tiltToGround } from "./changes";

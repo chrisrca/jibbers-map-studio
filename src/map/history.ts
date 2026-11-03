@@ -19,6 +19,9 @@ class History {
   // total snapshot memory kept for undo; the oldest steps go first when it's over ( terrain strokes on detailed
   // ground hold megabytes each )
   budget = 1.5e9;
+  // work still under way that ends in a step of its own ( a sculpt stroke still being laid down ): finished before an
+  // undo or redo, so the steps stay in order
+  settle: () => void = () => {};
 
   push( e: HistoryEntry ) {
     this.past.push( e );
@@ -50,7 +53,28 @@ class History {
     return { labels: [...this.past.map( ( e ) => e.label ), ...[...this.future].reverse().map( ( e ) => e.label )], current: this.past.length };
   }
 
+  /**
+   * The last `n` steps made one ( a join: one shape changed, another taken away ).
+  **/
+  // the step undo would take back
+  get last(): HistoryEntry | undefined {
+    return this.past[this.past.length - 1];
+  }
+
+  mergeLast( n: number, label: string ) {
+    if ( n < 2 || this.past.length < n ) return;
+    const steps = this.past.splice( this.past.length - n, n );
+    this.past.push( {
+      label,
+      bytes: steps.reduce( ( b, e ) => b + ( e.bytes ?? 0 ), 0 ),
+      undo:  () => [...steps].reverse().forEach( ( e ) => e.undo() ),
+      redo:  () => steps.forEach( ( e ) => e.redo() ),
+    } );
+    this.emit();
+  }
+
   undo() {
+    this.settle();
     const e = this.past.pop();
     if ( !e ) return null;
     e.undo();
@@ -60,6 +84,7 @@ class History {
   }
 
   redo() {
+    this.settle();
     const e = this.future.pop();
     if ( !e ) return null;
     e.redo();
@@ -95,6 +120,10 @@ class History {
   }
   get canRedo() {
     return this.future.length > 0;
+  }
+  // the step undo would take back next ( to tell whether something is still the last thing done )
+  get top(): HistoryEntry | undefined {
+    return this.past[this.past.length - 1];
   }
   get nextUndo() {
     return this.past[this.past.length - 1]?.label;

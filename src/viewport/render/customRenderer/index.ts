@@ -9,7 +9,9 @@ import { type Selection, type Shading, useEditor } from "../../../map/store";
 import type { ModelData } from "../../../model/build";
 import type { SourceMesh } from "../../../model/importMesh";
 import { builtOf, isModel, lodPreview, meshKey } from "../../../model/objects";
-import { toPiece } from "../../../pieces/rail";
+import { dirToPiece, dirToView, toPiece, toView } from "../../../pieces/rail";
+import { capture, cycleAngle, moved, movingPartsOf, turned, type MovingPart } from "../../../pieces/motion";
+import type { V3 } from "../../../core/coords";
 import type { BakeImage } from "../../../texture/bake";
 import { onPieceTexture } from "../../../texture/meshPaint";
 import { disposeGuide } from "../../tools/grindGuide";
@@ -310,7 +312,113 @@ export class CustomObjectsRenderer {
     return group;
   }
 
+  // pieces with moving parts, as the view shows them moving: each mesh's own copy of its geometry, where each vertex
+  // rests ( the piece's space ) and its normal, which part moves it; the parts' pivots. Made again when it's rebuilt.
+  private moving = new Map<string, {
+    built:  CustomObjectEntry;
+    group:  THREE.Group;
+    // the time it was last shown at ( NaN: not yet )
+    t:      number;
+    parts:  MovingPart[];
+    pivots: ( V3 | null )[];
+    meshes: { mesh: THREE.Mesh; shared: THREE.BufferGeometry; rest: V3[]; restN: V3[] | null; part: Int32Array }[];
+  }>();
+
+  /**
+   * The moving parts of piece `uid` that move nothing while the preview's on ( what they'd take an earlier part has:
+   * the game moves each vertex one way ), by their place in its list.
+  **/
+  movesNothing( uid: string ): number[] {
+    return ( this.moving.get( uid )?.pivots ?? [] ).flatMap( ( p, k ) => ( p ? [] : [k] ) );
+  }
+
+  /**
+   * Pieces' moving parts where they are `t` seconds on ( null: back at rest, the preview stopped ). True when any
+   * moved ( the view's drawn again ).
+  **/
+  animate( t: number | null ): boolean {
+    let any = false;
+    for ( const [uid, mv] of this.moving ) {
+      const s = this.shown.get( uid );
+      if ( t !== null && s && s.built === mv.built && s.group === mv.group ) continue;
+      this.restore( uid );
+      any = true;
+    }
+    if ( t === null ) return any;
+    for ( const [uid, s] of this.shown ) {
+      const o = s.built;
+      if ( !o || !s.group.visible || !s.group.children.length || !movingPartsOf( o ).length ) continue;
+      const mv = this.moving.get( uid ) ?? this.prepareMoving( uid, o, s.group );
+      if ( !mv || mv.t === t ) continue;
+      mv.t = t;
+      for ( const { mesh, rest, restN, part } of mv.meshes ) {
+        const pos    = mesh.geometry.getAttribute( "position" ) as THREE.BufferAttribute, nor = mesh.geometry.getAttribute( "normal" ) as THREE.BufferAttribute | undefined;
+        const inv    = mesh.matrix.clone().invert(), nInv = new THREE.Matrix3().getNormalMatrix( inv );
+        const angles = mv.parts.map( ( m, k ) => ( mv.pivots[k] ? cycleAngle( m, mv.pivots[k]!, t ) : 0 ) );
+        for ( let i = 0; i < rest.length; i++ ) {
+          const k = part[i];
+          if ( k < 0 || !mv.pivots[k] ) continue;
+          const m = mv.parts[k], w = toView( o, moved( m, mv.pivots[k]!, t, rest[i] ) ).applyMatrix4( inv );
+          pos.setXYZ( i, w.x, w.y, w.z );
+          if ( nor && restN && m.kind !== "bob" ) {
+            const n = dirToView( o, turned( m, angles[k], [0, 0, 0], restN[i] ) ).applyMatrix3( nInv ).normalize();
+            nor.setXYZ( i, n.x, n.y, n.z );
+          }
+        }
+        pos.needsUpdate = true;
+        if ( nor ) nor.needsUpdate = true;
+        mesh.geometry.computeBoundingSphere();
+      }
+      any = true;
+    }
+    return any;
+  }
+
+  /**
+   * A moving piece's meshes given geometry of their own, and what moves with what worked out.
+  **/
+  private prepareMoving( uid: string, o: CustomObjectEntry, group: THREE.Group ) {
+    const meshes = group.children.filter( ( c ): c is THREE.Mesh => c instanceof THREE.Mesh );
+    const v      = new THREE.Vector3();
+    const input  = meshes.map( ( mesh ) => {
+      const g            = mesh.geometry, pos = g.getAttribute( "position" ), nor = g.getAttribute( "normal" ), idx = g.getIndex();
+      const nm           = new THREE.Matrix3().getNormalMatrix( mesh.matrix );
+      const points: V3[] = [], normals: V3[] = [];
+      for ( let i = 0; i < pos.count; i++ ) {
+        points.push( toPiece( o, v.fromBufferAttribute( pos, i ).applyMatrix4( mesh.matrix ) ) );
+        if ( nor ) normals.push( dirToPiece( o, v.fromBufferAttribute( nor, i ).applyMatrix3( nm ) ) );
+      }
+      return { mesh, points, normals: nor ? normals : null, tris: idx ? ( idx.array as ArrayLike<number> ) : Array.from( { length: pos.count }, ( _, i ) => i ) };
+    } );
+    const parts            = movingPartsOf( o );
+    const { part, pivots } = capture( parts, input, [0, 0, 0] );
+    const mv               = {
+      built: o, group, parts, pivots, t: NaN,
+      meshes: input.map( ( x, k ) => {
+        const shared = x.mesh.geometry;
+        x.mesh.geometry = shared.clone();
+        return { mesh: x.mesh, shared, rest: x.points, restN: x.normals, part: part[k] };
+      } ),
+    };
+    this.moving.set( uid, mv );
+    return mv;
+  }
+
+  /**
+   * A moving piece's meshes back on the geometry they share, at rest.
+  **/
+  private restore( uid: string ) {
+    const mv = this.moving.get( uid );
+    if ( !mv ) return;
+    for ( const { mesh, shared } of mv.meshes ) {
+      if ( mesh.geometry !== shared ) mesh.geometry.dispose();
+      mesh.geometry = shared;
+    }
+    this.moving.delete( uid );
+  }
+
   clear() {
+    for ( const uid of [...this.moving.keys()] ) this.restore( uid );
     for ( const s of this.shown.values() ) this.group.remove( s.group );
     this.shown.clear();
     this.wave = { total: 0, done: 0, gen: this.wave.gen + 1 };

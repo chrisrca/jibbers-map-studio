@@ -8,6 +8,7 @@ import { leaveAssetsForNewMap } from "../../pieces/assetScene";
 import { fitMissingParts, fixJibs, refreshGameLook, undoUpMethodSwitch } from "../../pieces/library";
 import { recoverRail, withRail } from "../../pieces/rail";
 import type { NewMapOptions } from "../../terrain/generate";
+import { dropShapeEdit } from "../../terrain/shapes/edits";
 import { type Shape, resetShapes } from "../../terrain/shapes/shapes";
 import { type ChunkInit, terrain } from "../../terrain/terrain";
 import { loadPieceTextures, resetPieceTextures } from "../../texture/meshPaint";
@@ -90,6 +91,7 @@ async function applyProject( dir: string, p: Project, heights: Float32Array[] ) 
   terrain.setChunks( inits );
   // shapes are already baked into the saved heights; edits from here on re-apply relative to that
   resetShapes();
+  dropShapeEdit();
   useEditor.setState( { shapes: ( editor.shapes ?? [] ) as Shape[] } );
   await loadTrailData( dir, editor.trails );
 
@@ -156,6 +158,7 @@ export async function closeProject() {
   await ipc.gameRelease().catch( () => {} );
   history.clear();
   resetShapes();
+  dropShapeEdit();
   resetPaint();
   resetPieceTextures();
   terrain.setChunks( [] );

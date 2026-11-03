@@ -97,11 +97,57 @@ export interface StampGrid {
   margin?: number;
 }
 
-export type Shape = CurveShape | CircleShape | StampShape;
+// A landform in an outline ( Map-Tools' Formation Builder, terrain/shapes/shapes/formation.ts ).
+export interface FormationShape {
+  uid:         string;
+  kind:        "formation";
+  name:        string;
+  // the outline ( world XZ ), closed
+  points:      [number, number][];
+  // laid over the ground: added on top, only raising it, only carving it, or set ( from the ground round the outline )
+  mode:        "add" | "raise" | "carve" | "set";
+  style:       "smooth" | "ridged" | "billow";
+  // the dome's height over the ground, and the whole formation moved up or down ( metres )
+  height:      number;
+  baseY:       number;
+  // the noise: its biggest features' size and how tall they are ( metres ), its octaves, between them, and how much of
+  // it is on the peak rather than all over ( 0..1 ); its pattern bent about ( warp ); its seed
+  featureSize: number;
+  roughness:   number;
+  detail:      number;
+  lacunarity:  number;
+  gain:        number;
+  onPeak:      number;
+  warp:        number;
+  seed:        number;
+  // metres in from the outline it blends into the ground over; metres in to the dome's full height ( 0: half the
+  // outline across )
+  edgeBlend:   number;
+  peakWidth:   number;
+  // rounding off ( metres ) and how many times
+  smooth:      number;
+  smoothSteps: number;
+  thermal:     { on: boolean; amount: number; iterations: number; repose: number };
+  // ( mirrored with the map: the noise read from the other side of these lines, x = it − x, z = it − z )
+  noiseMirror?: { x: number | null; z: number | null };
+  hydraulic:   { on: boolean; droplets: number; lifetime: number; inertia: number; capacity: number; erode: number; deposit: number; evaporate: number; radius: number };
+}
+
+export type Shape = CurveShape | CircleShape | StampShape | FormationShape;
 
 let counter = 0;
 
 const uid = () => `shape-${Date.now().toString( 36 )}-${( counter++ ).toString( 36 )}`;
+
+export function newFormation( points: [number, number][] ): FormationShape {
+  return {
+    uid: uid(), kind: "formation", name: "Formation", points, mode: "add", style: "smooth",
+    height: 25, baseY: 0, featureSize: 60, roughness: 6, detail: 5, lacunarity: 2, gain: 0.5, onPeak: 0.5, warp: 0.3, seed: 1,
+    edgeBlend: 20, peakWidth: 0, smooth: 0, smoothSteps: 1,
+    thermal:   { on: false, amount: 0.5, iterations: 30, repose: 35 },
+    hydraulic: { on: false, droplets: 0.5, lifetime: 60, inertia: 0.3, capacity: 4, erode: 0.3, deposit: 0.3, evaporate: 0.02, radius: 2 },
+  };
+}
 
 export function newCurve( start: [number, number], end: [number, number] ): CurveShape {
   return {

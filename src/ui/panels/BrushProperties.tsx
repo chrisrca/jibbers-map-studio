@@ -123,6 +123,7 @@ export function BrushProperties() {
             <Field label=""><Check value={b.flattenSlope} onChange={( flattenSlope ) => set( { flattenSlope } )} label="Keep the slope (Slope Flatten)" /></Field>
           </>
         ) }
+        { sc.brush === "erode" && <Field label="Angle" tip="Slopes steeper than this slump down">{num( b.erodeAngle, ( erodeAngle ) => set( { erodeAngle } ), 1, 5, 80 )}</Field> }
         { sc.brush === "terrace" && (
           <>
             <Field label="Step">{num( b.terraceStep, ( terraceStep ) => set( { terraceStep } ), 0.25, 0.05 )}</Field>

@@ -73,8 +73,10 @@ export interface EditorState {
   trailTool:        { width: number; follow: boolean };
   // the picked point's run end whose handle the gizmo moves ( the Trails tool )
   trailHandle:      { run: string; end: "a" | "b" } | null;
+  // every trail and terrain shape ( ramps, formations, copies ) drawn whatever tool is out, not just their own tool's
+  showPaths:        boolean;
   // what the Shapes tool draws
-  shapeKind:        "curve" | "circle" | "stamp";
+  shapeKind:        "curve" | "circle" | "stamp" | "formation";
   // what the select tool's gizmo does
   gizmoMode:        "translate" | "rotate" | "scale";
   // the map's ground drawn to read its shape: slope colours ( degrees ), hillshade, contour lines ( metres apart )
@@ -174,6 +176,9 @@ export interface EditorState {
   updateObjects( label: string, uids: string[], f: ( o: ObjectEntry ) => ObjectEntry ): void;
   removeSelected():    void;
   duplicateSelected(): string[];
+  // `count` copies of the selection, each `offset` metres, `yaw` degrees ( about up ) and × `scale` on from the one
+  // before ( Map-Tools' Duplicate X Times ); one undo step. The copies' uids, the last copy's selected
+  duplicateArray( count: number, offset: [number, number, number], yaw?: number, scale?: number ): string[];
   addSpawn(     s:     SpawnEntry ): void;
   updateSpawn(  label: string, uid: string, f: ( s: SpawnEntry ) => SpawnEntry ): void;
   updateCustom( label: string, uids: string[], f: ( o: CustomObjectEntry ) => CustomObjectEntry ): void;

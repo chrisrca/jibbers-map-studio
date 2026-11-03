@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { customName } from "../../core/types";
 import { BlIcon } from "../blender/BlIcon";
 import { useEditor, workspaceOf, type Collection, type Selection } from "../../map/store";
@@ -25,10 +26,12 @@ const byName = ( a:  { name: string }, b: { name: string } ) => a.name.localeCom
 function useItems(): Item[] {
   const objects = useEditor( ( s ) => s.objects       );
   const spawns  = useEditor( ( s ) => s.spawns        );
-  const custom  = useEditor( ( s ) => s.customObjects );
+  // ( each piece's uid, name and kind only: a piece being moved, or a fence or lift being pulled about, doesn't make the
+  // list again every frame )
+  const custom  = useEditor( useShallow( ( s ) => s.customObjects.map( ( o ) => `${o.uid}\n${customName( o )}\n${o.model?.curve && !o.model.mesh.f.length ? "curve" : "mesh"}` ) ) );
   const shapes  = useEditor( ( s ) => s.shapes        );
   const labels  = useEditor( ( s ) => s.labels        );
-  return [
+  return useMemo( () => [
     ...spawns.map( ( s ): Item => ( { sel: { kind: "spawn", uid: s.uid }, name: s.name, icon: "spawn" } ) ),
     ...shapes.map( ( s ): Item => ( { sel: { kind: "shape", uid: s.uid }, name: s.name, icon: s.kind === "circle" ? "shapeCircle" : s.kind === "stamp" ? "shapeCopy" : "shapeCurve" } ) ),
     ...objects.map( ( o ): Item => {
@@ -36,8 +39,11 @@ function useItems(): Item[] {
       const col = c?.type === "String" ? PLACEHOLDER_COLORS[c.value] : undefined;
       return { sel: { kind: "object", uid: o.uid }, name: labels[o.uid] ?? pretty( o.id ), dot: col !== undefined ? `#${col.toString( 16 ).padStart( 6, "0" )}` : "#9a9a9a" };
     } ),
-    ...custom.map( ( o ): Item => ( { sel: { kind: "custom", uid: o.uid }, name: labels[o.uid] || customName( o ), icon: "cube", bl: o.model?.curve && !o.model.mesh.f.length ? "outliner_ob_curve" : "outliner_ob_mesh" } ) ),
-  ];
+    ...custom.map( ( c ): Item => {
+      const [uid, name, kind] = c.split( "\n" );
+      return { sel: { kind: "custom", uid }, name: labels[uid] || name, icon: "cube", bl: kind === "curve" ? "outliner_ob_curve" : "outliner_ob_mesh" };
+    } ),
+  ], [objects, spawns, custom, shapes, labels] );
 }
 
 const st = useEditor.getState;

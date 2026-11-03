@@ -68,9 +68,17 @@ export function newModelObject( uid: string, mesh: Mesh, at: V3, given?: ModelDa
 
 /**
  * The piece with a changed model: its part's material slots and its colliders brought in line ( a curve piece's:
- * capsules along each spline, the first its grind rail when it's a jib ).
+ * capsules along each spline, the first its grind rail when it's a jib ). Other pieces' parts it carries ( a fence's
+ * posts or panels copied from the map's pieces, pieces/fence.ts ) stay, with their colliders ( `kitColliders` ).
 **/
 export function withModel( o: CustomObjectEntry, model: ModelData ): CustomObjectEntry {
+  const kit  = o.parts.filter( ( p ) => p.mesh !== meshKey( o.uid ) && !p.mesh.startsWith( `Models/${o.uid}/lod` ) );
+  const kc   = o.kitColliders ?? [];
+  const done = modelOnly( o, model );
+  return kit.length || kc.length ? { ...done, parts: [...done.parts, ...kit], colliders: [...done.colliders, ...kc] } : done;
+}
+
+function modelOnly( o: CustomObjectEntry, model: ModelData ): CustomObjectEntry {
   const slots     = Math.max( 1, ...( model.curve ? [0] : model.mesh.m ).map( ( m ) => m + 1 ) );
   const part      = o.parts[0];
   const materials = [...part.materials];

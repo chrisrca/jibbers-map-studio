@@ -2,7 +2,9 @@
 // ( a sphere's segments and rings, a cylinder's vertices and depth… ), where it went and its turn; a change does the
 // add again with them.
 
-import { useState } from "react";
+import { Fragment, useState, useSyncExternalStore } from "react";
+import { redoOp, stillLastOp, useLastOp } from "../../app/lastOp";
+import { history } from "../../map/history";
 import { useEditor, workspaceOf, type LastAdd } from "../../map/store";
 import { PRIMITIVES, type PrimitiveId, type PrimitiveOpts } from "../../model/mesh";
 import { getEngine } from "../Viewport";
@@ -63,8 +65,9 @@ export function AdjustLast() {
         <div className="props">
           { ADD_FIELDS[last.id].map( ( f ) => {
             const v = last.opts[f.key] ?? f.def, k = f.half ? 0.5 : 1;
+            // ( label and field straight in the panel's grid, as the rows below: its labels line up right )
             return (
-              <div key={f.key} style={{ display: "contents" }}>
+              <Fragment key={f.key}>
                 <label>{f.label}</label>
                 <NumberField
                   value={v * k}
@@ -76,11 +79,38 @@ export function AdjustLast() {
                   max={f.max === undefined ? undefined : f.max * k}
                   onChange={( x ) => redo( { opts: { ...last.opts, [f.key]: ( f.whole ? Math.round( x ) : x ) / k } } )}
                 />
-              </div>
+              </Fragment>
             );
           } ) }
           <Vec3Field label="Location" value={last.at} digits={4} trim unit="m" onChange={( at ) => redo( { at } )} />
           <Vec3Field label="Rotation" kind="rotation" value={last.rot} step={1} digits={2} trim unit="°" onChange={( rot ) => redo( { rot } )} />
+        </div>
+      ) }
+    </div>
+  );
+}
+
+/**
+ * The same panel for the last operator of the other kinds ( app/lastOp.ts: Duplicate Array… ).
+**/
+export function AdjustLastOp() {
+  const op              = useLastOp( ( s ) => s.op );
+  const top             = useSyncExternalStore( ( l ) => history.subscribe( l ), () => history.top );
+  const [open, setOpen] = useState( true );
+  if ( !op || !stillLastOp( op ) || !top ) return null;
+  return (
+    <div className="adjust-last" onPointerDown={( e ) => e.stopPropagation()}>
+      <button className="al-head" onClick={() => setOpen( !open )}>
+        <BlIcon name={open ? "disclosure_tri_down" : "disclosure_tri_right"} size={12} /> {op.label}
+      </button>
+      { open && (
+        <div className="props">
+          { op.fields.map( ( f ) => (
+            <Fragment key={f.key}>
+              <label>{f.label}</label>
+              <NumberField value={op.values[f.key]} step={f.step} digits={f.digits ?? 3} trim={f.digits === undefined} unit={f.unit} min={f.min} max={f.max} onChange={( x ) => redoOp( f.key, f.digits === 0 ? Math.round( x ) : x )} />
+            </Fragment>
+          ) ) }
         </div>
       ) }
     </div>

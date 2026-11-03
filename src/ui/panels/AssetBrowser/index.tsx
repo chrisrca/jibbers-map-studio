@@ -37,13 +37,14 @@ function catalogsOf( entries: LibraryEntry[] ): Catalog[] {
 **/
 export function AssetBrowser() {
   const library                 = useEditor( ( s ) => s.assetLibrary  );
-  const customObjects           = useEditor( ( s ) => s.customObjects );
   const placeEntryId            = useEditor( ( s ) => s.placeEntry    );
   const placeId                 = useEditor( ( s ) => s.placeId       );
   const placeholders            = useEditor( ( s ) => s.placeholders  );
   const lifts                   = useMemo( () => placeholders.filter( ( p ) => p.lift ).map( ( p ) => p.id ), [placeholders] );
   const tool                    = useEditor( ( s ) => s.tool );
   const [tab,      setTab     ] = useState<"mesh" | "material">( "mesh" );
+  // ( the map's pieces for their materials, on the Materials tab only: pieces being moved don't redraw every card )
+  const customObjects           = useEditor( ( s ) => ( tab === "material" ? s.customObjects : null ) );
   const [q,        setQ       ] = useState( "" );
   const [cat,      setCat     ] = useState( "" );
   const [mapsOpen, setMapsOpen] = useState( false );
@@ -80,7 +81,7 @@ export function AssetBrowser() {
   );
   // materials the open map uses that aren't in the library ( e.g. from another imported map )
   const mapMats = useMemo( () => {
-    if ( tab !== "material" || ( cat && cat !== "In this map" ) ) return [];
+    if ( tab !== "material" || !customObjects || ( cat && cat !== "In this map" ) ) return [];
     const known = new Set( library.filter( ( e ) => e.material ).map( ( e ) => materialKey( e.material! ) ) );
     return mapMaterials( customObjects ).filter( ( m ) => !known.has( m.key ) && ( !ql || materialName( m.material ).toLowerCase().includes( ql ) ) );
   }, [tab, library, customObjects, ql, cat] );

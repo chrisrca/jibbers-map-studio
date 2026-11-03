@@ -73,16 +73,22 @@ export function buildMesh( model: ModelData, atlasOf?: ( g: Mesh ) => Atlas | nu
   const vf               = vertexFaces( g );
   const cos              = Math.cos( ( model.smoothAngle * Math.PI ) / 180 );
   const pos: number[]    = [], nrm: number[] = [], uv: number[] = [];
-  const ids              = new Map<string, number>();
+  // the corners made so far, by vertex: normal ( thousandths ), UV ( hundred-thousandths ) and index, six numbers each
+  // ( a string key for every triangle's every corner was most of the time a big mesh took to build )
+  const made: number[][] = [];
   const slots            = Math.max( 1, ...g.m.map( ( m ) => m + 1 ) );
   const tris: number[][] = Array.from( { length: slots }, () => [] );
   g.f.forEach( ( f, fi ) => {
     const n = fn[fi];
     if ( len( n ) < 0.5 ) return;
     const f0     = g.f[fi];
+    // ( a corner shared by the face's triangles worked out once )
+    const mine   = new Map<number, number>();
     // its own UVs ( unwrapped, or laid out in the UV Editor ), else the box projection
     const own    = faceUvs( g, fi );
     const corner = ( v: number ) => {
+      const had = mine.get( v );
+      if ( had !== undefined ) return had;
       let vn = n;
       if ( g.s[fi] ) {
         let s: V3 = [0, 0, 0];
@@ -93,14 +99,18 @@ export function buildMesh( model: ModelData, atlasOf?: ( g: Mesh ) => Atlas | nu
       const c        = atlas ? ( atlas.start[fi] + f0.indexOf( v ) ) * 2 : 0;
       const k        = own ? f0.indexOf( v ) * 2 : 0;
       const [u0, v0] = atlas ? [atlas.uv[c], atlas.uv[c + 1]] : own ? [own[k], own[k + 1]] : boxUv( p, n );
-      const key      = `${v}|${vn.map( ( x ) => Math.round( x * 1000 ) ).join( "," )}|${Math.round( u0 * 100000 )},${Math.round( v0 * 100000 )}`;
-      let id         = ids.get( key );
-      if ( id === undefined ) {
-        ids.set( key, ( id = pos.length / 3 ) );
-        pos.push( ...p );
-        nrm.push( ...vn );
+      const kx       = Math.round( vn[0] * 1000 ), ky = Math.round( vn[1] * 1000 ), kz = Math.round( vn[2] * 1000 ), ku = Math.round( u0 * 100000 ), kv = Math.round( v0 * 100000 );
+      const list     = ( made[v] ??= [] );
+      let id         = -1;
+      for ( let q = 0; q < list.length && id < 0; q += 6 ) if ( list[q] === kx && list[q + 1] === ky && list[q + 2] === kz && list[q + 3] === ku && list[q + 4] === kv ) id = list[q + 5];
+      if ( id < 0 ) {
+        id = pos.length / 3;
+        list.push( kx, ky, kz, ku, kv, id );
+        pos.push( p[0], p[1], p[2] );
+        nrm.push( vn[0], vn[1], vn[2] );
         uv.push( u0, v0 );
       }
+      mine.set( v, id );
       return id;
     };
     for ( const t of triangulateFace( g, f, n ) ) tris[g.m[fi] ?? 0].push( ...t.map( corner ) );

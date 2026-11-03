@@ -5,11 +5,12 @@ import { ask } from "../../app/ask";
 import { ipc, joinPath } from "../../core/ipc";
 import { mapState } from "../../pieces/assetScene";
 import { terrain } from "../../terrain/terrain";
+import { addTilesFor } from "../../trails/ground/tiles";
 import { projectPath } from "../savePath";
 import { testRun, useEditor } from "../store";
 import { defaultProjectsDir, openProject } from "./open";
 import { saveProject } from "./save";
-import { uuid } from "./state";
+import { chunkVersion, uuid } from "./state";
 
 // The studio opens on an untitled, empty map ( as Blender opens on its startup file ): a project of its own in the
 // studio's data folder ( "Sessions" ), saved there as you work ( the autosave ), and somewhere of yours the first time
@@ -51,10 +52,10 @@ export async function lastSession(): Promise<string | null> {
 }
 
 /**
- * A new map with nothing in it yet, written to `dir` and opened.
+ * An empty map, written to `dir`.
 **/
-export async function newEmptyProject( dir: string, name: string ) {
-  await ipc.saveProject( dir, {
+const writeEmpty = ( dir: string, name: string ) =>
+  ipc.saveProject( dir, {
     format:        "jibbers-studio-project",
     version:       1,
     map:           { id: uuid(), name, camStart: [0, 30, -40], allowBackgroundMountains: true, overrideTime: false, dayTime: 1, dayTimeHours: -1, sunAngle: 0 },
@@ -65,7 +66,28 @@ export async function newEmptyProject( dir: string, name: string ) {
     library:       null,
     editor:        {},
   } );
+
+// the flat tile a new map starts on, while it's still as it was made ( it isn't anything to save )
+let startTile: { key: string; heights: Float32Array } | null = null;
+
+/**
+ * A new map with nothing on it yet but a flat tile of ground, written to `dir` and opened.
+**/
+export async function newEmptyProject( dir: string, name: string ) {
+  await writeEmpty( dir, name );
   await openProject( dir );
+  // ( a flat tile of ground to start on, the one a first trail would make: 1 km, centred )
+  const [key] = addTilesFor( [-1, -1, 1, 1], 0 );
+  const c     = terrain.chunks[terrain.indexOf( key )];
+  startTile   = c ? { key, heights: c.heights } : null;
+}
+
+/**
+ * Whether the ground is just the tile a new map started on, untouched.
+**/
+function onlyStartTile() {
+  const c = terrain.chunks[0];
+  return !!startTile && terrain.chunks.length === 1 && c.key === startTile.key && c.heights === startTile.heights && !chunkVersion.has( c.key );
 }
 
 /**
@@ -104,6 +126,8 @@ export async function keepMapChanges(): Promise<boolean> {
   if ( !a || a.id === "cancel" ) return false;
   if ( a.id === "discard" ) {
     useEditor.setState( { dirty: false } );
+    // ( an untitled map's copy kept as it went emptied: what was let go doesn't come back with the session )
+    if ( st.projectDir && isUntitled( st.projectDir ) ) await writeEmpty( st.projectDir, "Untitled" ).catch( () => {} );
     return true;
   }
   // ( an untitled map asks where to keep it: not picking anywhere is cancelling )
@@ -115,7 +139,7 @@ export async function keepMapChanges(): Promise<boolean> {
 **/
 function hasContent() {
   const s = mapState();
-  return terrain.chunks.length > 0 || s.objects.length > 0 || s.spawns.length > 0 || s.customObjects.length > 0 || s.shapes.length > 0 || useEditor.getState().trails.nodes.length > 0;
+  return ( terrain.chunks.length > 0 && !onlyStartTile() ) || s.objects.length > 0 || s.spawns.length > 0 || s.customObjects.length > 0 || s.shapes.length > 0 || useEditor.getState().trails.nodes.length > 0;
 }
 
 const plainName = ( s: string ) => s.replace( /<[^>]*>/g, "" ).trim() || "this map";
@@ -134,13 +158,13 @@ export async function startSession() {
   const empty: string[] = [];
   for ( const p of await ipc.findProjects( base ).catch( () => [] ) ) {
     const pr = await ipc.loadProject( p.dir ).catch( () => null );
-    if ( pr && !pr.chunks.length && !pr.objects.length && !pr.spawns.length && !pr.customObjects.length ) empty.push( p.dir );
+    const ed = ( pr?.editor ?? {} ) as { shapes?: unknown[] };
+    if ( pr && !pr.chunks.length && !pr.objects.length && !pr.spawns.length && !pr.customObjects.length && !ed.shapes?.length ) empty.push( p.dir );
   }
-  // ( deleted outright, not waited for: the Recycle Bin took Windows ten seconds a folder, and held the start )
-  const reuse = empty.pop();
+  // ( deleted outright, not waited for: the Recycle Bin took Windows ten seconds a folder, and held the start. None is
+  // opened again: what a session folder still holds beside its map ( its trails, its ground ) would come back with it )
   for ( const dir of empty ) if ( dir !== previous ) void ipc.removeEmptySession( dir ).catch( () => {} );
-  if ( reuse ) await openProject( reuse );
-  else await newUntitled();
+  await newUntitled();
 }
 
 /**

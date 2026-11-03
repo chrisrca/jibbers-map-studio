@@ -40,6 +40,8 @@ export function transformCustom( o: CustomObjectEntry, delta: THREE.Matrix4 ): C
     colliders: o.colliders.map( ( c ) => local( c, arr3( c.local_scale ), true ) ),
     lights:    o.lights.map( ( l ) => local( l, null, false ) ),
     ...( o.rail?.body ? { rail: { ...o.rail, body: o.rail.body.map( ( c ) => local( c, arr3( c.local_scale ), true ) ) } } : {} ),
+    // ( a fence's colliders copied from the map's pieces, kept apart: world space too )
+    ...( o.kitColliders ? { kitColliders: o.kitColliders.map( ( c ) => local( c, arr3( c.local_scale ), true ) ) } : {} ),
   };
 }
 

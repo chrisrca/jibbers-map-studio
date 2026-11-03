@@ -1,12 +1,13 @@
 // A ground paint stroke: dabs of snow or rock, markings, powder, grip or corduroy flow on the chunks it crosses ( one
 // undo step ).
 
+import { nextFrame, overBudget } from "../../core/frameBudget";
 import { history } from "../../map/history";
 import { type BrushSettings, DEFAULT_BRUSH } from "../../sculpt/brushes";
 import { makeTip } from "../../sculpt/tip";
 import { terrain } from "../../terrain/terrain";
 import { MARKING_COLOURS, type PaintSettings, type PaintTool } from "../settings";
-import { blendAngle, encodeAngle, spreadHue } from "./channels";
+import { angleTowards, blendAngle, encodeAngle, spreadHue } from "./channels";
 import { type PaintLayer, type Rect, changed, ensureLayer, gripBlocked, layers, makeFour, union } from "./layers";
 
 interface Snap {
@@ -23,10 +24,37 @@ interface Snap {
 
 const TILE = 256;
 
+/**
+ * The mean direction ( unit x, z pairs, not normalised ) round each pixel of [i0..i1] × [j0..j1] of a flow mask, over a
+ * box `kr` pixels each way ( summed areas, so a big box costs no more ).
+**/
+function meanFlow( F: Uint8Array, m: number, i0: number, j0: number, i1: number, j1: number, kr: number ) {
+  const a0 = Math.max( 0, i0 - kr ), b0 = Math.max( 0, j0 - kr ), a1 = Math.min( m - 1, i1 + kr ), b1 = Math.min( m - 1, j1 + kr );
+  const W  = a1 - a0 + 2, H = b1 - b0 + 2, sx = new Float64Array( W * H ), sz = new Float64Array( W * H );
+  for ( let j = 1; j < H; j++ )
+    for ( let i = 1; i < W; i++ ) {
+      const a = ( F[( b0 + j - 1 ) * m + a0 + i - 1] / 255 ) * Math.PI * 2, k = j * W + i;
+      sx[k]   = Math.sin( a ) + sx[k - 1] + sx[k - W] - sx[k - W - 1];
+      sz[k]   = Math.cos( a ) + sz[k - 1] + sz[k - W] - sz[k - W - 1];
+    }
+  const w   = i1 - i0 + 1, out = new Float32Array( w * ( j1 - j0 + 1 ) * 2 );
+  const box = ( S: Float64Array, x0: number, y0: number, x1: number, y1: number ) => S[( y1 + 1 ) * W + x1 + 1] - S[y0 * W + x1 + 1] - S[( y1 + 1 ) * W + x0] + S[y0 * W + x0];
+  for ( let j = j0; j <= j1; j++ )
+    for ( let i = i0; i <= i1; i++ ) {
+      const x0 = Math.max( a0, i - kr ) - a0, y0 = Math.max( b0, j - kr ) - b0, x1 = Math.min( a1, i + kr ) - a0, y1 = Math.min( b1, j + kr ) - b0;
+      const q  = ( ( j - j0 ) * w + i - i0 ) * 2;
+      out[q]     = box( sx, x0, y0, x1, y1 );
+      out[q + 1] = box( sz, x0, y0, x1, y1 );
+    }
+  return out;
+}
+
 export class PaintStroke {
   private snaps = new Map<string, Snap>();
   private last: [number, number] | null = null;
   private dir: [number, number] = [0, 0];
+  // the stabilized point ( the brush trails the cursor on a string )
+  private lazy: [number, number] | null = null;
   private changedAny = false;
   readonly s: PaintSettings;
 
@@ -45,17 +73,24 @@ export class PaintStroke {
     return this.queue;
   }
 
-  private async follow( x: number, z: number ) {
-    const step = Math.max( 0.05, this.s.radius * 0.15 );
+  private async follow( cx: number, cz: number ) {
+    const step = Math.max( 0.05, this.s.radius * 0.15 ), L = ( this.s.stabilize ?? 0 ) * this.s.radius;
+    if ( !this.lazy || L <= 0 ) this.lazy = [cx, cz];
+    else {
+      const d = Math.hypot( cx - this.lazy[0], cz - this.lazy[1] );
+      if ( d > L ) this.lazy = [this.lazy[0] + ( ( cx - this.lazy[0] ) * ( d - L ) ) / d, this.lazy[1] + ( ( cz - this.lazy[1] ) * ( d - L ) ) / d];
+    }
+    const [x, z] = this.lazy;
     if ( !this.last ) {
       this.last = [x, z];
-      return this.dab( x, z );
+      return this.dabs( x, z );
     }
     const [lx, lz] = this.last;
     const d        = Math.hypot( x - lx, z - lz );
-    if ( d > 1e-6 ) this.dir = [( x - lx ) / d, ( z - lz ) / d];
+    // ( Lock: the first way the stroke went, kept )
+    if ( d > 1e-6 && !( this.s.flowDir === "lock" && ( this.dir[0] || this.dir[1] ) ) ) this.dir = [( x - lx ) / d, ( z - lz ) / d];
     const n = Math.floor( d / step );
-    for ( let k = 1; k <= n; k++ ) await this.dab( lx + ( ( x - lx ) * k * step ) / d, lz + ( ( z - lz ) * k * step ) / d );
+    for ( let k = 1; k <= n; k++ ) await this.dabs( lx + ( ( x - lx ) * k * step ) / d, lz + ( ( z - lz ) * k * step ) / d );
     if ( n > 0 ) this.last = [lx + ( ( x - lx ) * n * step ) / d, lz + ( ( z - lz ) * n * step ) / d];
   }
 
@@ -74,7 +109,36 @@ export class PaintStroke {
       }
   }
 
-  async dab( x: number, z: number ) {
+  /**
+   * A dab where the brush is, with its stripes beside it ( across the way the stroke goes ) and its mirrored and radial
+   * copies, each painting the corduroy its own way.
+  **/
+  private async dabs( x: number, z: number ) {
+    const s                                      = this.s, [dx, dz] = this.dir, n = Math.max( 1, Math.round( s.stripes?.count ?? 1 ) ), gap = s.stripes?.spacing ?? 0;
+    let list: [number, number, number, number][] = [];
+    for ( let k = 0; k < n; k++ ) {
+      const o = ( k - ( n - 1 ) / 2 ) * gap;
+      list.push( [x + dz * o, z - dx * o, dx, dz] );
+    }
+    const sym = s.symmetry;
+    if ( sym && ( sym.x || sym.z || sym.radial > 1 ) ) {
+      const xs       = terrain.chunks.flatMap( ( c ) => [c.position[0], c.position[0] + c.size[0]] ), zs = terrain.chunks.flatMap( ( c ) => [c.position[2], c.position[2] + c.size[2]] );
+      const [px, pz] = sym.pivot ?? [( Math.min( ...xs ) + Math.max( ...xs ) ) / 2, ( Math.min( ...zs ) + Math.max( ...zs ) ) / 2];
+      if ( sym.x ) list = list.flatMap( ( q ) => [q, [2 * px - q[0], q[1], -q[2], q[3]]] );
+      if ( sym.z ) list = list.flatMap( ( q ) => [q, [q[0], 2 * pz - q[1], q[2], -q[3]]] );
+      const R = Math.max( 1, Math.round( sym.radial ) );
+      if ( R > 1 )
+        list = list.flatMap( ( q ) =>
+          Array.from( { length: R }, ( _, k ): [number, number, number, number] => {
+            const a = ( k * 2 * Math.PI ) / R, ca = Math.cos( a ), sa = Math.sin( a ), ox = q[0] - px, oz = q[1] - pz;
+            return [px + ox * ca - oz * sa, pz + ox * sa + oz * ca, q[2] * ca - q[3] * sa, q[2] * sa + q[3] * ca];
+          } ),
+        );
+    }
+    for ( const [qx, qz, qdx, qdz] of list ) await this.dab( qx, qz, [qdx, qdz] );
+  }
+
+  async dab( x: number, z: number, dir: [number, number] = this.dir ) {
     const s                          = this.s, r = s.radius;
     const tipSettings: BrushSettings = { ...DEFAULT_BRUSH, falloff: s.falloff, hardness: s.hardness };
     const tip                        = makeTip( tipSettings, x, z, r, 0, false );
@@ -99,10 +163,20 @@ export class PaintStroke {
       if ( s.tool === "flow" && !L.flow ) L.flow = new Uint8Array( m * m );
       const P        = L.rgba, F = L.flow;
       const hue      = Math.round( ( MARKING_COLOURS[s.colour]?.hue ?? 0 ) * 255 );
-      const flowByte = s.tool === "flow" && ( this.dir[0] || this.dir[1] ) ? encodeAngle( this.dir[0], this.dir[1] ) : -1;
+      const flowByte = s.tool !== "flow" || s.flowDir === "smooth" ? -1
+        : s.flowDir === "fixed" ? encodeAngle( Math.sin( ( s.flowAngle * Math.PI ) / 180 ), Math.cos( ( s.flowAngle * Math.PI ) / 180 ) )
+        : dir[0] || dir[1] ? encodeAngle( dir[0], dir[1] ) : -1;
+      // ( Smooth: each pixel eased towards the mean direction round it, a box a third of the brush across )
+      const mean     = s.tool === "flow" && s.flowDir === "smooth" && F ? meanFlow( F, m, i0, j0, i1, j1, Math.min( 32, Math.max( 2, Math.round( ( r * 0.3 ) / px ) ) ) ) : null;
+      const towards  = flowByte >= 0 ? angleTowards( flowByte ) : null;
       for ( let j = j0; j <= j1; j++ ) {
+        // ( a big dab over more than this frame's share: the rest next frame, the view drawn meanwhile )
+        if ( ( j & 7 ) === 0 && overBudget() ) await nextFrame();
         const wz = z0 + ( j + 0.5 ) * px;
-        for ( let i = i0; i <= i1; i++ ) {
+        // ( just the row's pixels inside the brush )
+        const dz = wz - z, half = Math.sqrt( Math.max( 0, r * r - dz * dz ) ) + px;
+        const a0 = Math.max( i0, Math.floor( ( x - half - x0 ) / px ) ), a1 = Math.min( i1, Math.ceil( ( x + half - x0 ) / px ) );
+        for ( let i = a0; i <= a1; i++ ) {
           const w = tip.weight( x0 + ( i + 0.5 ) * px, wz ) * s.strength;
           if ( w <= 0.001 ) continue;
           const k = j * m + i, o = k * 4;
@@ -127,7 +201,11 @@ export class PaintStroke {
               break;
             }
             case "flow":
-              if ( flowByte >= 0 && F ) F[k] = blendAngle( F[k], flowByte, Math.min( 1, w * 1.5 ) );
+              if ( towards && F ) F[k] = towards( F[k], Math.min( 1, w * 1.5 ) );
+              else if ( mean && F ) {
+                const q = ( ( j - j0 ) * ( i1 - i0 + 1 ) + i - i0 ) * 2;
+                if ( mean[q] || mean[q + 1] ) F[k] = blendAngle( F[k], encodeAngle( mean[q], mean[q + 1] ), w );
+              }
               break;
           }
         }

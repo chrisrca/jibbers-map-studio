@@ -2,33 +2,84 @@
 
 import * as THREE from "three/webgpu";
 import { ask } from "../../app/ask";
+import { doOp, type OpField } from "../../app/lastOp";
 import { toThree, toUnity, unityEulerToQuat, type V3 } from "../../core/coords";
 import { deltaBetween, transformCustom } from "../../core/transform";
 import { arr3, type CustomObjectEntry } from "../../core/types";
 import { copySelection, hasClipboard, paste } from "../../map/clipboard";
 import { pieceName, uniqueName } from "../../map/names";
 import { history } from "../../map/history";
-import { newUid, unlocked, useEditor, type LastAdd } from "../../map/store";
+import { newUid, unlocked, useEditor, type LastAdd, type Selection } from "../../map/store";
 import { type ModelData } from "../../model/build";
 import { CURVE_PRESETS, presetCurve, type CurvePreset } from "../../model/curve";
 import { primitive, PRIMITIVES, type PrimitiveId } from "../../model/mesh";
 import { geometryToOrigin, isModelled, mirrorLocal, originTo, originToGeometry, shade } from "../../model/objectOps";
 import { newCurveObject, newModelObject } from "../../model/objects";
+import { fenceOf, sectionFence } from "../../pieces/fence";
 import { showHideItems } from "../../ui/Toolbar/modeHeaders";
 import type { IconName } from "../../ui/widgets/icons";
 import type { MenuItem } from "../../ui/widgets/widgets";
+import { rebuilt } from "../tools/fenceTool";
 import type { Engine } from "./engine";
+
+// Duplicate Array's settings, Blender's axes ( its X, Y, Z: the game's X, Z, Y ), the turn about its Z.
+const ARRAY_FIELDS: OpField[] = [
+  { key: "count", label: "Count",      step: 1,    min: 1,    max: 200, digits: 0 },
+  { key: "x",     label: "Offset X",   step: 0.1,  unit: "m"                       },
+  { key: "y",     label: "Offset Y",   step: 0.1,  unit: "m"                       },
+  { key: "z",     label: "Offset Z",   step: 0.1,  unit: "m"                       },
+  { key: "turn",  label: "Rotation Z", step: 1,    unit: "°", digits: 1            },
+  { key: "scale", label: "Scale",      step: 0.01, min: 0.01, max: 10              },
+];
 
 // The view's menus ( Object, Add, Move to Collection ) and their operators.
 export class ViewportMenus {
   constructor( private engine: Engine ) {}
 
+  // what the last Shift+D copied and what it made ( Shift+R does it again from the copies, as far again )
+  private lastDup: { from: Selection[]; made: Selection[] } | null = null;
+
   /**
    * Blender's Shift+D: a copy of what's selected, moving with the mouse ( a click puts it down, Esc takes it back ).
   **/
   duplicateAndGrab() {
+    const from = useEditor.getState().selection;
     const made = useEditor.getState().duplicateSelected();
-    if ( made.length ) queueMicrotask( () => this.engine.gizmo.startObjectModal( "translate" ) );
+    if ( !made.length ) return;
+    this.lastDup = { from, made: useEditor.getState().selection };
+    queueMicrotask( () => this.engine.gizmo.startObjectModal( "translate" ) );
+  }
+
+  /**
+   * Blender's Shift+R ( Repeat Last, for a duplicate ): the copies copied again, as far on from them as they went from
+   * what they were copied from.
+  **/
+  repeatDuplicate() {
+    const d = this.lastDup, st = useEditor.getState();
+    if ( !d || !d.from.length || !d.made.length ) return false;
+    const at = ( s: Selection ): V3 | null => {
+      if ( s.kind === "custom" ) { const o = st.customObjects.find( ( x ) => x.uid === s.uid ); return o ? [o.position.x, o.position.y, o.position.z] : null; }
+      if ( s.kind === "object" ) return st.objects.find( ( x ) => x.uid === s.uid )?.position ?? null;
+      if ( s.kind === "spawn"  ) return st.spawns.find( ( x ) => x.uid === s.uid )?.position ?? null;
+      return null;
+    };
+    const a = at( d.from[0] ), b = at( d.made[0] );
+    if ( !a || !b ) return false;
+    st.setSelection( d.made );
+    st.duplicateArray( 1, [b[0] - a[0], b[1] - a[1], b[2] - a[2]] );
+    this.lastDup = { from: d.made, made: useEditor.getState().selection };
+    return true;
+  }
+
+  /**
+   * Map-Tools' Duplicate X Times: copies of the selection in a row ( count, offset, turn and scale per copy, adjusted
+   * after in the view's corner ).
+  **/
+  duplicateArray() {
+    const st = useEditor.getState();
+    if ( !unlocked( st, st.selection ).length ) return;
+    doOp( "Duplicate Array", ARRAY_FIELDS, { count: 3, x: 2, y: 0, z: 0, turn: 0, scale: 1 }, ( v ) =>
+      useEditor.getState().duplicateArray( v.count, [v.x, v.z, v.y], -v.turn, v.scale ) );
   }
 
   /**
@@ -117,11 +168,14 @@ export class ViewportMenus {
         { label: "Origin to Geometry", run: each( "Origin to geometry", originToGeometry ) },
         { label: "Origin to 3D Cursor", run: each( "Origin to 3D cursor", ( o ) => originTo( o, cursor() ) ) },
       ] },
+      { label: "Make Repeat", disabled: sel.length !== 1 || !!fenceOf( sel[0] ), run: () => void this.makeFence() },
       { sep:   true,                    label:    "" },
       { label: "Copy Objects",          bl:       "copydown", keys: "Ctrl C", run: () => void copySelection() },
       { label: "Paste Objects",         bl:       "pastedown", keys: "Ctrl V", disabled: !hasClipboard(), run: () => void paste() },
       { sep:   true,                    label:    "" },
       { label: "Duplicate Objects",     bl:       "duplicate", keys: "Shift D", run: () => this.duplicateAndGrab() },
+      { label: "Duplicate Array…",      bl:       "duplicate", run: () => this.duplicateArray() },
+      { label: "Repeat Duplicate",      keys:     "Shift R", disabled: !this.lastDup, run: () => this.repeatDuplicate() },
       { sep:   true,                    label:    "" },
       { label: "Rename Active Object…", keys:     "F2", run: () => this.renameActive() },
       { sep:   true,                    label:    "" },
@@ -197,6 +251,27 @@ export class ViewportMenus {
     useEditor.getState().setSelection( [{ kind: "custom", uid: o.uid }] );
     const made = useEditor.getState().customObjects.find( ( x ) => x.uid === a.uid );
     if ( made ) useEditor.setState( { lastAdd: { ...a, made } } );
+  }
+
+  /**
+   * The selected piece made a repeat ( pieces/fence.ts, sectionFence ): a section of it where the piece stood, the piece
+   * gone into it ( one undo step ); picked, to be pulled out longer as a lift is.
+  **/
+  async makeFence() {
+    const st = useEditor.getState();
+    const o  = unlocked( st, st.selection ).map( ( s ) => st.customObjects.find( ( x ) => x.uid === s.uid ) ).find( ( x ) => !!x );
+    if ( !o || fenceOf( o ) ) return st.toast( "Select one piece to repeat", "info" );
+    const local = await this.engine.customR.localVertices( o );
+    if ( !local?.length ) return st.toast( "That piece has no mesh to repeat", "info" );
+    // ( changed meanwhile: left as it is )
+    const now = useEditor.getState();
+    if ( !now.customObjects.includes( o ) ) return;
+    const fence = rebuilt( sectionFence( newUid(), o, local ) );
+    now.setSelection( [{ kind: "custom", uid: o.uid }] );
+    now.removeSelected();
+    useEditor.getState().addCustom( fence, `${pieceName( now, o )} repeat` );
+    history.mergeLast( 2, "Make repeat" );
+    return fence.uid;
   }
 
   /**

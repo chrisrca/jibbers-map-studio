@@ -66,6 +66,13 @@ export class GizmoControl {
       return g.attach( p, arrow ? arrow.q : new THREE.Quaternion(), !!arrow );
     }
     if ( workspaceOf( st.tool ) === "assets" ) return this.syncAssets();
+    // the Formation tool: Move on the picked point ( as on a trail's )
+    if ( st.tool === "shape" ) {
+      const at = this.engine.shapeTool?.gizmoAt();
+      if ( !at ) return g.detach();
+      g.setMode( "translate" );
+      return g.attach( at, new THREE.Quaternion(), false );
+    }
     // the Trails tool: Move on the picked handle, else on the one picked point
     if ( st.tool === "trail" ) {
       const tip = this.trailHandleTip();
@@ -78,8 +85,9 @@ export class GizmoControl {
       g.setMode( "translate" );
       return g.attach( toThree( one.p ), new THREE.Quaternion(), false );
     }
-    // a lift: Move on its piece picked ( each station and mast is moved on its own; there's no moving the lift as one )
-    const piece = st.tool === "select" && !this.engine.editing && unlocked( st, st.selection ).length ? this.engine.liftTool.gizmoAt() : null;
+    // a lift: Move on its piece picked ( each station and mast is moved on its own; there's no moving the lift as one );
+    // a fence: on its point picked ( none picked: the fence moved as one )
+    const piece = st.tool === "select" && !this.engine.editing && unlocked( st, st.selection ).length ? this.engine.liftTool.gizmoAt() ?? this.engine.fenceTool.gizmoAt() : null;
     if ( piece ) {
       g.setMode( "translate" );
       return g.attach( piece, new THREE.Quaternion(), false );
@@ -143,6 +151,7 @@ export class GizmoControl {
     g.onStart = () => {
       if ( this.engine.editing === this.engine.modelEd && this.engine.modelEd.uid ) return this.engine.modelEd.gizmo.start();
       const st = useEditor.getState();
+      if ( st.tool === "shape" && this.engine.shapeTool?.gizmoStart() ) return;
       if ( st.tool === "trail" ) {
         const tip      = this.trailHandleTip();
         const one      = st.selection[0]?.kind === "trailNode" ? st.trails.nodes.find( ( n ) => n.id === st.selection[0].uid ) : null;
@@ -156,8 +165,8 @@ export class GizmoControl {
         this.railFrom          = at ? { at, q: arrow?.q ?? new THREE.Quaternion(), point: st.railEdit.point } : null;
         return;
       }
-      // ( a lift's piece picked: it's what moves )
-      if ( st.tool === "select" && this.engine.liftTool.gizmoStart() ) return;
+      // ( a lift's piece or a fence's point picked: it's what moves )
+      if ( st.tool === "select" && ( this.engine.liftTool.gizmoStart() || this.engine.fenceTool.gizmoStart() ) ) return;
       this.before = { objects: st.objects, spawns: st.spawns, customObjects: st.customObjects, pivot: this.objectPivot() };
     };
     g.onChange = ( delta ) => {
@@ -178,7 +187,9 @@ export class GizmoControl {
         if ( f.point !== null && p ) this.engine.railTool.preview( f.point, p );
         return;
       }
+      if ( this.engine.shapeTool?.gizmoMoving ) return this.engine.shapeTool.gizmoMove( delta );
       if ( this.engine.liftTool.gizmoMoving ) return this.engine.liftTool.gizmoMove( delta );
+      if ( this.engine.fenceTool.gizmoMoving ) return this.engine.fenceTool.gizmoMove( delta );
       if ( this.before ) this.applyDelta( delta, this.before );
     };
     g.onEnd = () => {
@@ -200,8 +211,12 @@ export class GizmoControl {
         this.engine.rails.drag = null;
         this.railFrom          = null;
         this.engine.rails.commit( g.mode === "rotate" ? "Turn rail" : "Move rail point" );
+      } else if ( this.engine.shapeTool?.gizmoMoving ) {
+        this.engine.shapeTool.gizmoEnd();
       } else if ( this.engine.liftTool.gizmoMoving ) {
         this.engine.liftTool.gizmoEnd();
+      } else if ( this.engine.fenceTool.gizmoMoving ) {
+        this.engine.fenceTool.gizmoEnd();
       } else if ( this.before ) {
         const prev  = this.before, s = useEditor.getState();
         const after = { objects: s.objects, spawns: s.spawns, customObjects: s.customObjects };
@@ -228,7 +243,9 @@ export class GizmoControl {
         this.railFrom          = null;
         this.engine.rails.sync();
       }
+      else if ( this.engine.shapeTool?.gizmoMoving ) this.engine.shapeTool.gizmoCancel();
       else if ( this.engine.liftTool.gizmoMoving ) this.engine.liftTool.gizmoCancel();
+      else if ( this.engine.fenceTool.gizmoMoving ) this.engine.fenceTool.gizmoCancel();
       else if ( this.before ) {
         const was   = this.before;
         this.before = null;
@@ -273,8 +290,8 @@ export class GizmoControl {
   **/
   startObjectModal( op: "translate" | "rotate" | "scale" ) {
     const st    = useEditor.getState();
-    // ( a lift's picked piece is only moved: G, from where it stands )
-    const piece = this.engine.stage.shown ? null : this.engine.liftTool.gizmoAt();
+    // ( a lift's picked piece, or a fence's picked point, is only moved: G, from where it stands )
+    const piece = this.engine.stage.shown ? null : this.engine.liftTool.gizmoAt() ?? this.engine.fenceTool.gizmoAt();
     if ( piece && op !== "translate" ) return false;
     const c = piece ?? this.objectPivot();
     if ( !c || !unlocked( st, st.selection ).length || this.engine.blGizmo.dragging ) return false;

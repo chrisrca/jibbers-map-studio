@@ -1,6 +1,6 @@
 // Editing terrain shapes from the UI: live changes while dragging a handle or a slider, one undo step per edit.
 
-import { beginShapeEdit, commitShapeEdit, previewShape, removeShape, type Shape, type ShapeEdit } from "./shapes";
+import { beginShapeEdit, commitShapeEdit, previewShape, previewShapeSoon, removeShape, whenShapesSettled, type Shape, type ShapeEdit } from "./shapes";
 import { useEditor } from "../../map/store";
 
 let session: { edit: ShapeEdit; before: Shape[]; label: string } | null = null;
@@ -12,7 +12,8 @@ export function liveShape( next: Shape, label = "Edit shape" ) {
   const st = useEditor.getState();
   if ( session && session.edit.uid !== next.uid ) commitShape();
   if ( !session ) session = { edit: beginShapeEdit( next.uid ), before: st.shapes, label };
-  previewShape( next );
+  // ( the terrain follows over the next frames: a big formation is a tenth of a second's work )
+  previewShapeSoon( next );
   const exists = st.shapes.some( ( s ) => s.uid === next.uid );
   useEditor.setState( { shapes: exists ? st.shapes.map( ( s ) => ( s.uid === next.uid ? next : s ) ) : [...st.shapes, next], dirty: true } );
   // a new shape goes into the Outliner's active collection, like everything else
@@ -21,17 +22,27 @@ export function liveShape( next: Shape, label = "Edit shape" ) {
 }
 
 /**
- * Ends the open edit as one undo step.
+ * Ends the open edit as one undo step ( recorded once the terrain has caught up with it; the next edit, an undo or a
+ * save finishes that first ).
 **/
 export function commitShape() {
   if ( !session ) return;
   const s     = session;
   session     = null;
   const after = useEditor.getState().shapes;
-  commitShapeEdit( s.edit, s.label, {
-    undo: () => useEditor.setState( { shapes: s.before, dirty: true } ),
-    redo: () => useEditor.setState( { shapes: after,    dirty: true } ),
-  } );
+  whenShapesSettled( () =>
+    commitShapeEdit( s.edit, s.label, {
+      undo: () => useEditor.setState( { shapes: s.before, dirty: true } ),
+      redo: () => useEditor.setState( { shapes: after,    dirty: true } ),
+    } ),
+  );
+}
+
+/**
+ * Another map opened: an edit still open on the last one let go ( committed, it would put that map's shapes back ).
+**/
+export function dropShapeEdit() {
+  session = null;
 }
 
 /**

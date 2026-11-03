@@ -14,7 +14,7 @@ import { history } from "../../map/history";
 import type { Terrain } from "../../terrain/terrain";
 import { brushInfo, type BrushId, type BrushSettings, type SculptState } from "../brushes";
 import { makeTip } from "../tip";
-import { HeightWindow, Lattice, type Box } from "../window";
+import { HeightWindow, Lattice, type Box, type Steps } from "../window";
 import { StrokeMask } from "./mask";
 import { StrokeMoves } from "./moves";
 import { StrokeOps } from "./ops";
@@ -102,6 +102,8 @@ export class BrushStroke {
   // dabs made by the move under way, applied together when it's done
   private pending: Dab[] = [];
   batching = false;
+  // the dabs left for work() to lay down, a frame's share at a time ( the view keeps drawing while a big brush works )
+  paced    = false;
 
   constructor( t: Terrain, sc: SculptState, start: [number, number], opts: StrokeOptions = {} ) {
     this.t           = t;
@@ -248,46 +250,71 @@ export class BrushStroke {
 
   /**
    * The dabs made since the last time: dabs close together ( one after another down a stroke ) applied in one window.
+   * Paced, they wait for work().
   **/
   flushDabs() {
-    const list   = this.pending.filter( ( d ) => d.strength > 0 && d.r > 0 );
-    this.pending = [];
-    if ( !list.length ) return;
-    if ( this.id === "mask" ) {
-      for ( const d of list ) this.mask.paintMask( d );
-      return;
-    }
-    const area         = ( b: number[] ) => ( b[2] - b[0] ) * ( b[3] - b[1] );
-    let cluster: Dab[] = [], bounds: [number, number, number, number] | null = null;
-    for ( const d of list ) {
-      const b    = this.boundsOf( d );
-      const u: [number, number, number, number] | null = bounds && [Math.min( bounds[0], b[0] ), Math.min( bounds[1], b[1] ), Math.max( bounds[2], b[2] ), Math.max( bounds[3], b[3] )];
-      // ( together while they overlap and the window stays a few dabs' size )
-      const near = bounds && u && b[0] < bounds[2] && b[2] > bounds[0] && b[1] < bounds[3] && b[3] > bounds[1] && area( u ) <= 3 * area( b );
-      if ( near ) {
-        cluster.push( d );
-        bounds = u;
-      } else {
-        if ( cluster.length ) this.applyAll( cluster, bounds! );
-        cluster = [d];
-        bounds  = b;
+    if ( !this.paced ) this.applyPending( Infinity );
+  }
+
+  /**
+   * Paced: the waiting dabs worked through, in order, for about `ms` ( a group of them at a time, paused every few
+   * rows and carried on next time ). Whether any work is still waiting.
+  **/
+  work( ms: number ) {
+    this.applyPending( ms );
+    return !!this.job || this.pending.length > 0;
+  }
+
+  get waiting() {
+    return this.pending.length + ( this.job ? 1 : 0 );
+  }
+
+  // the group of dabs under way ( paused part way )
+  private job: Generator<void, void, void> | null = null;
+
+  private applyPending( ms: number ) {
+    const t0 = performance.now();
+    for ( ;; ) {
+      if ( !this.job ) {
+        this.pending = this.pending.filter( ( d ) => d.strength > 0 && d.r > 0 );
+        if ( !this.pending.length ) return;
+        if ( this.id === "mask" ) {
+          for ( const d of this.pending.splice( 0 ) ) this.mask.paintMask( d );
+          return;
+        }
+        const area = ( b: number[] ) => ( b[2] - b[0] ) * ( b[3] - b[1] );
+        let bounds = this.boundsOf( this.pending[0] ), n = 1;
+        for ( ; n < this.pending.length; n++ ) {
+          const b = this.boundsOf( this.pending[n] );
+          const u: [number, number, number, number] = [Math.min( bounds[0], b[0] ), Math.min( bounds[1], b[1] ), Math.max( bounds[2], b[2] ), Math.max( bounds[3], b[3] )];
+          // ( together while they overlap and the window stays a few dabs' size )
+          if ( !( b[0] < bounds[2] && b[2] > bounds[0] && b[1] < bounds[3] && b[3] > bounds[1] && area( u ) <= 3 * area( b ) ) ) break;
+          bounds = u;
+        }
+        this.job = this.applyAll( this.pending.splice( 0, n ), bounds );
       }
+      // ( to its next pause, or its end )
+      while ( !this.job.next().done ) if ( performance.now() - t0 >= ms ) return;
+      this.job = null;
+      if ( performance.now() - t0 >= ms ) return;
     }
-    if ( cluster.length ) this.applyAll( cluster, bounds! );
   }
 
   /**
    * Dabs applied one after another in one window over `b` ( each sees the last's work ), written back once.
   **/
-  private applyAll( dabs: Dab[], b: [number, number, number, number] ) {
+  private *applyAll( dabs: Dab[], b: [number, number, number, number] ): Steps<void> {
     const { f } = this.lattice();
-    const win   = HeightWindow.around( this.t, b[0], b[1], b[2], b[3] );
+    const win   = yield* HeightWindow.aroundSteps( this.t, b[0], b[1], b[2], b[3] );
     if ( !win ) return;
     const H0                   = win.H.slice(), g = new Lattice( win, f );
     const all: Box             = [win.w, -1, win.h, -1];
     // ( the ground as the stroke found it: the same for each of these dabs, none of them written back yet )
     let O: Float32Array | null = null;
-    const orig                 = () => ( O ??= this.undo.original( win ) );
+    const undo                 = this.undo;
+    const orig                 = function* (): Steps<Float32Array> {
+      return ( O ??= yield* undo.original( win ) );
+    };
     for ( const d of dabs ) {
       const tip      = makeTip( this.s, d.x, d.z, d.r, d.angle );
       // ( what the dab can change: its tip, a square one's corners too, and a coarse step round it )
@@ -297,16 +324,16 @@ export class BrushStroke {
         Math.max( 0, Math.floor( ( d.z - reach - win.z0 ) / win.sp ) - f ), Math.min( win.h - 1, Math.ceil( ( d.z + reach - win.z0 ) / win.sp ) + f ),
       ];
       if ( box[0] > box[1] || box[2] > box[3] ) continue;
-      const Wc = this.ops.weights( win, tip, g, box );
-      const W  = this.ops.fine( g, Wc, box );
-      if ( !this.ops.op( win, W, d, g, Wc, box, orig ) ) continue;
+      const Wc = yield* this.ops.weights( win, tip, g, box );
+      const W  = yield* this.ops.fine( g, Wc, box );
+      if ( !( yield* this.ops.op( win, W, d, g, Wc, box, orig ) ) ) continue;
       all[0] = Math.min( all[0], box[0] );
       all[1] = Math.max( all[1], box[1] );
       all[2] = Math.min( all[2], box[2] );
       all[3] = Math.max( all[3], box[3] );
     }
     if ( all[1] < 0 ) return;
-    this.undo.commit( win.writeBack( win.H, ( ci, i0, j0, i1, j1 ) => this.undo.snap( ci, i0, j0, i1, j1 ), all, H0 ) );
+    this.undo.commit( yield* win.writeBackSteps( win.H, ( ci, i0, j0, i1, j1 ) => this.undo.snap( ci, i0, j0, i1, j1 ), all, H0 ) );
   }
 
   /**

@@ -3,6 +3,7 @@
 import { evalCurve, evalRepeated } from "../../../core/curve";
 import { terrain } from "../../terrain";
 import { stampSample } from "./stamp";
+import { formationAt, formationBounds } from "./formation";
 import type { CurveShape, Shape } from "./types";
 
 const smooth = ( u: number ) => u * u * ( 3 - 2 * u );
@@ -13,6 +14,7 @@ const sat = ( x: number ) => ( x < 0 ? 0 : x > 1 ? 1 : x );
  * World-space XZ bounds a shape can change.
 **/
 export function shapeBounds( s: Shape ): [number, number, number, number] {
+  if ( s.kind === "formation" ) return formationBounds( s );
   if ( s.kind === "circle" ) return [s.center[0] - s.radius, s.center[1] - s.radius, s.center[0] + s.radius, s.center[1] + s.radius];
   if ( s.kind === "stamp" ) {
     const r = ( Math.hypot( s.grid.w - 1, s.grid.h - 1 ) * s.grid.spacing ) / 2;
@@ -27,6 +29,7 @@ export function shapeBounds( s: Shape ): [number, number, number, number] {
  * shape ( for start/end/centre heights left on "ground" ).
 **/
 export function shapeAt( s: Shape, x: number, z: number, ground: ( x: number, z: number ) => number ): { h: number; blend: number } | null {
+  if ( s.kind === "formation" ) return formationAt( s, x, z, ground );
   if ( s.kind === "stamp" ) {
     const g  = s.grid;
     // world → stamp-local: the inverse of the turn its outline is drawn with ( shapeTool stampCorners )

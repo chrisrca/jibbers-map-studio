@@ -23,6 +23,11 @@ function mirrorShape( s: Shape, axis: "x" | "z", sx: number, sz: number ): Shape
   const m = ( [x, z]: [number, number] ): [number, number] => ( axis === "x" ? [sx - x, z] : [x, sz - z] );
   if ( s.kind === "curve"  ) return { ...s, start:  m( s.start  ), end: m( s.end ) };
   if ( s.kind === "circle" ) return { ...s, center: m( s.center ), tiltDirection: axis === "x" ? -s.tiltDirection : 180 - s.tiltDirection };
+  // ( its noise mirrored the same way: made again later, it's the mirror image of what was mirrored )
+  if ( s.kind === "formation" ) {
+    const was = s.noiseMirror ?? { x: null, z: null };
+    return { ...s, points: s.points.map( m ), noiseMirror: axis === "x" ? { ...was, x: was.x === null ? sx : null } : { ...was, z: was.z === null ? sz : null } };
+  }
   return { ...s, center: m( s.center ), rotation: -s.rotation, mirrorX: axis === "x" ? !s.mirrorX : s.mirrorX, mirrorZ: axis === "z" ? !s.mirrorZ : s.mirrorZ };
 }
 

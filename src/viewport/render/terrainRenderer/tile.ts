@@ -6,7 +6,7 @@ import * as THREE from "three/webgpu";
 import { type Rect, Terrain, TerrainChunk } from "../../../terrain/terrain";
 import { withLamps } from "../lamps";
 import { type GpuAccess, writeTextureRegion } from "./gpu";
-import { type N, blackTex, brushLook, brushRings, gameTex, powderOf, snowLook, whiteTex } from "./look";
+import { type N, blackTex, brushLook, brushRings, gameTex, powderOf, rockStandIn, snowLook, snowStandIn } from "./look";
 
 export const SKIRT_FLAG = 1;
 
@@ -51,25 +51,27 @@ export class Tile {
     this.sculptMaskTex.magFilter       = this.sculptMaskTex.minFilter = THREE.LinearFilter;
     this.sculptMaskTex.generateMipmaps = false;
 
-    const spacing    = chunk.spacing, res = chunk.res;
     const i0         = tx * q, j0 = tz * q;
+    // ( the tile's numbers as uniforms, not written into its shader: every tile one shader, made once ( warmUp ) — as
+    // constants each tile was a shader of its own, a new map's first ground compiling dozens at once, a second's freeze )
+    const spacing    = uniform( chunk.spacing ), res1 = uniform( chunk.res - 1 ), sz = uniform( s ), at0 = uniform( new THREE.Vector2( i0, j0 ) );
     const mat        = new THREE.MeshLambertNodeMaterial();
     const grid       = attribute( "grid", "vec3" );
     const h          = textureLoad( this.heightTex, ivec2( grid.x.toInt().add( 1 ), grid.y.toInt().add( 1 ) ) ).x;
-    const skirtDepth = float( spacing * 8 + 2 );
-    mat.positionNode = vec3( grid.x.mul( spacing ), h.sub( grid.z.mul( skirtDepth ) ), grid.y.mul( -spacing ) );
+    const skirtDepth = spacing.mul( 8 ).add( 2 );
+    mat.positionNode = vec3( grid.x.mul( spacing ), h.sub( grid.z.mul( skirtDepth ) ), grid.y.mul( spacing ).negate() );
 
-    const nUv     = varying( vec2( grid.x.add( 0.5 ).div( s   ), grid.y.add( 0.5 ).div( s ) ) );
-    const mUv     = varying( vec2( grid.x.add( i0  ).div( res - 1 ), grid.y.add( j0 ).div( res - 1 ) ) );
+    const nUv     = varying( vec2( grid.x.add( 0.5 ).div( sz ), grid.y.add( 0.5 ).div( sz ) ) );
+    const mUv     = varying( vec2( grid.x.add( at0.x ).div( res1 ), grid.y.add( at0.y ).div( res1 ) ) );
     const masked  = texture( this.sculptMaskTex, nUv ).r;
     // the normal at a pixel: at the four samples round it, from their neighbours' heights, blended ( Unity space )
     const gc      = varying( vec2( grid.x, grid.y ) );
     const nSample = Fn( () => {
       // ( the cell's corner kept inside the tile: at its last sample a pixel's blend can't reach past its border ring )
-      const c  = tclamp( floor( gc ), vec2( 0, 0 ), vec2( s - 2, s - 2 ) ), f = gc.sub( c );
+      const c  = tclamp( floor( gc ), vec2( 0, 0 ), vec2( sz.sub( 2 ) ) ), f = gc.sub( c );
       const ci = ivec2( c.x.toInt().add( 1 ), c.y.toInt().add( 1 ) );
       const H  = ( di: number, dj: number ) => textureLoad( this.heightTex, ci.add( ivec2( di, dj ) ) ).x;
-      const at = ( di: number, dj: number ) => vec3( H( di - 1, dj ).sub( H( di + 1, dj ) ), float( 2 * spacing ), H( di, dj - 1 ).sub( H( di, dj + 1 ) ) ).normalize();
+      const at = ( di: number, dj: number ) => vec3( H( di - 1, dj ).sub( H( di + 1, dj ) ), spacing.mul( 2 ), H( di, dj - 1 ).sub( H( di, dj + 1 ) ) ).normalize();
       return mix( mix( at( 0, 0 ), at( 1, 0 ), f.x ), mix( at( 0, 1 ), at( 1, 1 ), f.x ), f.y );
     } )();
     this.maskNode = texture( maskTex, mUv );
@@ -77,8 +79,8 @@ export class Tile {
     this.hueNode  = texture( maskTex, floor( mUv.mul( this.maskSize ) ).add( 0.5 ).div( this.maskSize ) ).level( float( 0 ) );
     this.flowNode = texture( flowTex ?? blackTex, mUv );
     // the game's snow and boulders, tiled as its terrain shader tiles them: 30 and 150 times across a chunk
-    this.snowNode = texture( gameTex.snow ?? whiteTex, mUv.mul( 30 ) );
-    this.rockNode = texture( gameTex.rock ?? whiteTex, mUv.mul( 150 ) );
+    this.snowNode = texture( gameTex.snow ?? snowStandIn, mUv.mul( 30 ) );
+    this.rockNode = texture( gameTex.rock ?? rockStandIn, mUv.mul( 150 ) );
     // texture nodes of untyped textures lose their vec4 typing; it samples as rgba
     const mask    = this.maskNode as unknown as ReturnType<typeof vec4>;
     // corduroy direction ( Unity XZ ), as the game reads the flow mask: 0..1 = 0..360° from +Z towards +X; without one
@@ -165,7 +167,7 @@ export class Tile {
     this.mesh                  = new THREE.Mesh( undefined, mat );
     this.mesh.frustumCulled    = false;
     this.mesh.matrixAutoUpdate = false;
-    this.mesh.position.set( chunk.position[0] + i0 * spacing, chunk.position[1], -( chunk.position[2] + j0 * spacing ) );
+    this.mesh.position.set( chunk.position[0] + i0 * chunk.spacing, chunk.position[1], -( chunk.position[2] + j0 * chunk.spacing ) );
     this.mesh.updateMatrix();
     this.mesh.receiveShadow = true;
     this.upload( null );
@@ -214,21 +216,26 @@ export class Tile {
     // just the part that changed written to the GPU ( the texture made again whole only when the card hasn't one yet )
     const part: [number, number, number, number] = [li0 + 1, lj0 + 1, li1 + 1, lj1 + 1];
     if ( !rect || !writeTextureRegion( gpu, this.heightTex, new Uint8Array( hd.buffer, hd.byteOffset, hd.byteLength ), a, 4, part ) ) this.heightTex.needsUpdate = true;
-    // the sculpt mask ( a chunk without one: nothing to show, once )
-    if ( c.mask || !this.maskShown ) {
-      const md  = this.sculptMaskTex.image.data as Uint8Array;
+    // the sculpt mask: the chunk's, where it has one; a chunk without one ( never masked, or the mask cleared ) shows
+    // none, its texture emptied once
+    const md = this.sculptMaskTex.image.data as Uint8Array;
+    if ( c.mask ) {
       const mi0 = Math.max( 0, li0 ), mj0 = Math.max( 0, lj0 ), mi1 = Math.min( s - 1, li1 ), mj1 = Math.min( s - 1, lj1 );
-      if ( c.mask ) for ( let j = mj0; j <= mj1; j++ ) md.set( c.mask.subarray( ( j0 + j ) * res + i0 + mi0, ( j0 + j ) * res + i0 + mi1 + 1 ), j * s + mi0 );
-      if ( !rect || !c.mask || !writeTextureRegion( gpu, this.sculptMaskTex, md, s, 1, [mi0, mj0, mi1, mj1] ) ) this.sculptMaskTex.needsUpdate = true;
+      for ( let j = mj0; j <= mj1; j++ ) md.set( c.mask.subarray( ( j0 + j ) * res + i0 + mi0, ( j0 + j ) * res + i0 + mi1 + 1 ), j * s + mi0 );
+      if ( !rect || !this.maskShown || !writeTextureRegion( gpu, this.sculptMaskTex, md, s, 1, [mi0, mj0, mi1, mj1] ) ) this.sculptMaskTex.needsUpdate = true;
       this.maskShown = true;
+    } else if ( this.maskShown !== false ) {
+      md.fill( 0 );
+      this.sculptMaskTex.needsUpdate = true;
+      this.maskShown = false;
     }
     this.minH = mn;
     this.maxH = mx;
     const p   = this.mesh.position, size = q * sp;
     this.box.set( new THREE.Vector3( p.x, p.y + mn - sp * 8 - 2, p.z - size ), new THREE.Vector3( p.x + size, p.y + mx, p.z ) );
   }
-  // ( the mask texture written at least once )
-  private maskShown = false;
+  // whether the mask texture holds the chunk's mask ( null: not written yet )
+  private maskShown: boolean | null = null;
 
   dispose() {
     this.heightTex.dispose();

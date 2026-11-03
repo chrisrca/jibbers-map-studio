@@ -43,6 +43,34 @@ export interface TrailRun {
   // how much of the ground's own small-scale relief ( bumps, rolls: the ground less its ~8 m smoothed shape ) rides
   // on the run's surface, 0..1 ( missing: none, a smooth groomed surface )
   detail?:    number;
+  // jumps and rollers on it ( they move with it ), and coloured stripes painted along or across it
+  features?:  TrailFeature[];
+  stripes?:   TrailStripe[];
+}
+
+// A kicker, table, roller or gap on a run: `at` metres along from its first point, `length` long, `height` up at its
+// highest; across it `offset` metres right of the middle and `width` wide ( 0: the run's width ), its sides blending
+// in over `blend` of that ( 0..1 ).
+export interface TrailFeature {
+  kind:   "kicker" | "table" | "roller" | "gap";
+  at:     number;
+  length: number;
+  height: number;
+  offset: number;
+  width:  number;
+  blend:  number;
+}
+
+// A stripe painted on a run ( Paint Stripes: into the snow mask, with the rest of the painting ): along it, `pos` across
+// ( −1 left … 1 right ); or across it, `pos` along ( 0 its first point … 1 its last ). `width` metres, a marking
+// colour ( MARKING_COLOURS ), how soft its edges are ( 0..1 ) and how strong it is.
+export interface TrailStripe {
+  along:   boolean;
+  pos:     number;
+  width:   number;
+  colour:  number;
+  softness: number;
+  opacity: number;
 }
 
 export interface TrailNet {

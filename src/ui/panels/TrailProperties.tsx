@@ -5,7 +5,9 @@ import { CROSS_SECTIONS, type Curve } from "../../core/curve";
 import { useEditor } from "../../map/store";
 import { commitMoved, commitTrails, deleteTrails, fitToGroundPicked, previewNet, withWidthAt } from "../../trails/edits";
 import { realTerrainOf } from "../../map/project";
-import { RUN_PROFILES, runLength, runsAt, skirtOf, type TrailNode, type TrailRun } from "../../trails/trails";
+import { RUN_PROFILES, runLength, runsAt, skirtOf, type TrailFeature, type TrailNode, type TrailRun, type TrailStripe } from "../../trails/trails";
+import { MARKING_COLOURS, paintRunStripes } from "../../paint/ground";
+import { Dropdown } from "../widgets/widgets";
 import { NumberField, Panel } from "../widgets/controls";
 import { CurveEditor } from "../widgets/CurveEditor";
 import { Icon } from "../widgets/icons";
@@ -32,6 +34,9 @@ function Presets( { items, onPick }: { items: Record<string, { label: string; cu
     </div>
   );
 }
+
+// The kinds of feature a run can carry.
+const FEATURE_KINDS: [TrailFeature["kind"], string][] = [["kicker", "Kicker"], ["table", "Table"], ["roller", "Roller"], ["gap", "Gap"]];
 
 export function TrailRunProperties( { r }: { r: TrailRun } ) {
   const net = useEditor( ( s ) => s.trails );
@@ -88,6 +93,62 @@ export function TrailRunProperties( { r }: { r: TrailRun } ) {
           <CurveEditor value={r.cross} min={-1} max={1} label={["left", "right"]} onChange={( cross ) => set( { cross } )} onCommit={done} />
         </div>
         <Field label="Depth"><NumberField onCommit={done} value={r.crossDepth} step={0.1} unit=" m" onChange={( crossDepth ) => set( { crossDepth } )} /></Field>
+
+        <div className="section">Features</div>
+        { ( r.features ?? [] ).map( ( f, i ) => {
+          const put = ( p: Partial<TrailFeature> ) => set( { features: ( r.features ?? [] ).map( ( x, j ) => ( j === i ? { ...x, ...p } : x ) ) } );
+          return (
+            <div key={i} style={{ display: "contents" }}>
+              <Field label="Kind">
+                <div style={{ display: "flex", gap: 4 }}>
+                  <div className="seg">{FEATURE_KINDS.map( ( [id, label] ) => <button key={id} className={f.kind === id ? "on" : ""} onClick={() => { put( { kind: id } ); done(); }}>{label}</button> )}</div>
+                  <button className="btn small" title="Remove" onClick={() => pick( { features: ( r.features ?? [] ).filter( ( _, j ) => j !== i ) } )}><Icon name="trash" size={12} /></button>
+                </div>
+              </Field>
+              <Field label="At"><NumberField onCommit={done} value={f.at} step={0.5} min={0} max={runLength( net, r )} unit=" m" onChange={( at ) => put( { at } )} /></Field>
+              <Field label="Length"><NumberField onCommit={done} value={f.length} step={0.5} min={0.5} max={200} unit=" m" onChange={( length ) => put( { length } )} /></Field>
+              <Field label="Height"><NumberField onCommit={done} value={f.height} step={0.1} min={-20} max={30} unit=" m" onChange={( height ) => put( { height } )} /></Field>
+              <Field label="Offset"><NumberField onCommit={done} value={f.offset} step={0.25} unit=" m" onChange={( offset ) => put( { offset } )} /></Field>
+              <Field label="Width"><NumberField onCommit={done} value={f.width} step={0.5} min={0} max={300} unit=" m" onChange={( width ) => put( { width } )} /></Field>
+              <Field label="Side blend"><NumberField onCommit={done} value={f.blend} step={0.05} min={0} max={1} onChange={( blend ) => put( { blend } )} /></Field>
+            </div>
+          );
+        } ) }
+        <Field label="">
+          <button className="btn small" onClick={() => pick( { features: [...( r.features ?? [] ), { kind: "kicker", at: Math.max( 0, runLength( net, r ) / 2 - 3 ), length: 6, height: 1.5, offset: 0, width: 6, blend: 0.3 }] } )}><Icon name="plus" size={12} /> Add feature</button>
+        </Field>
+
+        <div className="section">Stripes</div>
+        { ( r.stripes ?? [] ).map( ( s, i ) => {
+          const put = ( p: Partial<TrailStripe> ) => set( { stripes: ( r.stripes ?? [] ).map( ( x, j ) => ( j === i ? { ...x, ...p } : x ) ) } );
+          return (
+            <div key={i} style={{ display: "contents" }}>
+              <Field label="Runs">
+                <div style={{ display: "flex", gap: 4 }}>
+                  <div className="seg">
+                    <button className={s.along ? "on" : ""} onClick={() => { put( { along: true, pos: 0 } ); done(); }}>Along</button>
+                    <button className={!s.along ? "on" : ""} onClick={() => { put( { along: false, pos: 0.5 } ); done(); }}>Across</button>
+                  </div>
+                  <button className="btn small" title="Remove" onClick={() => pick( { stripes: ( r.stripes ?? [] ).filter( ( _, j ) => j !== i ) } )}><Icon name="trash" size={12} /></button>
+                </div>
+              </Field>
+              <Field label={s.along ? "Across at" : "Along at"}><NumberField onCommit={done} value={s.pos} step={0.05} min={s.along ? -1 : 0} max={1} onChange={( pos ) => put( { pos } )} /></Field>
+              <Field label="Width"><NumberField onCommit={done} value={s.width} step={0.1} min={0.05} max={50} unit=" m" onChange={( width ) => put( { width } )} /></Field>
+              <Field label="Colour">
+                <Dropdown value={String( s.colour )} menuTitle="Colour" options={MARKING_COLOURS.map( ( c, k ) => ( { value: String( k ), label: c.name } ) )} onChange={( v ) => { put( { colour: Number( v ) } ); done(); }} />
+              </Field>
+              <Field label="Softness"><NumberField onCommit={done} value={s.softness} step={0.05} min={0} max={1} onChange={( softness ) => put( { softness } )} /></Field>
+              <Field label="Strength"><NumberField onCommit={done} value={s.opacity} step={0.05} min={0} max={1} onChange={( opacity ) => put( { opacity } )} /></Field>
+            </div>
+          );
+        } ) }
+        <Field label="">
+          <div style={{ display: "flex", gap: 4 }}>
+            <button className="btn small" onClick={() => pick( { stripes: [...( r.stripes ?? [] ), { along: true, pos: 0, width: 0.5, colour: 11, softness: 0.3, opacity: 0.8 }] } )}><Icon name="plus" size={12} /> Add stripe</button>
+            {( r.stripes ?? [] ).length > 0 && <button className="btn small" onClick={() => void paintRunStripes( useEditor.getState().trails, [r.id] )}>Paint stripes</button>}
+          </div>
+        </Field>
+
         <Field label="">
           <div style={{ display: "flex", gap: 4 }}>
             {!net.grow && <button className="btn small" onClick={() => fitToGroundPicked()}><Icon name="mountain" size={12} /> Fit to Ground</button>}

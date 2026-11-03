@@ -47,3 +47,37 @@ describe( "paint engine", () => {
     }
   } );
 } );
+
+describe( "a paced paint stroke ( a frame's share at a time )", () => {
+  // a cover of its own ( as Texture Paint's ), stopping after every few pixels
+  const steps = function* ( d: { x: number; y: number }, reach: number, at: ( dx: number, dy: number, gx: number, gy: number ) => number, f: ( gx: number, gy: number, cov: number ) => void ) {
+    let n = 0;
+    for ( let gy = Math.floor( d.y - reach ); gy <= Math.ceil( d.y + reach ); gy++ )
+      for ( let gx = Math.floor( d.x - reach ); gx <= Math.ceil( d.x + reach ); gx++ ) {
+        const cov = at( gx + 0.5 - d.x, gy + 0.5 - d.y, gx, gy );
+        if ( cov ) f( gx, gy, cov );
+        if ( ++n % 7 === 0 ) yield;
+      }
+  };
+  const run = ( paced: boolean, o: Partial<StrokeOptions> ) => {
+    const { px, store } = image();
+    const s             = new EngineStroke( store, opts( { coverSteps: steps, seed: 42, ...o } ) );
+    s.paced             = paced;
+    let pauses          = 0;
+    for ( const [x, y] of [[30, 40], [70, 52], [110, 48], [150, 90], [190, 60]] ) {
+      s.move( { x, y, pressure: 0.8 } );
+      while ( paced && s.work( 0 ) ) pauses++;
+    }
+    s.end();
+    while ( paced && s.work( 0 ) ) pauses++;
+    return { px, pauses };
+  };
+
+  it( "paints the same pixels as all at once, however often it's paused ( dabs that follow the stroke too )", () => {
+    for ( const o of [{}, { mode: "multiply" as const, colour: [0.2, 0.6, 0.9] as [number, number, number] }, { brush: mergeBrush( { airbrush: 0, followStroke: true, scatter: 1, angleJitter: 0.5 } ) }] ) {
+      const once = run( false, o ), paced = run( true, o );
+      expect( paced.pauses ).toBeGreaterThan( 50 );
+      expect( paced.px ).toEqual( once.px );
+    }
+  } );
+} );

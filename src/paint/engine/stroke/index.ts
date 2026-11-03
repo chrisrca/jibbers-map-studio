@@ -48,7 +48,15 @@ export interface StrokeOptions {
   // and radius in the units the stroke moves in ), how far its tip reaches, and its coverage at an offset from its
   // centre for a pixel, calls `f` for each pixel it covers.
   cover?:       ( d: DabInfo, reach: number, at: ( dx: number, dy: number, gx: number, gy: number ) => number, f: ( gx: number, gy: number, cov: number ) => void ) => void;
+  // `cover`, stopping now and then ( a big dab carried on over frames, when the stroke is paced )
+  coverSteps?:  ( d: DabInfo, reach: number, at: ( dx: number, dy: number, gx: number, gy: number ) => number, f: ( gx: number, gy: number, cov: number ) => void ) => Generator<void, void, void>;
 }
+
+type Steps = Generator<void, void, void>;
+
+const drive = ( g: Steps ) => {
+  while ( !g.next().done );
+};
 
 // A dab as `cover` sees it.
 export interface DabInfo {
@@ -105,6 +113,16 @@ export class EngineStroke {
   private carry: Float32Array | null = null;
   private carryR = 0;
   changedAny     = false;
+  // the dabs left for work() to lay down, a frame's share at a time ( each with the way the stroke was going ), so the
+  // view keeps drawing while a big or fast stroke paints
+  paced          = false;
+  private queue: { p: StrokePoint; dir: number }[] = [];
+  private head   = 0;
+  // the dab under way ( paused part way ), and the way the stroke went when it was made
+  private job: Steps | null = null;
+  private jobDir = 0;
+  // ( the pixel as it was, read into this: no array made for every pixel )
+  private was    = [0, 0, 0, 0];
 
   constructor( private store: TileStore, opts: StrokeOptions ) {
     this.o    = { ...opts, radius: Math.max( 0.5, opts.radius ) };
@@ -162,9 +180,41 @@ export class EngineStroke {
   }
 
   /**
+   * Paced: the waiting dabs laid down, in order, for about `ms` ( one at least ). Whether any are still waiting.
+  **/
+  work( ms: number ) {
+    // ( each laid the way the stroke went then; the way it goes now kept for the dabs still to come )
+    const t0 = performance.now(), now = this.dir;
+    for ( ;; ) {
+      if ( !this.job ) {
+        if ( this.head >= this.queue.length ) break;
+        const q     = this.queue[this.head++];
+        this.jobDir = q.dir;
+        this.job    = this.layDab( q.p );
+      }
+      this.dir = this.jobDir;
+      let r    = this.job.next();
+      while ( !r.done && performance.now() - t0 < ms ) r = this.job.next();
+      if ( r.done ) this.job = null;
+      if ( performance.now() - t0 >= ms ) break;
+    }
+    this.dir = now;
+    if ( !this.job && this.head >= this.queue.length ) {
+      this.queue = [];
+      this.head  = 0;
+    }
+    return !!this.job || this.head < this.queue.length;
+  }
+
+  private dabAt( p: StrokePoint ) {
+    if ( this.paced ) this.queue.push( { p: { ...p }, dir: this.dir } );
+    else drive( this.layDab( p ) );
+  }
+
+  /**
    * The dabs at one spacing step ( count of them, scattered ), with their dynamics.
   **/
-  private dabAt( p: StrokePoint ) {
+  private *layDab( p: StrokePoint ): Steps {
     const b        = this.o.brush, R = this.o.radius;
     const rnd      = ( k: number ) => hash2( this.index, k, this.seed );
     const pressure = clamp01( p.pressure );
@@ -194,7 +244,7 @@ export class EngineStroke {
         const [h, s, v] = hsvOf( ...colour );
         colour          = rgbOfHsv( h + ( rnd( 7 ) * 2 - 1 ) * b.hueJitter * 0.5, clamp01( s * ( 1 + ( rnd( 8 ) * 2 - 1 ) * b.saturationJitter ) ), clamp01( v * ( 1 + ( rnd( 9 ) * 2 - 1 ) * b.valueJitter ) ) );
       }
-      this.dab( {
+      yield* this.dab( {
         x, y,
         r:         R * size,
         angle:     ( ( b.angle + ( rnd( 2 ) * 2 - 1 ) * b.angleJitter * 180 ) * Math.PI ) / 180 + ( b.followStroke ? this.dir : 0 ),
@@ -260,12 +310,12 @@ export class EngineStroke {
       }
   }
 
-  private dab( d: Dab ) {
+  private *dab( d: Dab ): Steps {
     switch ( this.o.kind ) {
       case "smudge":  return this.smudge( d );
       case "blur":
       case "sharpen": return this.filter( d );
-      default:        return this.paint( d );
+      default:        return yield* this.paint( d );
     }
   }
 
@@ -315,10 +365,25 @@ export class EngineStroke {
     this.touched.clear();
   }
 
-  private paint( d: Dab ) {
+  /**
+   * The pixel as it was before the stroke, into `this.was` ( straight RGBA 0..1; clear where nothing was ).
+  **/
+  private readWas( gx: number, gy: number ) {
+    const S  = this.store.size, tx = Math.floor( gx / S ), ty = Math.floor( gy / S ), key = tileKey( tx, ty ), w = this.was;
+    const px = this.before.has( key ) ? this.before.get( key ) : this.store.get( tx, ty );
+    if ( !px ) return void ( w[0] = w[1] = w[2] = w[3] = 0 );
+    const o = ( ( gy - ty * S ) * S + gx - tx * S ) * 4;
+    w[0]    = px[o] / 255;
+    w[1]    = px[o + 1] / 255;
+    w[2]    = px[o + 2] / 255;
+    w[3]    = px[o + 3] / 255;
+  }
+
+  private *paint( d: Dab ): Steps {
     const S   = this.store.size, mode = this.o.mode, erase = mode === "erase", base = this.o.base;
     const off = this.o.kind === "clone" ? this.o.cloneOffset ?? [0, 0] : null;
-    this.cover( d, ( gx, gy, cov ) => {
+    const s   = [0, 0, 0] as RGB, under = [0, 0, 0] as RGB, was = this.was;
+    const f   = ( gx: number, gy: number, cov: number ) => {
       const T = this.tileOf( gx, gy, !erase );
       if ( !T ) return;
       let L = this.layer.get( T.key );
@@ -338,17 +403,24 @@ export class EngineStroke {
       L[q + 2] += k * ( d.top * a * b - L[q + 2] );
       L[q + 3] += k * ( d.top * a - L[q + 3] );
       // the layer over the pixel as it was
-      const A   = L[q + 3], [or, og, ob, oa] = this.original( gx, gy ), o = q;
+      this.readWas( gx, gy );
+      const A  = L[q + 3], or = was[0], og = was[1], ob = was[2], oa = was[3], o = q;
       if ( erase ) {
         T.px[o + 3] = Math.round( oa * ( 1 - A ) * 255 );
         T.px[o]     = Math.round( or * 255 );
         T.px[o + 1] = Math.round( og * 255 );
         T.px[o + 2] = Math.round( ob * 255 );
       } else {
-        const s:     RGB = A > 1e-6 ? [L[q] / A, L[q + 1] / A, L[q + 2] / A] : [0, 0, 0];
-        const under: RGB = [or * oa + base[0] * ( 1 - oa ), og * oa + base[1] * ( 1 - oa ), ob * oa + base[2] * ( 1 - oa )];
-        const c          = mode === "mix" ? s : blendColour( mode, under, s );
-        const outA       = A + oa * ( 1 - A );
+        if ( A > 1e-6 ) {
+          s[0] = L[q] / A;
+          s[1] = L[q + 1] / A;
+          s[2] = L[q + 2] / A;
+        } else s[0] = s[1] = s[2] = 0;
+        under[0]   = or * oa + base[0] * ( 1 - oa );
+        under[1]   = og * oa + base[1] * ( 1 - oa );
+        under[2]   = ob * oa + base[2] * ( 1 - oa );
+        const c    = mode === "mix" ? s : blendColour( mode, under, s );
+        const outA = A + oa * ( 1 - A );
         if ( outA > 0 ) {
           T.px[o]     = Math.round( clamp01( ( c[0] * A + or * oa * ( 1 - A ) ) / outA ) * 255 );
           T.px[o + 1] = Math.round( clamp01( ( c[1] * A + og * oa * ( 1 - A ) ) / outA ) * 255 );
@@ -357,7 +429,9 @@ export class EngineStroke {
         T.px[o + 3] = Math.round( outA * 255 );
       }
       this.mark( T.key, T.tx, T.ty, T.i, T.j );
-    } );
+    };
+    if ( this.o.coverSteps ) yield* this.o.coverSteps( d, this.reachOf( d ), ( dx, dy, gx, gy ) => this.coverAt( d, dx, dy, gx, gy ), f );
+    else this.cover( d, f );
     this.report();
   }
 

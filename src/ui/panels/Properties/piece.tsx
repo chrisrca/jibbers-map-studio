@@ -22,6 +22,10 @@ import { modelRows } from "../ModelProperties";
 import type { AssetTab } from "./index";
 import { commitWhenStill } from "./live";
 import type { Live } from "./live";
+import { MotionRows } from "./motion";
+import { FenceRows } from "./fence";
+import { fenceOf, isRepeat } from "../../../pieces/fence";
+import { rebuilt } from "../../../viewport/tools/fenceTool";
 import { makeRail } from "./rail";
 import { GrindStatus, RailEditor } from "./rail";
 import { NameRow, Row } from "./rows";
@@ -119,8 +123,18 @@ export function CustomProperties( { o, live, tab }: { o: CustomObjectEntry; live
           <span style={{ color: "var(--muted)", alignSelf: "center" }}>{Number.isNaN( ground ) ? "off terrain" : `${( o.position.y - ground ).toFixed( 2 )} m above`}</span>
         </div>
         </> }
+        { layout && !fenceOf( o ) && <>
+        <label>Repeat</label>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="btn small" title="Repeat this piece along a path over the ground" onClick={() => void getEngine()?.menus.makeFence()}>
+            Make Repeat
+          </button>
+        </div>
+        </> }
         </> }
         {layout && o.lights.length > 0 && <LightRows o={o} set={set} commit={commit} />}
+        {layout && fenceOf( o ) && <FenceRows key={o.uid} o={o} set={set} commit={commit} />}
+        {( layout || tab === "object" ) && <MotionRows o={o} set={set} commit={commit} />}
 
         { ( tab === "modifiers" || tab === "data" ) && ( o.model ? modelRows( { o: o as CustomObjectEntry & { model: NonNullable<CustomObjectEntry["model"]> }, set, commit, only: tab } ) : (
           <>
@@ -144,7 +158,9 @@ export function CustomProperties( { o, live, tab }: { o: CustomObjectEntry; live
                 if ( o.model ) {
                   set( ( x ) => {
                     const { rail: _r, ...y } = x;
-                    return withModel( { ...( s.id === "Jib" && x.model?.curve ? x : y ), surface_type: s.id, ...( s.id === "Jib" ? { can_magnetize: true } : {} ) }, x.model! );
+                    const z                  = withModel( { ...( s.id === "Jib" && x.model?.curve ? x : y ), surface_type: s.id, ...( s.id === "Jib" ? { can_magnetize: true } : {} ) }, x.model! );
+                    // ( a repeat: made again, its copies' colliders the new surface too )
+                    return fenceOf( z ) ? rebuilt( z ) : z;
                   } );
                   commit();
                   return;
@@ -171,7 +187,7 @@ export function CustomProperties( { o, live, tab }: { o: CustomObjectEntry; live
             {flag( "can_stabilize", "Can stabilize" )}
             {flag( "can_rotate", "Can rotate" )}
             {flag( "can_magnetize", "Can magnetize" )}
-            {layout && <RailEditor o={o} set={set} commit={commit} />}
+            {layout && ( !fenceOf( o ) || isRepeat( fenceOf( o ) ) ) && <RailEditor o={o} set={set} commit={commit} />}
             <GrindStatus o={o} />
           </>
         ) }

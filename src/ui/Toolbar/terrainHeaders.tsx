@@ -85,7 +85,7 @@ export function ShapeHeader() {
   };
   return (
     <>
-      <b><Icon name={kind === "curve" ? "shapeCurve" : kind === "circle" ? "shapeCircle" : "shapeCopy"} size={14} /> {kind === "curve" ? "Curve" : kind === "circle" ? "Circle" : "Copy"}</b>
+      <b><Icon name={kind === "curve" ? "shapeCurve" : kind === "circle" ? "shapeCircle" : kind === "formation" ? "mountain" : "shapeCopy"} size={14} /> {kind === "curve" ? "Curve" : kind === "circle" ? "Circle" : kind === "formation" ? "Formation" : "Copy"}</b>
       { kind === "curve" && (
         <div className="seg">
           { Object.entries( PROFILES ).map( ( [id, p] ) => (
@@ -102,7 +102,7 @@ export function ShapeHeader() {
             <NumberField value={set.lipAngle} step={1} min={0} max={60} digits={0} unit="°" onChange={( lipAngle ) => update( { lipAngle } )} />
           </div>
         </div>
-      ) : kind !== "stamp" && <div className="group">
+      ) : kind !== "stamp" && kind !== "formation" && <div className="group">
         <label>{kind === "curve" ? "Height" : "Depth"}</label>
         <div style={{ width: 70 }}>
           <NumberField value={set.height} step={0.1} onChange={( height ) => update( { height } )} />
@@ -117,7 +117,7 @@ export function ShapeHeader() {
         </div>
       ) }
       <span style={{ color: "var(--muted)" }}>
-        {kind === "curve" ? "Drag along the run, from the start to the lip/end" : kind === "circle" ? "Drag from the centre out" : "Drag a box over the terrain to copy, then drag the copy's centre handle to place it"} · click a shape to edit it · Del removes
+        {kind === "curve" ? "Drag along the run, from the start to the lip/end" : kind === "circle" ? "Drag from the centre out" : kind === "formation" ? "Click its outline point by point; its first point or Enter closes it" : "Drag a box over the terrain to copy, then drag the copy's centre handle to place it"} · click a shape to edit it · Del removes
       </span>
     </>
   );
@@ -171,6 +171,7 @@ export function BrushHeader() {
         </>
       ) }
       {sc.brush === "terrace" && <Num label="Step" value={b.terraceStep} step={0.25} unit="m" onChange={( terraceStep ) => set( { terraceStep } )} />}
+      {sc.brush === "erode" && <Num label="Angle" value={b.erodeAngle} step={1} unit="°" onChange={( erodeAngle ) => set( { erodeAngle } )} />}
       { sc.brush === "noise" && (
         <>
           <Num label="Size" value={b.noiseScale} step={0.5} unit="m" onChange={( noiseScale ) => set( { noiseScale } )} />

@@ -3,6 +3,9 @@
 import { ipc, joinPath } from "../../core/ipc";
 import { useEditor } from "../../map/store";
 import type { TerrainChunk } from "../../terrain/terrain";
+import { resample, type Image, type ResampleJob } from "./resample";
+
+export { upsampleMask } from "./resample";
 
 export interface PaintLayer {
   key:     string;
@@ -61,27 +64,32 @@ export function defaultMaskSize( c: TerrainChunk ) {
 export const layerOf = ( key: string ) => layers.get( key ) ?? null;
 
 /**
- * A mask brought up from `m` to `M` pixels a side ( a mask made coarser than its chunk's ground ): snow, coverage and
- * powder blended between pixels, the marking hue from the nearest ( it's a colour number, not a blend ).
+ * A mask resampled in a worker ( here, where there are no workers: the tests ).
 **/
-export function upsampleMask( rgba: Uint8Array, m: number, M: number ): Uint8Array {
-  const out = new Uint8Array( M * M * 4 );
-  for ( let J = 0; J < M; J++ ) {
-    const fy = Math.min( m - 1, Math.max( 0, ( ( J + 0.5 ) * m ) / M - 0.5 ) );
-    const y0 = Math.floor( fy ), y1 = Math.min( m - 1, y0 + 1 ), b = fy - y0;
-    const yn = Math.min( m - 1, Math.floor( ( ( J + 0.5 ) * m ) / M ) );
-    for ( let I = 0; I < M; I++ ) {
-      const fx  = Math.min( m - 1, Math.max( 0, ( ( I + 0.5 ) * m ) / M - 0.5 ) );
-      const x0  = Math.floor( fx ), x1 = Math.min( m - 1, x0 + 1 ), a = fx - x0;
-      const xn  = Math.min( m - 1, Math.floor( ( ( I + 0.5 ) * m ) / M ) );
-      const o   = ( J * M + I ) * 4;
-      const p00 = ( y0 * m + x0 ) * 4, p10 = ( y0 * m + x1 ) * 4, p01 = ( y1 * m + x0 ) * 4, p11 = ( y1 * m + x1 ) * 4;
-      for ( const c of [0, 2, 3] )
-        out[o + c] = Math.round( ( rgba[p00 + c] * ( 1 - a ) + rgba[p10 + c] * a ) * ( 1 - b ) + ( rgba[p01 + c] * ( 1 - a ) + rgba[p11 + c] * a ) * b );
-      out[o + 1] = rgba[( yn * m + xn ) * 4 + 1];
-    }
-  }
-  return out;
+function offThread<T extends Uint8Array | Image | null>( job: ResampleJob ): Promise<T> {
+  if ( typeof Worker === "undefined" ) return resample( job ) as Promise<T>;
+  return new Promise( ( res ) => {
+    const w = new Worker( new URL( "./resample.worker.ts", import.meta.url ), { type: "module" } );
+    w.addEventListener( "message", ( e: MessageEvent<T> ) => {
+      w.terminate();
+      res( e.data );
+    } );
+    w.addEventListener( "error", ( e ) => {
+      console.warn( "resampling worker", e );
+      w.terminate();
+      res( resample( job ) as Promise<T> );
+    } );
+    w.postMessage( job, [] );
+  } );
+}
+
+/**
+ * A mask's pixels: its PNG read as it is ( a few MB, not the 64 of a decoded 4096² one, which took the page a tenth of
+ * a second to take in ) and decoded in the worker; one the decoder doesn't take decoded by the back end, as before.
+**/
+async function readMask( path: string ): Promise<Image> {
+  const png = new Uint8Array( await ipc.readBinary( path ) );
+  return ( await offThread<Image | null>( { kind: "png", png } ) ) ?? ipc.readImageRgba( path );
 }
 
 /**
@@ -98,14 +106,15 @@ export function ensureLayer( c: TerrainChunk ): Promise<PaintLayer> {
       let rgba: Uint8Array | null = null, m = defaultMaskSize( c ), four = !!extras.snowMask4Channel, flow: Uint8Array | null = null;
       if ( c.snowMask && st.projectDir ) {
         try {
-          const img = await ipc.readImageRgba( joinPath( st.projectDir, c.snowMask ) );
+          const img = await readMask( joinPath( st.projectDir, c.snowMask ) );
           if ( img.width === img.height ) {
             m          = img.width;
-            rgba       = new Uint8Array( img.data );
+            // ( the worker's is its own; the back end's is a view into what it sent: copied out )
+            rgba       = img.data.byteOffset === 0 && img.data.byteLength === img.data.buffer.byteLength ? img.data : new Uint8Array( img.data );
             // coarser than the ground ( made before maps went to a pixel per sample ): brought up to it
             const want = defaultMaskSize( c );
             if ( m < want ) {
-              rgba = upsampleMask( rgba, m, want );
+              rgba = await offThread<Uint8Array>( { kind: "up", rgba, m, M: want } );
               m    = want;
             }
           }
@@ -120,11 +129,9 @@ export function ensureLayer( c: TerrainChunk ): Promise<PaintLayer> {
       }
       if ( extras.snowMask2 && st.projectDir ) {
         try {
-          const img = await ipc.readImageRgba( joinPath( st.projectDir, extras.snowMask2 ) );
+          const img = await readMask( joinPath( st.projectDir, extras.snowMask2 ) );
           // resampled ( nearest ) to the snow mask's size, so one pixel grid serves both
-          flow      = new Uint8Array( m * m );
-          for ( let j = 0; j < m; j++ )
-            for ( let i = 0; i < m; i++ ) flow[j * m + i] = img.data[( Math.floor( ( j * img.height ) / m ) * img.width + Math.floor( ( i * img.width ) / m ) ) * 4];
+          flow      = await offThread<Uint8Array>( { kind: "flow", data: img.data, w: img.width, h: img.height, m } );
         } catch ( e ) {
           console.warn( "flow mask unreadable", extras.snowMask2, e );
         }

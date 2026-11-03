@@ -73,11 +73,17 @@ export const powderOf = ( a: N ) =>
 // The game's snow and rock textures ( white till they're read )
 export const gameTex = { snow: null as THREE.Texture | null, rock: null as THREE.Texture | null };
 
-export const whiteTex = ( () => {
+const plainWhite = () => {
   const t       = new THREE.DataTexture( new Uint8Array( [255, 255, 255, 255] ), 1, 1 );
   t.needsUpdate = true;
   return t;
-} )();
+};
+export const whiteTex = plainWhite();
+
+// ( the snow's and the rock's stand-ins till the game's are in: one each, not one between them. Shared, the tiles
+// drawn before the game's came in kept one binding for both, and showed the rock where the snow goes: brown ground )
+export const snowStandIn = plainWhite();
+export const rockStandIn = plainWhite();
 
 export const blackTex = ( () => {
   const t       = new THREE.DataTexture( new Uint8Array( [0, 0, 0, 255] ), 1, 1 );

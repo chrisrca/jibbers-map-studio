@@ -6,7 +6,7 @@
 // Blender ). When the faces change ( an extrude, a cut, a modifier ), a layout is made for the new ones and the paint
 // carried across by position: each texel of the new layout takes the colour of the nearest one of the old.
 
-export { topoSig, paintAtlas, atlasFor, type TexelMap, texelMap, texelsNear } from "./atlas";
+export { topoSig, paintAtlas, atlasFor, type TexelMap, texelMap, texelsNear, texelsNearSteps } from "./atlas";
 export { type Channel, channelKey, type PieceTexture, pieceTexture, putPieceTexture, onPieceTexture, pendingOf, channelPixels, storeOf, updateNormal } from "./textures";
 export { prepare, matchTexels, carry, setBakedLook, resample, resizeTexture } from "./carry";
 export { editTexture, recordStroke, editChannels } from "./edits";

@@ -30,7 +30,8 @@ export class StrokeMask {
           const wt = tip.weight( x0 + i * sp, z0 + j * sp ) * d.strength;
           if ( wt <= 0 ) continue;
           const idx = j * res + i;
-          const v   = add ? Math.max( M[idx], wt * 255 ) : M[idx] * ( 1 - wt );
+          // ( erasing takes away as much as painting puts on: a stroke over it clears it, edges and all )
+          const v   = add ? Math.max( M[idx], wt * 255 ) : M[idx] - wt * 255;
           M[idx]    = v < 0 ? 0 : v > 255 ? 255 : v;
         }
       this.stroke.t.markDirtyRect( ci, i0, j0, i1, j1 );

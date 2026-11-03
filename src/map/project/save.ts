@@ -8,6 +8,7 @@ import { terrain } from "../../terrain/terrain";
 import { savePieceTextures } from "../../texture/meshPaint";
 import { saveTrailFiles, trailEditorData } from "../../trails/edits";
 import { flushTrails } from "../../trails/ground";
+import { history } from "../history";
 import { useEditor } from "../store";
 import { chunkVersion, meta, savedArray, savedVersion } from "./state";
 
@@ -65,8 +66,10 @@ export async function saveProject(): Promise<void> {
     if ( !dir || !currentProject() ) return;
     useEditor.setState( { saveState: "saving" } );
     try {
-      // the trails' ground finished ( the far part of the last change may still be under way )
+      // the trails' ground finished ( the far part of the last change may still be under way ), and the sculpt strokes
+      // still being laid down
       flushTrails();
+      history.settle();
       // painted snow masks first: saving them points the chunks at their files
       await savePaint( dir );
       await savePieceTextures( dir, new Set( mapState().customObjects.map( ( o ) => o.uid ) ) );

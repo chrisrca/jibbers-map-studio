@@ -42,6 +42,8 @@ export class StoreSync {
     }
     if ( s.placeId       !== prev.placeId       ) this.engine.placing.updateGhostGeometry();
     if ( s.projectDir    !== prev.projectDir    && s.projectDir ) this.engine.veil.arm();
+    // ( another map: nothing picked or being drawn from the last one )
+    if ( s.projectDir    !== prev.projectDir    ) this.engine.shapeTool?.reset();
     if ( s.customObjects !== prev.customObjects || s.projectDir !== prev.projectDir || s.selection !== prev.selection ) this.engine.syncCustom();
     if ( s.tool          !== prev.tool          ) this.engine.look.syncStage( s );
     // ( the Assets workspace navigates as Blender does )
@@ -51,9 +53,10 @@ export class StoreSync {
       this.engine.customR.showOnly( Object.keys( s.hiddenInView ).length ? new Set( s.customObjects.filter( ( o ) => !s.hiddenInView[o.uid] ).map( ( o ) => o.uid ) ) : null );
     if ( s.view3d      !== prev.view3d      || s.materialMode !== prev.materialMode ) this.engine.look.apply();
     if ( s.terrainView !== prev.terrainView ) this.engine.ground.applyTerrainView();
-    if ( s.shapes      !== prev.shapes      || s.selection !== prev.selection || s.tool !== prev.tool || s.locked !== prev.locked ) this.engine.shapeTool?.sync();
-    if ( s.trails      !== prev.trails      || s.selection !== prev.selection || s.tool !== prev.tool || s.trailHandle !== prev.trailHandle ) this.engine.trailTool?.sync();
+    if ( s.shapes      !== prev.shapes      || s.selection !== prev.selection || s.tool !== prev.tool || s.locked !== prev.locked || s.showPaths !== prev.showPaths ) this.engine.shapeTool?.sync();
+    if ( s.trails      !== prev.trails      || s.selection !== prev.selection || s.tool !== prev.tool || s.trailHandle !== prev.trailHandle || s.showPaths !== prev.showPaths ) this.engine.trailTool?.sync();
     if ( s.objects     !== prev.objects     || s.selection !== prev.selection || s.tool !== prev.tool ) this.engine.liftTool?.sync();
+    if ( s.customObjects !== prev.customObjects || s.selection !== prev.selection || s.tool !== prev.tool ) this.engine.fenceTool?.sync();
     // ( a handle's for the gizmo while its point or run is picked )
     if ( s.trailHandle && ( s.selection !== prev.selection || s.tool !== "trail" ) ) useEditor.setState( { trailHandle: null } );
     // ( into Terrain Mode: the trails' looks made ready before the Trails tool is picked )
