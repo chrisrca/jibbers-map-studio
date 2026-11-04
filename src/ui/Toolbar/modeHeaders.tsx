@@ -4,12 +4,10 @@ import { useState } from "react";
 import { copySelection, hasClipboard, paste } from "../../map/clipboard";
 import { realTerrainOf } from "../../map/project";
 import { toHide, unlocked, useEditor } from "../../map/store";
-import { CURVE_PRESETS } from "../../model/curve";
 import type { PaintTool } from "../../paint/settings";
 import { mirrorTerrain } from "../../terrain/ops";
 import { HB } from "../blender/AssetsUI";
 import { BlIcon, ToolIcon } from "../blender/BlIcon";
-import { pickAndImportAny } from "../importAny";
 import { getEngine } from "../Viewport";
 import { Slider } from "../widgets/controls";
 import { Icon } from "../widgets/icons";
@@ -43,19 +41,6 @@ export function showHideItems(): MenuItem[] {
 const SELECT_MENU = (): MenuItem[] => [
   { label: "All",  keys: "Ctrl A", bl: "select_set",      run: selectAllItems },
   { label: "None", keys: "Alt A",  bl: "select_subtract", run: () => useEditor.getState().setSelection( [] ) },
-];
-
-const ADD_MENU = (): MenuItem[] => [
-  { label: "Spawn",         icon: "spawn", keys: "N", run: () => useEditor.getState().setTool( "spawn" ) },
-  { label: "Library Piece", icon: "place", keys: "P", run: () => useEditor.getState().setTool( "place" ) },
-  { label: "Rail",          icon: "rail",  sub:  CURVE_PRESETS.filter( ( p ) => p.jib ).map( ( p ) => ( { label: p.label, icon: "rail" as const, run: () => void getEngine()?.menus.addCurveInView( p ) } ) ) },
-  { sep:   true,             label: "" },
-  { label: "Ramp",           icon:  "shapeCurve", keys: "H", run: () => useEditor.setState( { tool: "shape", shapeKind: "curve" } ) },
-  { label: "Copy Terrain",   icon:  "shapeCopy", run: () => useEditor.setState( { tool: "shape", shapeKind: "stamp" } ) },
-  { label: "Formation",      icon:  "mountain",  run: () => useEditor.setState( { tool: "shape", shapeKind: "formation" } ) },
-  { sep:   true,             label: "" },
-  { label: "Import…",        icon:  "import", keys: "Ctrl I", run: () => pickAndImportAny() },
-  { label: "Real Mountain…", icon:  "mountain", run: () => useEditor.setState( { mountainImport: true } ) },
 ];
 
 /**
@@ -154,7 +139,6 @@ export function DesignHeader() {
       />
       <MenuButton label="View" items={viewItems} />
       {mode === "object" && <MenuButton label="Select" items={SELECT_MENU} />}
-      {mode === "object" && <MenuButton label="Add" items={ADD_MENU} />}
       {mode === "object" && <MenuButton label="Object" items={objectItems} />}
       {mode === "sculpt" && <MenuButton label="Terrain" items={sculptItems} />}
       <span className="spacer" />

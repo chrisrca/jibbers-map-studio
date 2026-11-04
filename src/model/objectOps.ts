@@ -5,8 +5,8 @@
 import * as THREE from "three/webgpu";
 import { toThree, toUnity, type V3 } from "../core/coords";
 import { pieceMatrix, transformCustom } from "../core/transform";
-import type { CustomObjectEntry } from "../core/types";
-import { withRail } from "../pieces/rail";
+import { arr3, xyz, type CustomObjectEntry } from "../core/types";
+import { railScaled, withRail } from "../pieces/rail";
 import type { ModelData } from "./build";
 import { withModel } from "./objects";
 
@@ -61,6 +61,33 @@ export function originToGeometry( o: Modelled ): Modelled {
 **/
 export function geometryToOrigin( o: Modelled ): Modelled {
   return shifted( o, middle( o ) );
+}
+
+/**
+ * Blender's Apply Scale: its scale put into its mesh ( its curve's points and its rail's too ), the piece left at scale
+ * 1, the same to look at.
+**/
+export function applyScale( o: Modelled ): Modelled {
+  const k = arr3( o.scale );
+  if ( k.every( ( v ) => Math.abs( v - 1 ) < 1e-6 ) ) return o;
+  const sc               = ( p: V3 ): V3 => [p[0] * k[0], p[1] * k[1], p[2] * k[2]];
+  // ( a mirroring scale turns its faces inside out: turned back )
+  const flip             = k[0] * k[1] * k[2] < 0;
+  const m                = o.model;
+  const model: ModelData = {
+    ...m,
+    mesh: { ...m.mesh, v: m.mesh.v.map( sc ), ...( flip ? { f: m.mesh.f.map( ( f ) => [...f].reverse() ) } : {} ) },
+    ...( m.curve ? { curve: { ...m.curve, splines: m.curve.splines.map( ( s ) => ( { ...s, points: s.points.map( ( q ) => ( { ...q, p: sc( q.p ) } ) ) } ) ) } } : {} ),
+  };
+  const one  = xyz( [1, 1, 1] ), own = `Models/${o.uid}/`;
+  let out    = withModel( { ...o, scale: one, parts: o.parts.map( ( p ) => ( p.mesh.startsWith( own ) ? { ...p, local_scale: one } : p ) ) }, model ) as Modelled;
+  // ( its rail where it was: its top on the piece, as thick as it was; its way up turned with the scale )
+  if ( o.rail ) {
+    const s  = new THREE.Vector3( ...k.map( Math.abs ) ), r = o.rail;
+    const up = r.up ? new THREE.Vector3( r.up[0] * s.x, r.up[1] * s.y, r.up[2] * s.z ).normalize().toArray() as V3 : undefined;
+    out      = withRail( out, { ...r, points: r.points.map( ( p ) => railScaled( s, r, p ).toArray() as V3 ), ...( up ? { up } : {} ), parts: undefined } ) as Modelled;
+  }
+  return out;
 }
 
 /**

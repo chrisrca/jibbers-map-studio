@@ -7,7 +7,7 @@ import { deltaBetween, transformCustom } from "../../../core/transform";
 import { type CustomObjectEntry, type SurfaceType, arr3, customName, safeScale } from "../../../core/types";
 import { useEditor } from "../../../map/store";
 import { withModel } from "../../../model/objects";
-import { withRail, withoutRail } from "../../../pieces/rail";
+import { withRail, withRailAgain, withoutRail } from "../../../pieces/rail";
 import { saveCustomToLibrary } from "../../../pieces/userAssets";
 import { commitShape, liveShape } from "../../../terrain/shapes/edits";
 import { newStamp } from "../../../terrain/shapes/shapes";
@@ -86,7 +86,7 @@ export function CustomProperties( { o, live, tab }: { o: CustomObjectEntry; live
   // ( a repeat: its sections' own turn and size are its Rotation and Scale )
   const rep             = isRepeat( fenceOf( o ) ) ? fenceOf( o ) : null;
   const moveTo          = ( to: Partial<{ pos: V3; rot: V3; scl: V3 }> ) =>
-    set( ( x ) => transformCustom( x, deltaBetween( cur, { ...cur, ...to } ) ) );
+    set( ( x ) => withRailAgain( transformCustom( x, deltaBetween( cur, { ...cur, ...to } ) ) ) );
   const ground = terrain.heightAt( o.position.x, o.position.z );
   const flag   = ( k: "can_stabilize" | "can_rotate" | "can_magnetize" | "disable_distance_culling" | "timed_visibility", label: string ) => (
     <>
@@ -201,7 +201,7 @@ export function CustomProperties( { o, live, tab }: { o: CustomObjectEntry; live
             {flag( "can_stabilize", "Can stabilize" )}
             {flag( "can_rotate", "Can rotate" )}
             {flag( "can_magnetize", "Can magnetize" )}
-            {layout && ( !fenceOf( o ) || isRepeat( fenceOf( o ) ) ) && <RailEditor o={o} set={set} commit={commit} />}
+            {( layout || tab === "physics" ) && ( !fenceOf( o ) || isRepeat( fenceOf( o ) ) ) && <RailEditor o={o} set={set} commit={commit} />}
           </>
         ) }
         </> }

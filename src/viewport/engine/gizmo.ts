@@ -9,6 +9,7 @@ import { history } from "../../map/history";
 import { unlocked, useEditor, workspaceOf } from "../../map/store";
 import { cancelPreview, commitMoved, commitTrails, joinDropped, previewNet, withHandle, withPointAt } from "../../trails/edits";
 import type { TrailNet } from "../../trails/trails";
+import { withRailAgain } from "../../pieces/rail";
 import { terrain } from "../../terrain/terrain";
 import { BlGizmo } from "../tools/gizmo/blGizmo";
 import type { Engine } from "./engine";
@@ -403,7 +404,8 @@ export class GizmoControl {
     // ( scale is kept positive: dragged through zero it comes out mirrored, which the game can't load )
     const xf = ( pos: V3, rot: V3, scl: V3 ) => applyToTRS( delta, pos, rot, scl );
     useEditor.setState( {
-      customObjects: start.customObjects.map( ( o ) => ( ids.has( o.uid ) ? transformCustom( o, own( o ) ) : o ) ),
+      // ( a jib's rail colliders made again as it goes: at its size, not stretched with it )
+      customObjects: start.customObjects.map( ( o ) => ( ids.has( o.uid ) ? withRailAgain( transformCustom( o, own( o ) ) ) : o ) ),
       objects:       start.objects.map( ( o ) => ( ids.has( o.uid ) ? { ...o, ...xf( o.position, o.rotation, o.scale ) } : o ) ),
       spawns: start.spawns.map( ( s ) => {
         if ( !ids.has( s.uid ) ) return s;

@@ -11,7 +11,7 @@ import { pieceName, uniqueName } from "../../map/names";
 import { history } from "../../map/history";
 import { newUid, unlocked, useEditor, type LastAdd, type Selection } from "../../map/store";
 import { type ModelData } from "../../model/build";
-import { CURVE_PRESETS, presetCurve, type CurvePreset } from "../../model/curve";
+import { presetCurve, type CurvePreset } from "../../model/curve";
 import { primitive, PRIMITIVES, type PrimitiveId } from "../../model/mesh";
 import { geometryToOrigin, isModelled, mirrorLocal, originTo, originToGeometry, shade } from "../../model/objectOps";
 import { newCurveObject, newModelObject } from "../../model/objects";
@@ -196,8 +196,8 @@ export class ViewportMenus {
   }
 
   /**
-   * Shift+A ( or the Add button: `anchor`, its place ): primitives and curve pieces, added sitting on the floor under
-   * the mouse ( from the button: the stage's middle ), upright on the stage.
+   * Shift+A ( or the Add button: `anchor`, its place ): primitives, added sitting on the floor under the mouse ( from
+   * the button: the stage's middle ), upright on the stage.
   **/
   addMenu( anchor?: DOMRect ) {
     const r     = this.engine.host.getBoundingClientRect();
@@ -224,8 +224,6 @@ export class ViewportMenus {
     };
     const items: MenuItem[] = [
       ...PRIMITIVES.map( ( p ) => ( { label: p.label, icon: icons[p.id], bl: `mesh_${p.id}`, run: add( p.id ) } ) ),
-      { sep: true, label: "" },
-      ...CURVE_PRESETS.map( ( p ) => ( { label: p.label, icon: "rail" as const, run: () => this.addCurve( p, onMap( p.jib && !this.engine.stage.shown ? 0.6 : 0 ) ) } ) ),
     ];
     window.dispatchEvent( new CustomEvent( "viewport-menu", { detail: { ...place, title: "Add", items } } ) );
   }

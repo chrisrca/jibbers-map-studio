@@ -1,7 +1,7 @@
 [package]
 name = "gamelink"
 description = "Jibbers Studio's link into the game: loaded into Jibbers by the studio's Play, it starts the map straight away and runs the game inside the studio's Game tab"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 
 [lib]

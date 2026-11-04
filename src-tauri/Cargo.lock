@@ -1009,7 +1009,7 @@ dependencies = [
 
 [[package]]
 name = "gamelink"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde_json",
  "windows-sys 0.61.2",
@@ -1719,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "jibbers-studio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

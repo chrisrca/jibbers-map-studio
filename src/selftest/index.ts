@@ -42,6 +42,7 @@ import { inputLagSelftest } from "./game/inputLag";
 import { invoke } from "@tauri-apps/api/core";
 import { librarySelftest } from "./assets/library";
 import { liftPanelSelftest } from "./pieces/liftPanel";
+import { jibBoxSelftest } from "./pieces/jibBox";
 import { liftsSelftest } from "./pieces/lifts";
 import { mapPiecesSelftest } from "./pieces/mapPieces";
 import { loadVeilSelftest } from "./perf/loadVeil";
@@ -102,6 +103,7 @@ import { treeViewSelftest } from "./look/treeView";
 import { treesSelftest } from "./look/trees";
 import { uiFixesSelftest } from "./app/uiFixes";
 import { uiSelftest } from "./app/ui";
+import { updateLookSelftest } from "./app/updateLook";
 import { updatesSelftest } from "./app/updates";
 import { userMapSelftest } from "./look/userMap";
 import { vramSelftest } from "./perf/vram";
@@ -121,6 +123,7 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   ui:           uiSelftest,
   uifixes:      uiFixesSelftest,
   updates:      updatesSelftest,
+  updatelook:   updateLookSelftest,
   // terrain
   brush:        brushSelftest,
   brushdrag:    brushDragSelftest,
@@ -200,6 +203,7 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   freshlift:    freshLiftSelftest,
   grind:        grindSelftest,
   liftpanel:    liftPanelSelftest,
+  jibbox:       jibBoxSelftest,
   lifts:        liftsSelftest,
   mappieces:    mapPiecesSelftest,
   parts:        partsSelftest,

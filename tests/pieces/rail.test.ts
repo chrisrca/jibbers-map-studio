@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three/webgpu";
 import { autoRail, fitParts, insertAt, isRailCollider, keepClear, railColliders, railPath, recoverRail, unityEuler, withRail, withoutRail, type P3 } from "../../src/pieces/rail";
+import { PROUD } from "../../src/pieces/rail/common";
 import { transformCustom } from "../../src/core/transform";
 import { xyz, type CustomCollider, type CustomObjectEntry, type Rail } from "../../src/core/types";
 
@@ -316,8 +317,29 @@ describe( "rail colliders", () => {
       const m           = new THREE.Matrix4().makeRotationY( y * deg ).multiply( new THREE.Matrix4().makeRotationX( x * deg ) ).multiply( new THREE.Matrix4().makeRotationZ( z * deg ) );
       const zAxis       = new THREE.Vector3().setFromMatrixColumn( m, 2 );
       expect( zAxis.y         ).toBeGreaterThan( 0.8 );
-      expect( c.local_scale.x ).toBeCloseTo( 2, 5 );
+      // ( made at the piece's size: as thick as the rail is, not scaled with the piece )
+      expect( c.local_scale.x ).toBeCloseTo( 1, 5 );
+      expect( c.radius        ).toBeCloseTo( 0.05 + PROUD, 5 );
     }
+  } );
+
+  it( "on a piece scaled more one way: boxes upright and not stretched, as wide and high as set, along the rail where it is", () => {
+    const o     = piece( { position: xyz( [0, 0, 0] ), rotation: xyz( [0, 30, 0] ), scale: xyz( [3, 0.5, 1] ) } );
+    const rail  = { points: [[-1, 1, 0], [1, 1, 0]] as P3[], radius: 0.05, box: [0.3, 0.1] as [number, number] };
+    const boxes = railColliders( o, rail );
+    const deg   = THREE.MathUtils.DEG2RAD;
+    expect( boxes.length ).toBeGreaterThan( 0 );
+    for ( const c of boxes ) {
+      expect( [c.local_scale.x, c.local_scale.y, c.local_scale.z] ).toEqual( [1, 1, 1] );
+      expect( c.size.x ).toBeCloseTo( 2 * ( 0.3 + PROUD ), 5 );
+      expect( c.size.z ).toBeCloseTo( 2 * ( 0.1 + PROUD ), 5 );
+      const { x, y, z } = c.local_rotation;
+      const m           = new THREE.Matrix4().makeRotationY( y * deg ).multiply( new THREE.Matrix4().makeRotationX( x * deg ) ).multiply( new THREE.Matrix4().makeRotationZ( z * deg ) );
+      expect( new THREE.Vector3().setFromMatrixColumn( m, 2 ).y ).toBeCloseTo( 1, 5 );
+    }
+    // ( its ends where the rail's are on the piece now: 3 m out either way, its top kept on the piece's )
+    const ys = boxes.map( ( c ) => c.local_position.y );
+    for ( const y of ys ) expect( y ).toBeCloseTo( ( 1 + 0.05 ) * 0.5 - 0.05, 5 );
   } );
 
   it( "are boxes along a box rail, end to end, its width across and its height up", () => {

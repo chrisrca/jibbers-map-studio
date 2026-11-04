@@ -4,6 +4,7 @@ import * as THREE from "three/webgpu";
 import { deltaBetween, transformCustom } from "../../core/transform";
 import { type CustomCollider, type CustomObjectEntry, type Rail, arr3, xyz } from "../../core/types";
 import { type P3, PROUD, RAIL_MARK, clamp, vec } from "./common";
+import { railScaled, scaleOf } from "./frame";
 
 /**
  * The rail's curve, sampled ( piece units ): a smooth curve through its points.
@@ -52,15 +53,19 @@ export function unityEuler( x: THREE.Vector3, y: THREE.Vector3, z: THREE.Vector3
 }
 
 /**
- * The capsules along a rail ( boxes, for a box rail ), placed where the piece is now.
+ * The capsules along a rail ( boxes, for a box rail ), placed where the piece is now. Made in its own axes at the size
+ * it is ( railScaled: a scaled piece's rail keeps to its top, as thick as it was ), then turned and moved with it: made
+ * at its own size and scaled with it, they came out stretched, a box one skewed, on a piece scaled more one way.
 **/
 export function railColliders( o: CustomObjectEntry, rail: Rail ): CustomCollider[] {
-  const path = railPath( rail );
+  const s    = scaleOf( o );
+  const path = railPath( rail ).map( ( p ) => railScaled( s, rail, [p.x, p.y, p.z] ) );
   if ( path.length < 2 ) return [];
   const R                      = rail.radius + PROUD;
   const box                    = rail.box ? ( [rail.box[0] + PROUD, rail.box[1] + PROUD] as const ) : null;
   const all                    = runs( path, clamp( rail.radius * 6, 0.2, 1 ), box ? MIN_LENGTH : 2 * R + MIN_LENGTH );
-  const want                   = vec( rail.up ?? [0, 1, 0] ).normalize();
+  const up0                    = vec( rail.up ?? [0, 1, 0] );
+  const want                   = new THREE.Vector3( up0.x * s.x, up0.y * s.y, up0.z * s.z ).normalize();
   const caps: CustomCollider[] = all.map( ( [a0, b0], i ) => {
     const along  = b0.clone().sub( a0 ).normalize();
     // a capsule's round ends reach past its ends: the rail's two end capsules are pulled in, as far as they have
@@ -82,7 +87,8 @@ export function railColliders( o: CustomObjectEntry, rail: Rail ): CustomCollide
     if ( box ) return { shape: "Box", surface_type: "Jib", ...place, size: xyz( [2 * box[0], length, 2 * box[1]] ), radius: 0.5, height: 1, direction: 1, mesh_ref: RAIL_MARK };
     return { shape: "Capsule", surface_type: "Jib", ...place, size: xyz( [0, 0, 0] ), radius: R, height: length + 2 * R, direction: 1, mesh_ref: RAIL_MARK };
   } );
-  return placeWith( o, caps );
+  // ( at its size already: turned and moved with the piece, not scaled again )
+  return placeWith( { ...o, scale: xyz( [1, 1, 1] ) }, caps );
 }
 
 /**

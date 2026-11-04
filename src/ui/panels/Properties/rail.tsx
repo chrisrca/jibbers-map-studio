@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { fenceOf } from "../../../pieces/fence";
 import { rebuilt } from "../../../viewport/tools/fenceTool";
-import type { CustomObjectEntry } from "../../../core/types";
+import { arr3, type CustomObjectEntry } from "../../../core/types";
 import { useEditor } from "../../../map/store";
 import type { Profile } from "../../../model/curve";
+import { applyScale, isModelled } from "../../../model/objectOps";
 import { withModel } from "../../../model/objects";
 import { partsFor } from "../../../pieces/library";
 import { autoRail, isRailCollider, PART_MARK, straightRail, withRail } from "../../../pieces/rail";
@@ -179,12 +180,17 @@ export function RailEditor( { o, set, commit }: { o: CustomObjectEntry; set: ( f
  * can't be followed ( a spiral ) the rail is started empty, to lay by hand: Ctrl+click along it.
 **/
 export async function makeRail( o: CustomObjectEntry, set: ( f: ( x: CustomObjectEntry ) => CustomObjectEntry ) => void, commit: () => void, also = ( x: CustomObjectEntry ) => x ) {
+  // ( a modelled piece stretched by its scale: the scale put into its mesh first, as Blender's Apply Scale. Found in
+  // its own space, a box stretched long was still a cube there: the rail went across it, as thick as the cube )
+  const stretched = isModelled( o ) && !o.model.curve && arr3( o.scale ).some( ( v ) => Math.abs( v - 1 ) > 1e-6 );
+  const flat      = ( x: CustomObjectEntry ) => ( stretched && isModelled( x ) ? applyScale( x ) : x );
+  o               = flat( o );
   const pts = await getEngine()?.customR.localVertices( o );
   if ( !pts ) return void useEditor.getState().toast( "Its mesh hasn't loaded yet; try again in a moment", "info" );
   const made = autoRail( pts );
   const rail = made.rail ?? { points: [], radius: made.radius ?? straightRail( pts ).radius };
   const body = await partsFor( o, rail );
-  set( ( x ) => withRail( also( x ), { ...rail, ...body } ) );
+  set( ( x ) => withRail( also( flat( x ) ), { ...rail, ...body } ) );
   commit();
   if ( !made.rail ) {
     useEditor.setState( { railEdit: { uid: o.uid, point: null } } );
