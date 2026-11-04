@@ -1,11 +1,15 @@
 // Edit Mode's menus ( Blender's ): Delete, Merge, Edge, Separate, Normals, the right-click menu, and material slots.
 
+import * as THREE from "three/webgpu";
+import { toThree, toUnity } from "../../../core/coords";
 import { namesFor, pieceName } from "../../../map/names";
 import { useEditor } from "../../../map/store";
 import { newUid } from "../../../map/store";
-import { compact, recalcOutside, type Mesh } from "../../../model/mesh";
+import { compact, norm, recalcOutside, sub, type Mesh, type V3 } from "../../../model/mesh";
 import { withModel } from "../../../model/objects";
 import { bridge, emptySel, fill, flip, linked, merge, remove, selFromFaces, setSmooth, subdivide, type DeleteKind, type MergeKind } from "../../../model/ops";
+import { unwrap, type Unwrap } from "../../../model/uvEdit";
+import { useUvEditor } from "../../../ui/panels/UvEditor";
 import type { MenuItem } from "../../../ui/widgets/widgets";
 import type { ModelEditor } from "./modelEditor";
 
@@ -51,9 +55,13 @@ export class ModelMenus {
   private mergeItems(): MenuItem[] {
     const order = [...this.ed.sel.v];
     const run   = ( kind: MergeKind, label: string ) => () => {
-      const r     = merge( this.ed.obj()!.model.mesh, kind === "distance" ? this.ed.obj()!.model.mesh.v.map( ( _, i ) => i ).filter( ( v ) => this.ed.sel.v.has( v ) ) : order, kind );
+      const g     = this.ed.obj()!.model.mesh;
+      const r     = merge( g, kind === "distance" ? g.v.map( ( _, i ) => i ).filter( ( v ) => this.ed.sel.v.has( v ) ) : order, kind );
       this.ed.sel = r.sel;
       this.op( r.mesh, label );
+      // ( as Blender says how many went )
+      const gone = g.v.length - r.mesh.v.length;
+      if ( kind === "distance" ) useEditor.getState().toast( `Removed ${gone} ${gone === 1 ? "vertex" : "vertices"}`, "info" );
     };
     return [
       { label: "At Center",   run: run( "center",   "Merge at center"   ) },
@@ -68,7 +76,7 @@ export class ModelMenus {
    * Ctrl+E: Blender's Edge menu ( what's here of it ).
   **/
   edgeMenu() {
-    this.menuAtMouse( "Edge", [this.bridgeItem(), this.subdivideItem(), this.slideItem()] );
+    this.menuAtMouse( "Edge", [this.bridgeItem(), this.subdivideItem(), this.slideItem(), this.creaseItem()] );
   }
 
   private bridgeItem(): MenuItem {
@@ -87,6 +95,10 @@ export class ModelMenus {
       this.ed.sel = r.sel;
       this.op( r.mesh, "Subdivide" );
     } };
+  }
+
+  private creaseItem(): MenuItem {
+    return { label: "Edge Crease", keys: "Shift E", disabled: !this.ed.sel.e.size, run: () => this.ed.ops.startCrease() };
   }
 
   private slideItem(): MenuItem {
@@ -146,6 +158,70 @@ export class ModelMenus {
     ];
   }
 
+  /**
+   * Shift+S: Blender's Snap menu in Edit Mode ( the selected vertices, and the 3D cursor ).
+  **/
+  snapMenu() {
+    if ( this.ed.obj() ) this.menuAtMouse( "Snap", this.snapItems() );
+  }
+
+  private snapItems(): MenuItem[] {
+    const o      = this.ed.obj()!, g = o.model.mesh, M = this.ed.matrix( o );
+    const sel    = [...this.ed.sel.v];
+    const world  = ( v: number ) => this.ed.world( o, g.v[v], M );
+    const cursor = () => toThree( useEditor.getState().cursor3d );
+    const middle = () => sel.reduce( ( a, v ) => a.add( world( v ) ), new THREE.Vector3() ).divideScalar( Math.max( 1, sel.length ) );
+    const active = typeof this.ed.active === "number" && this.ed.mode === "vert" ? world( this.ed.active ) : null;
+    const grid   = ( w: THREE.Vector3 ) => w.set( Math.round( w.x ), Math.round( w.y ), Math.round( w.z ) );
+    // the selected vertices moved ( each to where `to` puts it ), one undo step
+    const move   = ( label: string, to: ( w: THREE.Vector3 ) => THREE.Vector3 ) => () => {
+      const v = g.v.map( ( p ) => [...p] as V3 );
+      for ( const i of sel ) v[i] = this.ed.toPiece( to( world( i ) ) );
+      this.op( { ...g, v }, label );
+    };
+    const setCursor = ( w: THREE.Vector3 ) => useEditor.setState( { cursor3d: toUnity( w ) } );
+    const none      = !sel.length;
+    return [
+      { label: "Selection to Cursor",               disabled: none, run: move( "Selection to cursor", () => cursor() ) },
+      { label: "Selection to Cursor (Keep Offset)", disabled: none, run: move( "Selection to cursor", ( w ) => w.add( cursor().sub( middle() ) ) ) },
+      { label: "Selection to Active",               disabled: none || !active, run: move( "Selection to active", () => active!.clone() ) },
+      { label: "Selection to Grid",                 disabled: none, run: move( "Selection to grid", grid ) },
+      { sep:   true,                                label:    "" },
+      { label: "Cursor to Selected",                disabled: none, run: () => setCursor( middle() ) },
+      { label: "Cursor to Active",                  disabled: !active, run: () => setCursor( active! ) },
+      { label: "Cursor to World Origin",            run:      () => setCursor( new THREE.Vector3() ) },
+      { label: "Cursor to Grid",                    run:      () => setCursor( grid( cursor() ) ) },
+    ];
+  }
+
+  /**
+   * U: Blender's UV menu ( unwrapping the selected faces ), and the UV Editor.
+  **/
+  unwrapMenu() {
+    if ( this.ed.obj() ) this.menuAtMouse( "UV", this.unwrapItems() );
+  }
+
+  unwrapItems(): MenuItem[] {
+    const run = ( kind: Unwrap, label: string ) => () => {
+      const o = this.ed.obj();
+      if ( !o || !this.ed.sel.f.size ) return;
+      // ( the view's right and up, in the piece's own coordinates )
+      const cam  = this.ed.view.camera, at = cam.position.clone().add( cam.getWorldDirection( new THREE.Vector3() ) );
+      const dir  = ( d: THREE.Vector3 ) => sub( this.ed.toPiece( at.clone().add( d.applyQuaternion( cam.quaternion ) ) ), this.ed.toPiece( at ) );
+      const view = { right: norm( dir( new THREE.Vector3( 1, 0, 0 ) ) ), up: norm( dir( new THREE.Vector3( 0, 1, 0 ) ) ) };
+      this.op( unwrap( o.model.mesh, this.ed.sel.f, kind, view ), label );
+    };
+    const none = !this.ed.sel.f.size;
+    return [
+      { label: "Smart UV Project",  disabled: none, run: run( "smart", "Smart UV project"  ) },
+      { label: "Cube Projection",   disabled: none, run: run( "cube",  "Cube projection"   ) },
+      { label: "Project from View", disabled: none, run: run( "view",  "Project from view" ) },
+      { label: "Reset",             disabled: none, run: run( "reset", "Reset UVs"         ) },
+      { sep:   true,                label:    "" },
+      { label: "UV Editor",         checked:  useUvEditor.getState().open, run: () => useUvEditor.setState( ( s ) => ( { open: !s.open } ) ) },
+    ];
+  }
+
   normalsMenu() {
     this.menuAtMouse( "Normals", this.normalsItems() );
   }
@@ -198,6 +274,7 @@ export class ModelMenus {
         { label: "Knife",              keys: "K",      run: () => this.ed.knife.start()   },
         { sep: true, label: "" },
         this.slideItem(),
+        this.creaseItem(),
         ...tail,
       ] );
     return this.menuAtMouse( "Face", [
@@ -241,7 +318,9 @@ export class ModelMenus {
     if ( !o ) return;
     const g = o.model.mesh, faces = new Set( this.ed.sel.f );
     g.f.forEach( ( _, i ) => ( g.m[i] ?? 0 ) === slot && ( on ? faces.add( i ) : faces.delete( i ) ) );
+    const was   = this.ed.snapshot();
     this.ed.sel = selFromFaces( g, [...faces] );
+    this.ed.selected( was );
     this.ed.sync();
     this.ed.publish();
   }

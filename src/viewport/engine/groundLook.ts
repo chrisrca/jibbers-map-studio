@@ -71,5 +71,6 @@ export class GroundLook {
     snowLook.sunHeight.value      = v.sunHeight * rad;
     snowLook.contours.value       = v.contours;
     snowLook.contourOpacity.value = v.contourOpacity;
+    snowLook.relief.value         = v.relief;
   }
 }

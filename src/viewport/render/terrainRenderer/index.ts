@@ -5,9 +5,10 @@
 // skirts hide cracks.
 
 import * as THREE from "three/webgpu";
+import { nextFrame, overBudget } from "../../../core/frameBudget";
 import { useEditor } from "../../../map/store";
-import { gripBlocked, layerOf } from "../../../paint/ground";
-import { Terrain, TerrainChunk } from "../../../terrain/terrain";
+import { gripBlocked, layerOf, type PaintLayer } from "../../../paint/ground";
+import { type Rect, Terrain, TerrainChunk } from "../../../terrain/terrain";
 import { redraw } from "../../redraw";
 import { GeometryCache } from "./geometry";
 import { type GpuAccess, writeTextureRegion } from "./gpu";
@@ -16,6 +17,28 @@ import { Tile } from "./tile";
 
 export { brushLook, snowLook } from "./look";
 export { type GpuAccess, writeTextureRegion } from "./gpu";
+
+// how long a frame may spend sending changed ground to the graphics card ( ms )
+const UPLOAD_SHARE = 1.5;
+
+// two pixel rectangles' hull
+const union = ( a: Rect, b: Rect ): Rect => [Math.min( a[0], b[0] ), Math.min( a[1], b[1] ), Math.max( a[2], b[2] ), Math.max( a[3], b[3] )];
+
+// A painted chunk's textures, as on the graphics card.
+interface PaintTex {
+  mask:      THREE.Texture;
+  rt:        THREE.RenderTarget | null;
+  rgba:      Uint8Array;
+  flow:      THREE.Texture | null;
+  flowRt:    THREE.RenderTarget | null;
+  flowData:  Uint8Array | null;
+  m:         number;
+  version:   number;
+  // fills under way; what changed while they were
+  filling:   number;
+  dirty:     Rect | "all" | null;
+  flowDirty: Rect | "all" | null;
+}
 
 export class TerrainRenderer {
   readonly group = new THREE.Group();
@@ -49,6 +72,54 @@ export class TerrainRenderer {
     this.warm = t;
   }
   private warm: Tile | null = null;
+
+  // what makes a tile ready to draw off the frame ( the engine's renderer.compileAsync, yielding as it goes ), when
+  // there is one: built on the frame it first showed, each new tile held the frame up ~10 ms ( a new chunk's dozens
+  // a stutter of a second; turning to tiles not yet looked at, a hitch each )
+  prepare: ( ( o: THREE.Object3D ) => Promise<unknown> ) | null = null;
+
+  /**
+   * New tiles readied ( every one, in view or not ), then shown ( unless a newer rebuild took over meanwhile ). A tile
+   * at a time, the frame let through once its share is spent ( readied all at once, their many small steps kept the
+   * page from drawing: a frame a tenth of a second while they lasted ).
+  **/
+  private async show( ts: Tile[], gen: number ) {
+    for ( const t of ts ) {
+      if ( this.prepare ) {
+        t.mesh.geometry = this.geoms.get( t.chunk.tileQuads, 1 );
+        await this.prepare( t.mesh ).catch( ( e ) => console.warn( "terrain tile", e ) );
+        if ( gen !== this.generation ) return;
+        if ( overBudget() ) {
+          await nextFrame();
+          if ( gen !== this.generation ) return;
+        }
+      }
+      this.group.add( t.mesh );
+    }
+  }
+
+  private warmGen = 0;
+
+  /**
+   * Every tile made ready again for the scene's lighting as it is now ( it changed; a shader is made for the lights
+   * it's drawn with ), in the background: a stand-in of each ( its material and geometry ), in view or not.
+  **/
+  async rewarm() {
+    if ( !this.prepare ) return;
+    const gen = ++this.warmGen;
+    for ( const t of this.tiles.flat() ) {
+      const geo       = t.mesh.geometry.attributes.grid ? t.mesh.geometry : this.geoms.get( t.chunk.tileQuads, 1 );
+      const m         = new THREE.Mesh( geo, t.mesh.material );
+      m.receiveShadow = t.mesh.receiveShadow;
+      m.castShadow    = t.mesh.castShadow;
+      // ( made ready wherever it is: three leaves out what's off screen )
+      m.frustumCulled = false;
+      await this.prepare( m ).catch( () => {} );
+      if ( gen !== this.warmGen ) return;
+      if ( overBudget() ) await nextFrame();
+      if ( gen !== this.warmGen ) return;
+    }
+  }
 
   /**
    * The chunks whose copies are shown as ghosts ( Preview Repeats ), with their offsets; none to show none.
@@ -96,11 +167,35 @@ export class TerrainRenderer {
   constructor( private terrain: Terrain, private loadMask: ( path: string ) => Promise<THREE.Texture | null> ) {
     this.group.name = "terrain";
     this.unsub      = terrain.subscribe( ( dirty ) => {
-      for ( const [ci, tiles] of dirty ) for ( const [ti, rect] of tiles ) this.tiles[ci]?.[ti]?.upload( this.terrain, rect, this.gpu );
+      for ( const [ci, tiles] of dirty )
+        for ( const [ti, rect] of tiles ) {
+          const t = this.tiles[ci]?.[ti];
+          if ( !t ) continue;
+          const was = this.uploads.get( t );
+          this.uploads.set( t, was === undefined ? rect : [Math.min( was[0], rect[0] ), Math.min( was[1], rect[1] ), Math.max( was[2], rect[2] ), Math.max( was[3], rect[3] )] );
+        }
+      this.sendUploads( UPLOAD_SHARE );
     } );
   }
 
   private generation = 0;
+
+  // tiles whose heights changed, waiting to go to the graphics card ( the part that changed )
+  private uploads = new Map<Tile, Rect>();
+
+  /**
+   * The changed tiles' heights to the graphics card, for about `ms` ( at least one ): a sculpt stroke's few at once, an
+   * undo of a big one's hundreds over a few frames instead of all in one.
+  **/
+  private sendUploads( ms: number ) {
+    const t0 = performance.now();
+    for ( const [t, rect] of this.uploads ) {
+      this.uploads.delete( t );
+      t.upload( this.terrain, rect, this.gpu );
+      if ( performance.now() - t0 >= ms ) break;
+    }
+    if ( this.uploads.size ) redraw();
+  }
 
   /**
    * Rebuild all tiles for the terrain's current chunk layout. A newer call supersedes an older one.
@@ -119,9 +214,12 @@ export class TerrainRenderer {
     const same = ( a: TerrainChunk, b: TerrainChunk ) =>
       a.heights === b.heights && a.res === b.res && a.snowMask === b.snowMask && a.size[0] === b.size[0] && a.size[1] === b.size[1] &&
       a.position[0] === b.position[0] && a.position[1] === b.position[1] && a.position[2] === b.position[2];
+    // ( none kept when the game's textures have just come in: see useGameSnow )
+    const anew  = this.anew;
+    this.anew   = false;
     const reuse = chunks.map( ( c, ci ) => {
       const o = oldRows.get( c.key );
-      return o && same( o.row[0].chunk, c ) && o.markings === markings[ci] ? o : null;
+      return !anew && o && same( o.row[0].chunk, c ) && o.markings === markings[ci] ? o : null;
     } );
     const masks: THREE.Texture[] = [];
     for ( const [ci, c] of chunks.entries() ) masks.push( reuse[ci]?.mask ?? ( ( c.snowMask && ( await this.loadMask( c.snowMask ) ) ) || white ) );
@@ -140,11 +238,18 @@ export class TerrainRenderer {
     }
     if ( gen !== this.generation ) return;
 
-    const kept = new Set( reuse.filter( Boolean ).map( ( o ) => o!.row ) );
-    for ( const row of this.tiles ) if ( !kept.has( row ) ) for ( const t of row ) {
-      this.group.remove( t.mesh );
-      t.dispose();
-    }
+    const kept  = new Set( reuse.filter( Boolean ).map( ( o ) => o!.row ) );
+    const letGo = ( rows: Tile[][] ) => {
+      for ( const row of rows ) for ( const t of row ) {
+        this.group.remove( t.mesh );
+        this.uploads.delete( t );
+        t.dispose();
+      }
+    };
+    // ( all made afresh: the old ones shown till the new ones are, the ground never gone meanwhile )
+    const drop  = this.tiles.filter( ( row ) => !kept.has( row ) );
+    if ( anew ) this.leftover.push( ...drop );
+    else letGo( drop );
     this.tiles      = [];
     this.masks      = masks;
     this.markingsOf = markings;
@@ -165,16 +270,18 @@ export class TerrainRenderer {
     }
     // ( a frame drawn every dozen milliseconds of it: a few square kilometres of new ground is hundreds of tiles,
     // and the window froze until they were all done; the ground fills in as they're made )
-    let slice = performance.now();
+    let slice         = performance.now();
+    const made: Tile[] = [];
     for ( const ci of fresh ) {
       const c = chunks[ci], row = this.tiles[ci];
       for ( let tz = 0; tz < c.tilesPerSide; tz++ )
         for ( let tx = 0; tx < c.tilesPerSide; tx++ ) {
           const t = new Tile( c, ci, tx, tz, masks[ci], !!markings[ci], flows[ci] );
           row.push( t );
-          this.group.add( t.mesh );
+          made.push( t );
           t.upload( this.terrain );
           if ( performance.now() - slice > 12 ) {
+            await this.show( made.splice( 0 ), gen );
             redraw();
             await new Promise( ( r ) => requestAnimationFrame( r ) );
             if ( gen !== this.generation ) return;
@@ -182,6 +289,9 @@ export class TerrainRenderer {
           }
         }
     }
+    await this.show( made, gen );
+    if ( gen !== this.generation ) return;
+    letGo( this.leftover.splice( 0 ) );
     redraw();
     // painted chunks show their live paint
     for ( const ci of fresh ) if ( layerOf( chunks[ci].key ) ) this.applyPaint( chunks[ci].key );
@@ -196,32 +306,77 @@ export class TerrainRenderer {
       }
     } );
     this.stats.tiles = this.tiles.reduce( ( s, r ) => s + r.length, 0 );
+    // ( the lighting can settle while they're made, a map's sun and sky coming in: all of them again, as it is now )
+    if ( fresh.size ) void this.rewarm();
   }
 
   private markingsOf: boolean[] = [];
+  // every tile to be made afresh on the next rebuild, and the ones it's to replace once it's done
+  private anew                = false;
+  private leftover: Tile[][]  = [];
 
   /**
-   * The game's snow and rock textures, once read from it: on every tile from now on.
+   * The game's snow and rock textures, once read from it: on every tile from now on. Tiles made before they came ( a
+   * new map's first ground, at start ) are made again with them: swapped into a tile already drawn ( its shader made
+   * for the plain stand-in, a texture of another kind ), it went on showing the stand-in, or the rock, in places.
   **/
   useGameSnow( snow: THREE.Texture, rock: THREE.Texture ) {
-    gameTex.snow = snow;
-    gameTex.rock = rock;
-    for ( const row of this.tiles )
-      for ( const t of row ) {
-        t.snowNode.value = snow;
-        t.rockNode.value = rock;
-      }
+    gameTex.snow            = snow;
+    gameTex.rock            = rock;
     snowLook.gameSnow.value = 1;
+    if ( this.tiles.some( ( row ) => row.length ) ) {
+      this.anew = true;
+      void this.rebuild();
+    }
     redraw();
   }
 
-  // Live textures of painted chunks ( they share the paint layer's pixels; re-uploaded when it changes ).
-  private paintTex      = new Map<string, { mask: THREE.DataTexture; flow: THREE.DataTexture | null; m: number; version: number }>();
+  // Live textures of painted chunks ( re-uploaded where the paint layer changes ).
+  private paintTex      = new Map<string, PaintTex>();
   // the graphics device and a texture's copy on it ( set by the engine ): paint uploads just what changed
   gpu: GpuAccess | null = null;
+  // makes a render target's texture on the graphics card ( set by the engine ): an empty texture to fill a band a
+  // frame, where a data texture would go up whole at once ( a 4096² mask, 64 MB in one frame: the first dab's hitch )
+  initTarget: ( ( rt: THREE.RenderTarget ) => void ) | null = null;
 
   private writeRegion( tex: THREE.Texture, data: Uint8Array, m: number, bpp: number, rect: [number, number, number, number] ) {
     return writeTextureRegion( this.gpu, tex, data, m, bpp, rect );
+  }
+
+  /**
+   * A texture for a paint layer's pixels ( `bpp` 4: the mask, 1: the flow ), and its filling: a band of rows a frame,
+   * when there's a graphics card to write to; otherwise a data texture, uploaded as it's drawn.
+  **/
+  private paintTexture( data: Uint8Array, m: number, bpp: 1 | 4, nearest: boolean ): { tex: THREE.Texture; rt: THREE.RenderTarget | null; fill: ( () => Promise<void> ) | null } {
+    const filter = nearest ? THREE.NearestFilter : THREE.LinearFilter;
+    if ( !this.gpu || !this.initTarget ) {
+      const tex      = new THREE.DataTexture( data, m, m, bpp === 4 ? THREE.RGBAFormat : THREE.RedFormat, THREE.UnsignedByteType );
+      tex.magFilter  = tex.minFilter = filter;
+      tex.colorSpace = THREE.NoColorSpace;
+      tex.needsUpdate = true;
+      return { tex, rt: null, fill: null };
+    }
+    const rt                 = new THREE.RenderTarget( m, m, { depthBuffer: false, format: bpp === 4 ? THREE.RGBAFormat : THREE.RedFormat, type: THREE.UnsignedByteType, magFilter: filter, minFilter: filter, generateMipmaps: false } );
+    rt.texture.colorSpace    = THREE.NoColorSpace;
+    this.initTarget( rt );
+    return { tex: rt.texture, rt, fill: () => this.fillRows( rt.texture, data, m, bpp ) };
+  }
+
+  /**
+   * Writes a texture's pixels from `data`, a band of rows at a time, a frame's share each frame.
+  **/
+  private async fillRows( tex: THREE.Texture, data: Uint8Array, m: number, bpp: number ) {
+    const band = Math.max( 1, Math.floor( ( 4 << 20 ) / ( m * bpp ) ) );
+    for ( let y = 0; y < m; y += band ) {
+      if ( overBudget() ) await nextFrame();
+      this.writeRows( tex, data, m, bpp, y, Math.min( m - 1, y + band - 1 ) );
+    }
+  }
+
+  private writeRows( tex: THREE.Texture, data: Uint8Array, m: number, bpp: number, y0: number, y1: number, x0 = 0, x1 = m - 1 ) {
+    const gpuTex = this.gpu?.textureOf( tex );
+    if ( !gpuTex ) return;
+    this.gpu!.device.queue.writeTexture( { texture: gpuTex, origin: { x: x0, y: y0 } }, data, { offset: ( y0 * m + x0 ) * bpp, bytesPerRow: m * bpp }, { width: x1 - x0 + 1, height: y1 - y0 + 1 } );
   }
   private paintPending = new Set<string>();
 
@@ -250,28 +405,83 @@ export class TerrainRenderer {
     let region = L.pending;
     L.pending  = null;
     if ( !pt || pt.m !== L.m ) {
-      region          = "all";
-      const mask      = new THREE.DataTexture( L.rgba, L.m, L.m, THREE.RGBAFormat, THREE.UnsignedByteType );
-      mask.magFilter  = mask.minFilter = THREE.LinearFilter;
-      mask.colorSpace = THREE.NoColorSpace;
-      pt              = { mask, flow: null, m: L.m, version: -1 };
+      // ( a texture of its own, filled over a few frames: the tiles keep the mask they show, the same picture, until
+      // it's full )
+      if ( pt ) this.dropPaint( pt );
+      const made = this.paintTexture( L.rgba, L.m, 4, false );
+      pt         = { mask: made.tex, rt: made.rt, rgba: L.rgba, flow: null, flowRt: null, flowData: null, m: L.m, version: -1, filling: 0, dirty: null, flowDirty: null };
       this.paintTex.set( key, pt );
+      region     = null;
+      if ( made.fill ) this.filling( key, pt, made.fill, "mask" );
     }
     let flowRegion = region;
-    if ( L.flow && ( !pt.flow || pt.flow.image.data !== L.flow ) ) {
-      flowRegion         = "all";
-      pt.flow            = new THREE.DataTexture( L.flow, L.m, L.m, THREE.RedFormat, THREE.UnsignedByteType );
-      pt.flow.magFilter  = pt.flow.minFilter = THREE.NearestFilter; // angles can't be blended across 0/360
-      pt.flow.colorSpace = THREE.NoColorSpace;
+    if ( L.flow && ( !pt.flow || pt.flowData !== L.flow ) ) {
+      if ( pt.flowRt ) pt.flowRt.dispose();
+      // ( angles can't be blended across 0/360: nearest )
+      const made  = this.paintTexture( L.flow, L.m, 1, true );
+      pt.flow     = made.tex;
+      pt.flowRt   = made.rt;
+      pt.flowData = L.flow;
+      flowRegion  = null;
+      if ( made.fill ) this.filling( key, pt, made.fill, "flow" );
     }
-    if ( pt.mask.image.data !== L.rgba ) {
-      ( pt.mask.image as { data: Uint8Array } ).data = L.rgba;
-      region = "all";
+    if ( pt.rgba !== L.rgba ) {
+      // ( the layer's pixels swapped for others: all of them again )
+      pt.rgba = L.rgba;
+      region  = "all";
+      if ( !pt.rt ) ( pt.mask.image as { data: Uint8Array } ).data = L.rgba;
     }
+    pt.version = L.version;
+    // ( still filling: what changed meanwhile goes up once it's full )
+    if ( pt.filling ) {
+      if ( region ) pt.dirty = region === "all" || pt.dirty === "all" ? "all" : pt.dirty ? union( pt.dirty, region ) : region;
+      if ( flowRegion ) pt.flowDirty = flowRegion === "all" || pt.flowDirty === "all" ? "all" : pt.flowDirty ? union( pt.flowDirty, flowRegion ) : flowRegion;
+      return;
+    }
+    this.sendPaint( pt, region, flowRegion );
+    this.bindPaint( key, ci, pt, L );
+  }
+
+  /**
+   * A chunk's paint texture filling: once it's full, what changed meanwhile goes up and the tiles take it.
+  **/
+  private filling( key: string, pt: PaintTex, fill: () => Promise<void>, what: "mask" | "flow" ) {
+    pt.filling++;
+    void fill().finally( () => {
+      if ( this.paintTex.get( key ) !== pt || ( what === "flow" && !pt.flow ) ) return;
+      if ( --pt.filling ) return;
+      const L = layerOf( key ), ci = this.terrain.indexOf( key );
+      this.sendPaint( pt, pt.dirty, pt.flowDirty );
+      pt.dirty = pt.flowDirty = null;
+      if ( L && ci >= 0 ) this.bindPaint( key, ci, pt, L );
+      redraw();
+    } );
+  }
+
+  /**
+   * The changed part of a chunk's paint to the graphics card ( "all": every pixel; a data texture: all of it ).
+  **/
+  private sendPaint( pt: PaintTex, region: Rect | "all" | null, flowRegion: Rect | "all" | null ) {
     // a brush dab changes a few pixels of a mask that can be 4096 a side: only those go to the graphics card
-    if ( !region || region === "all" || !this.writeRegion( pt.mask, L.rgba, L.m, 4, region ) ) pt.mask.needsUpdate = true;
-    if ( pt.flow && L.flow && ( !flowRegion || flowRegion === "all" || !this.writeRegion( pt.flow, L.flow, L.m, 1, flowRegion ) ) ) pt.flow.needsUpdate = true;
-    pt.version          = L.version;
+    if ( region ) {
+      if ( pt.rt ) {
+        if ( region === "all" ) void this.fillRows( pt.mask, pt.rgba, pt.m, 4 );
+        else this.writeRows( pt.mask, pt.rgba, pt.m, 4, region[1], region[3], region[0], region[2] );
+      } else if ( region === "all" || !this.writeRegion( pt.mask, pt.rgba, pt.m, 4, region ) ) pt.mask.needsUpdate = true;
+    }
+    if ( flowRegion && pt.flow && pt.flowData ) {
+      if ( pt.flowRt ) {
+        if ( flowRegion === "all" ) void this.fillRows( pt.flow, pt.flowData, pt.m, 1 );
+        else this.writeRows( pt.flow, pt.flowData, pt.m, 1, flowRegion[1], flowRegion[3], flowRegion[0], flowRegion[2] );
+      } else if ( flowRegion === "all" || !this.writeRegion( pt.flow, pt.flowData, pt.m, 1, flowRegion ) ) pt.flow.needsUpdate = true;
+    }
+  }
+
+  /**
+   * The chunk's tiles drawn with its paint textures.
+  **/
+  private bindPaint( key: string, ci: number, pt: PaintTex, L: PaintLayer ) {
+    if ( this.paintTex.get( key ) !== pt ) return;
     this.masks[ci]      = pt.mask;
     this.markingsOf[ci] = L.four;
     for ( const t of this.tiles[ci] ?? [] ) {
@@ -287,7 +497,15 @@ export class TerrainRenderer {
     }
   }
 
+  private dropPaint( pt: PaintTex ) {
+    if ( pt.rt ) pt.rt.dispose();
+    else pt.mask.dispose();
+    if ( pt.flowRt ) pt.flowRt.dispose();
+    else pt.flow?.dispose();
+  }
+
   update( camera: THREE.PerspectiveCamera ) {
+    if ( this.uploads.size ) this.sendUploads( UPLOAD_SHARE );
     if ( this.paintPending.size ) {
       for ( const k of this.paintPending ) this.applyPaint( k );
       this.paintPending.clear();
@@ -337,6 +555,7 @@ export class TerrainRenderer {
       this.group.remove( t.mesh );
       t.dispose();
     }
+    this.uploads.clear();
     this.tiles = [];
     this.masks = [];
   }

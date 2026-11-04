@@ -135,7 +135,7 @@ export function AssetsHeader() {
   ];
   const ORIENT = { global:    ["orientation_global", "Global"             ], local:  ["orientation_local", "Local"    ] } as const;
   const PIVOT  = { bounds:    ["pivot_boundbox",     "Bounding Box Center"], cursor: ["pivot_cursor",      "3D Cursor"], individual: ["pivot_individual", "Individual Origins"], median: ["pivot_median", "Median Point"], active: ["pivot_active", "Active Element"] } as const;
-  const SNAP   = { increment: ["snap_increment",     "Increment"          ], vertex: ["snap_vertex",       "Vertex"   ], surface: ["snap_face", "Face"] } as const;
+  const SNAP   = { increment: ["snap_increment",     "Increment"          ], vertex: ["snap_vertex",       "Vertex"   ], edge: ["snap_edge", "Edge"], surface: ["snap_face", "Face"] } as const;
   // a transform under way: what it's doing, where the menus were ( as Blender's header )
   if ( readout ) return <div className="vp-header bl readout"><span>{readout}</span></div>;
   const SHADING: [Shading, string, string][] = [["wire", "shading_wire", "Wireframe"], ["solid", "shading_solid", "Solid"], ["material", "shading_texture", "Material Preview"], ["rendered", "shading_rendered", "Rendered"]];
@@ -163,6 +163,7 @@ export function AssetsHeader() {
       ) }
       {mode === "object" && <MenuButton label="Object" items={objectItems} />}
       {mode === "edit" && <MenuButton label="Mesh" items={meshItems} />}
+      {mode === "edit" && <MenuButton label="UV" items={() => eng()?.modelEd.menus.unwrapItems() ?? []} />}
       <span className="spacer" />
       { mode !== "paint" && (
         <div className="hgroup">

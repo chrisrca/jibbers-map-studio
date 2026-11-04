@@ -1,4 +1,4 @@
-// Edit Mode's Knife ( K ): points clicked on corners and edges, the cut walked across the faces between them.
+// Edit Mode's Knife ( K ): points clicked on corners, edges and faces, the cut walked across the faces between them.
 
 import * as THREE from "three/webgpu";
 import { toThree } from "../../../core/coords";
@@ -14,8 +14,8 @@ export class ModelKnife {
   constructor( private ed: ModelEditor ) {}
 
   /**
-   * K: Knife — click corners and edges ( Ctrl: an edge's middle ), the cut running across the faces between them as
-   * seen; Enter cuts, Esc gives up.
+   * K: Knife — click corners, edges ( Ctrl: an edge's middle ) and faces, the cut running across the faces between
+   * them as seen; Enter cuts, Esc gives up.
   **/
   start() {
     const o = this.ed.obj();
@@ -25,7 +25,7 @@ export class ModelKnife {
   }
 
   /**
-   * The corner or edge place under a screen point ( seen, not behind anything ).
+   * The corner, edge place or face place under a screen point ( seen, not behind anything ).
   **/
   private at( x: number, y: number, middle: boolean ): KnifeHit | null {
     const o = this.ed.obj();
@@ -37,7 +37,11 @@ export class ModelKnife {
       if ( typeof v === "number" ) return { v };
       this.ed.mode = "edge";
       const k      = this.ed.picking.pick( x, y );
-      if ( typeof k !== "string" ) return null;
+      if ( typeof k !== "string" ) {
+        // inside a face, not on a corner or an edge
+        const h = this.ed.picking.faceHit( x, y );
+        return h ? { f: h.f, p: this.ed.toPiece( h.at ) } : null;
+      }
       const [a, b]   = ekv( k ), M = this.ed.matrix( o );
       const [ax, ay] = this.ed.picking.screen( this.ed.world( o, o.model.mesh.v[a], M ) ), [bx, by] = this.ed.picking.screen( this.ed.world( o, o.model.mesh.v[b], M ) );
       const dx       = bx - ax, dy = by - ay;
@@ -50,6 +54,7 @@ export class ModelKnife {
 
   private pos( g: Mesh, h: KnifeHit ): V3 {
     if ( "v" in h ) return g.v[h.v];
+    if ( "f" in h ) return h.p;
     const p = g.v[h.a], q = g.v[h.b];
     return [p[0] + ( q[0] - p[0] ) * h.t, p[1] + ( q[1] - p[1] ) * h.t, p[2] + ( q[2] - p[2] ) * h.t];
   }
@@ -59,6 +64,7 @@ export class ModelKnife {
   **/
   private facesOf( g: Mesh, h: KnifeHit ) {
     const out: number[] = [];
+    if ( "f" in h ) return [h.f];
     g.f.forEach( ( f, fi ) => {
       if ( "v" in h ? f.includes( h.v ) : f.some( ( v, i ) => ( v === h.a && f[( i + 1 ) % f.length] === h.b ) || ( v === h.b && f[( i + 1 ) % f.length] === h.a ) ) ) out.push( fi );
     } );
@@ -91,7 +97,7 @@ export class ModelKnife {
         for ( let i = 0; i < f.length; i++ ) {
           const u = f[i], w = f[( i + 1 ) % f.length];
           // not the edge ( or corner ) it's on
-          if ( "v" in P ? u === P.v || w === P.v : ( u === P.a && w === P.b ) || ( u === P.b && w === P.a ) ) continue;
+          if ( "f" in P ? false : "v" in P ? u === P.v || w === P.v : ( u === P.a && w === P.b ) || ( u === P.b && w === P.a ) ) continue;
           const [ux, uy] = scr( g.v[u] ), [wx, wy] = scr( g.v[w] );
           const rx       = sbx - sax, ry = sby - say, qx = wx - ux, qy = wy - uy;
           const den      = rx * qy - ry * qx;
@@ -148,7 +154,7 @@ export class ModelKnife {
     const g            = o.model.mesh;
     const path         = this.path( o, m.pts );
     if ( path.length < 2 ) return this.ed.cancel();
-    const r     = knifeCut( g, path.map( ( h ): KnifePoint => ( "v" in h ? { v: h.v } : { a: h.a, b: h.b, p: this.pos( g, h ) } ) ) );
+    const r     = knifeCut( g, path.map( ( h ): KnifePoint => ( "v" in h ? { v: h.v } : "f" in h ? { f: h.f, p: h.p } : { a: h.a, b: h.b, p: this.pos( g, h ) } ) ) );
     this.ed.sel = r.sel;
     this.ed.menus.op( r.mesh, "Knife" );
   }

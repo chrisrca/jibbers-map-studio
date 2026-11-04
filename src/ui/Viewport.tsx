@@ -3,6 +3,7 @@ import { PopupMenu, type MenuItem } from "./widgets/widgets";
 import { useEditor, workspaceOf } from "../map/store";
 import { useDecal, useStencil, type StencilState } from "../texture/stencil";
 import { TextureView } from "./panels/TextureView";
+import { UvEditor } from "./panels/UvEditor";
 import { ViewOverlays } from "./blender/ViewOverlays";
 import { Engine } from "../viewport/engine/engine";
 import { ToolColumn } from "./Toolbar";
@@ -174,9 +175,6 @@ export function Viewport( { onStats, hidden }: { onStats: ( s: Parameters<NonNul
   const host            = useRef<HTMLDivElement>( null );
   const tool            = useEditor( ( s ) => s.tool       );
   const cameraMode      = useEditor( ( s ) => s.cameraMode );
-  const selection       = useEditor( ( s ) => s.selection  );
-  const spawns          = useEditor( ( s ) => s.spawns     );
-  const [ride, setRide] = useState<{ maxAirtime: number; endSpeed: number } | null>( null );
   const sculpt          = useEditor( ( s ) => s.sculpt );
   const label           = useRef<HTMLDivElement>( null );
 
@@ -195,13 +193,6 @@ export function Viewport( { onStats, hidden }: { onStats: ( s: Parameters<NonNul
   useEffect( () => {
     current?.setPaused( "game tab", !!hidden );
   }, [hidden] );
-
-  useEffect( () => {
-    const t = setTimeout( () => setRide( current?.rideInfo() ?? null ), 50 );
-    return () => clearTimeout( t );
-  }, [selection, spawns] );
-
-  const selectedSpawn = selection.find( ( s ) => s.kind === "spawn" );
 
   return (
     <div
@@ -235,14 +226,10 @@ export function Viewport( { onStats, hidden }: { onStats: ( s: Parameters<NonNul
       <StencilOverlay />
       <DecalCursor />
       <TextureView />
+      <UvEditor />
       <ViewOverlays />
       <ViewInfo />
       <LoadingVeil />
-      { selectedSpawn && ride && (
-        <div className="overlay ride">
-          Ride preview · longest air {ride.maxAirtime.toFixed( 1 )} s · speed after 8 s {( ride.endSpeed * 3.6 ).toFixed( 0 )} km/h
-        </div>
-      ) }
     </div>
   );
 }

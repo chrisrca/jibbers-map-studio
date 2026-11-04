@@ -30,6 +30,8 @@ pub(crate) fn needs_scale_fix(s: [f32; 3]) -> bool {
 pub fn export(dir: &Path, out: &Path) -> Result<ExportStats> {
     let p = load(dir)?;
     let mut map = to_map(dir, &p)?;
+    // pieces with moving parts: their moving meshes and materials
+    super::motion::bake(&mut map.chunks, &mut map.mesh_library);
     let mut fixed_colliders = 0;
     for c in &mut map.chunks {
         for o in &mut c.custom_objects {

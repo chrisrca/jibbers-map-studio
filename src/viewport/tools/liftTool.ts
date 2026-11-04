@@ -55,6 +55,10 @@ export class LiftTool {
   private picked: { uid: string; which: LiftPart } | null = null;
   // a move with the gizmo under way: where the piece was
   private moving: { uid: string; which: LiftPart; from: V3; before: ObjectEntry[] } | null = null;
+  // the gizmo's middle circle under the mouse; the gizmo shown ( set by the engine ): pressed there, the piece picked is
+  // dragged over the ground, as its handle was ( the handle itself not drawn under the gizmo )
+  centreUnder: ( x: number, y: number ) => boolean = () => false;
+  gizmoShown:  () => boolean                       = () => false;
   /**
    * the piece picked changed ( the gizmo goes to it )
   **/
@@ -110,7 +114,8 @@ export class LiftTool {
   gizmoAt(): THREE.Vector3 | null {
     const o  = this.target();
     const at = o && footOf( o, this.pickedPart( o ) );
-    return at ? toThree( at ) : null;
+    // ( where its ball is, a metre up: the gizmo takes the ball's place )
+    return at ? toThree( [at[0], at[1] + 1, at[2]] ) : null;
   }
 
   private pick( uid: string, which: LiftPart ) {
@@ -141,7 +146,7 @@ export class LiftTool {
       const m = new THREE.Mesh( this.ball, this.mat( which === on ? PICKED : color ) );
       // ( a little above the piece's foot: on the snow it would hide in it )
       m.position.copy( toThree( [at[0], at[1] + 1, at[2]] ) );
-      m.userData    = { which, px: typeof which === "number" ? 9 : 11 };
+      m.userData    = { which, px: typeof which === "number" ? 9 : 11, picked: which === on };
       m.renderOrder = 13;
       this.group.add( m );
     };
@@ -158,14 +163,17 @@ export class LiftTool {
   frame() {
     if ( !this.group.children.length ) return;
     const cam = this.camera(), k = ( 2 * Math.tan( THREE.MathUtils.degToRad( cam.fov ) / 2 ) ) / Math.max( 1, this.viewHeight() );
-    for ( const c of this.group.children ) c.scale.setScalar( ( c.userData.px as number ) * k * cam.position.distanceTo( c.position ) );
+    for ( const c of this.group.children ) {
+      c.scale.setScalar( ( c.userData.px as number ) * k * cam.position.distanceTo( c.position ) );
+      if ( c.userData.picked ) c.visible = !this.gizmoShown();
+    }
   }
 
   /**
    * The handle under the mouse, if one is.
   **/
   private handleAt( x: number, y: number ): LiftPart | null {
-    const hit = this.raycast( x, y ).intersectObjects( this.group.children, false )[0];
+    const hit = this.raycast( x, y ).intersectObjects( this.group.children.filter( ( c ) => c.visible ), false )[0];
     return hit ? ( hit.object.userData.which as LiftPart ) : null;
   }
 
@@ -191,7 +199,7 @@ export class LiftTool {
   **/
   markUnder( x: number, y: number, ctrl = false ) {
     const o = this.target();
-    return !!o && ( ( ctrl && this.hasMasts( o ) ) || this.handleAt( x, y ) !== null );
+    return !!o && ( ( ctrl && this.hasMasts( o ) ) || this.handleAt( x, y ) !== null || this.centreUnder( x, y ) );
   }
 
   /**
@@ -200,7 +208,7 @@ export class LiftTool {
   down( x: number, y: number, e: { ctrlKey: boolean } ): boolean {
     const o = this.target();
     if ( !o ) return false;
-    const which = this.handleAt( x, y ) ?? ( e.ctrlKey ? null : this.pieceAt( o, x, y ) );
+    const which = this.handleAt( x, y ) ?? ( this.centreUnder( x, y ) ? this.pickedPart( o ) : null ) ?? ( e.ctrlKey ? null : this.pieceAt( o, x, y ) );
     if ( which !== null ) {
       const foot = footOf( o, which )!;
       const g    = this.groundAt( x, y, foot[1] ) ?? foot;

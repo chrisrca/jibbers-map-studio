@@ -1,12 +1,13 @@
 // A custom piece in Properties: its transform, surface, colliders, lights and the rest of its settings.
 
 import { useState } from "react";
-import type { V3 } from "../../../core/coords";
+import * as THREE from "three/webgpu";
+import { quatToUnityEuler, unityEulerToQuat, type V3 } from "../../../core/coords";
 import { deltaBetween, transformCustom } from "../../../core/transform";
 import { type CustomObjectEntry, type SurfaceType, arr3, customName, safeScale } from "../../../core/types";
 import { useEditor } from "../../../map/store";
 import { withModel } from "../../../model/objects";
-import { withRail, withoutRail } from "../../../pieces/rail";
+import { withRail, withRailAgain, withoutRail } from "../../../pieces/rail";
 import { saveCustomToLibrary } from "../../../pieces/userAssets";
 import { commitShape, liveShape } from "../../../terrain/shapes/edits";
 import { newStamp } from "../../../terrain/shapes/shapes";
@@ -22,8 +23,12 @@ import { modelRows } from "../ModelProperties";
 import type { AssetTab } from "./index";
 import { commitWhenStill } from "./live";
 import type { Live } from "./live";
+import { MotionRows } from "./motion";
+import { FenceRows } from "./fence";
+import { fenceOf, isRepeat, withSectionSize, withSectionTurn } from "../../../pieces/fence";
+import { rebuilt, withPath } from "../../../viewport/tools/fenceTool";
 import { makeRail } from "./rail";
-import { GrindStatus, RailEditor } from "./rail";
+import { RailEditor } from "./rail";
 import { NameRow, Row } from "./rows";
 
 const SURFACES: { id: SurfaceType; label: string; tip: string }[] = [
@@ -78,8 +83,10 @@ export function CustomProperties( { o, live, tab }: { o: CustomObjectEntry; live
   const [slot, setSlot] = useState( 0 );
   const weather         = useWeather();
   const cur             = { pos: arr3( o.position ), rot: arr3( o.rotation ), scl: arr3( o.scale ) };
+  // ( a repeat: its sections' own turn and size are its Rotation and Scale )
+  const rep             = isRepeat( fenceOf( o ) ) ? fenceOf( o ) : null;
   const moveTo          = ( to: Partial<{ pos: V3; rot: V3; scl: V3 }> ) =>
-    set( ( x ) => transformCustom( x, deltaBetween( cur, { ...cur, ...to } ) ) );
+    set( ( x ) => withRailAgain( transformCustom( x, deltaBetween( cur, { ...cur, ...to } ) ) ) );
   const ground = terrain.heightAt( o.position.x, o.position.z );
   const flag   = ( k: "can_stabilize" | "can_rotate" | "can_magnetize" | "disable_distance_culling" | "timed_visibility", label: string ) => (
     <>
@@ -108,8 +115,14 @@ export function CustomProperties( { o, live, tab }: { o: CustomObjectEntry; live
         { ( layout || tab === "object" ) && <>
         <div className="section">Transform</div>
         <Vec3Field label="Location" value={cur.pos} digits={4} trim unit="m" onChange={( v ) => moveTo( { pos: v } )} onCommit={commit} />
+        { /* ( a repeat isn't turned or scaled as one: each of its sections is, about its own middle ) */ }
+        { rep ? <>
+        <Vec3Field label="Rotation" kind="rotation" value={quatToUnityEuler( new THREE.Quaternion( ...( rep.style.infill.sectionTurn ?? [0, 0, 0, 1] ) ) )} step={1} digits={4} trim unit="°" onChange={( v ) => set( ( x ) => withPath( x, withSectionTurn( fenceOf( x )!, unityEulerToQuat( v ) ) ) )} onCommit={commit} />
+        <Vec3Field label="Scale" kind="scale" value={rep.style.infill.sectionSize ?? [1, 1, 1]} step={0.01} digits={3} onChange={( v ) => set( ( x ) => withPath( x, withSectionSize( fenceOf( x )!, safeScale( v ) ) ) )} onCommit={commit} />
+        </> : <>
         <Vec3Field label="Rotation" kind="rotation" value={cur.rot} step={1} digits={4} trim unit="°" onChange={( v ) => moveTo( { rot: v } )} onCommit={commit} />
         <Vec3Field label="Scale" kind="scale" value={cur.scl} step={0.01} digits={3} onChange={( v ) => moveTo( { scl: safeScale( v ) } )} onCommit={commit} />
+        </> }
         { layout && <>
         <label>Ground</label>
         <div style={{ display: "flex", gap: 6 }}>
@@ -119,8 +132,18 @@ export function CustomProperties( { o, live, tab }: { o: CustomObjectEntry; live
           <span style={{ color: "var(--muted)", alignSelf: "center" }}>{Number.isNaN( ground ) ? "off terrain" : `${( o.position.y - ground ).toFixed( 2 )} m above`}</span>
         </div>
         </> }
+        { layout && !fenceOf( o ) && <>
+        <label>Repeat</label>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="btn small" title="Repeat this piece along a path over the ground" onClick={() => void getEngine()?.menus.makeFence()}>
+            Make Repeat
+          </button>
+        </div>
+        </> }
         </> }
         {layout && o.lights.length > 0 && <LightRows o={o} set={set} commit={commit} />}
+        {layout && fenceOf( o ) && <FenceRows key={o.uid} o={o} set={set} commit={commit} />}
+        {( layout || tab === "object" ) && <MotionRows o={o} set={set} commit={commit} />}
 
         { ( tab === "modifiers" || tab === "data" ) && ( o.model ? modelRows( { o: o as CustomObjectEntry & { model: NonNullable<CustomObjectEntry["model"]> }, set, commit, only: tab } ) : (
           <>
@@ -144,9 +167,16 @@ export function CustomProperties( { o, live, tab }: { o: CustomObjectEntry; live
                 if ( o.model ) {
                   set( ( x ) => {
                     const { rail: _r, ...y } = x;
-                    return withModel( { ...( s.id === "Jib" && x.model?.curve ? x : y ), surface_type: s.id, ...( s.id === "Jib" ? { can_magnetize: true } : {} ) }, x.model! );
+                    const z                  = withModel( { ...( s.id === "Jib" && x.model?.curve ? x : y ), surface_type: s.id, ...( s.id === "Jib" ? { can_magnetize: true } : {} ) }, x.model! );
+                    // ( a repeat: made again, its copies' colliders the new surface too )
+                    return fenceOf( z ) ? rebuilt( z ) : z;
                   } );
                   commit();
+                  // ( a jib grinds along its rail: made as it becomes one, a repeat's in the same undo step )
+                  if ( s.id === "Jib" && !o.model.curve ) {
+                    if ( isRepeat( fenceOf( o ) ) ) void getEngine()?.fenceTool.railAgain( o.uid, true );
+                    else void makeRail( o, set, commit );
+                  }
                   return;
                 }
                 const jib = ( x: CustomObjectEntry ): CustomObjectEntry => ( { ...x, surface_type: "Jib", can_magnetize: true, colliders: x.colliders.map( ( c ) => ( { ...c, surface_type: "Jib" as const } ) ) } );
@@ -171,8 +201,7 @@ export function CustomProperties( { o, live, tab }: { o: CustomObjectEntry; live
             {flag( "can_stabilize", "Can stabilize" )}
             {flag( "can_rotate", "Can rotate" )}
             {flag( "can_magnetize", "Can magnetize" )}
-            {layout && <RailEditor o={o} set={set} commit={commit} />}
-            <GrindStatus o={o} />
+            {( layout || tab === "physics" ) && ( !fenceOf( o ) || isRepeat( fenceOf( o ) ) ) && <RailEditor o={o} set={set} commit={commit} />}
           </>
         ) }
         </> }

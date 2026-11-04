@@ -5,6 +5,7 @@ import { positionWorldDirection, screenCoordinate, uniform, vec4, wgslFn } from 
 import * as THREE from "three/webgpu";
 import { useEditor, workspaceOf } from "../../map/store";
 import { redraw } from "../redraw";
+import { snowLook } from "../render/terrainRenderer/look";
 import { gameSkyLook, mapGameTime, setLoadedGameSky, type GameSkyData } from "../render/gameSky";
 import { DAY, dayLook, mapHour, skyTexture, type DayLook } from "../render/timeOfDay";
 import type { Engine } from "./engine";
@@ -116,6 +117,7 @@ export class Daylight {
     if ( key === this.dayKey ) return;
     this.dayKey = key;
     this.sun.position.copy( look.sunDir ).multiplyScalar( 1000 );
+    snowLook.sunView.value.copy( look.sunDir ).normalize();
     this.sun.color.copy( look.sunColor );
     this.sun.intensity = look.sunIntensity;
     this.hemi.color.copy( look.hemiSky );

@@ -5,7 +5,7 @@
 import * as THREE from "three/webgpu";
 import { toThree, type V3 } from "../../core/coords";
 import type { CustomObjectEntry } from "../../core/types";
-import { channelPixels, pieceTexture, prepare, recordStroke, storeOf, texelsNear, updateNormal, type Channel, type PieceTexture, type TexelMap } from "../../texture/meshPaint";
+import { channelPixels, pieceTexture, prepare, recordStroke, storeOf, texelsNear, texelsNearSteps, updateNormal, type Channel, type PieceTexture, type TexelMap } from "../../texture/meshPaint";
 import { useEditor } from "../../map/store";
 import { gradientTexel } from "../../paint/settings";
 import { evaluate, type ModelData } from "../../model/build";
@@ -47,13 +47,55 @@ interface Active {
   gradient?: { x0: number; y0: number; x1: number; y1: number };
 }
 
+// how long a frame may spend laying down paint ( ms; at 240 Hz a frame is 4.2, drawing it about 1.5 )
+const PAINT_SHARE = 2;
+
 export class MeshPainter {
   private active: Active | null = null;
+  // strokes let go but still being laid down ( a frame's share at a time ), oldest first
+  private finishing: Active[] = [];
 
   constructor( private view: PaintView ) {}
 
   get painting() {
     return !!this.active;
+  }
+
+  /**
+   * A stroke under way, or let go and still being laid down.
+  **/
+  get busy() {
+    return !!this.active || this.finishing.length > 0;
+  }
+
+  /**
+   * This frame's share of the strokes' waiting dabs: the ones let go first ( recorded once done ), then the one under
+   * way.
+  **/
+  private work() {
+    const t0   = performance.now();
+    const left = () => Math.max( 0, PAINT_SHARE - ( performance.now() - t0 ) );
+    while ( this.finishing.length ) {
+      if ( this.finishing[0].stroke!.work( left() ) ) return;
+      this.finish( this.finishing.shift()! );
+    }
+    if ( left() > 0 ) this.active?.stroke?.work( left() );
+  }
+
+  /**
+   * The strokes let go, laid down at once and recorded ( before an undo or another stroke: the steps in order ).
+  **/
+  settle() {
+    for ( const a of this.finishing.splice( 0 ) ) {
+      a.stroke!.work( Infinity );
+      this.finish( a );
+    }
+  }
+
+  private finish( a: Active ) {
+    const T = pieceTexture( a.uid );
+    if ( a.ch === "height" && T ) updateNormal( T );
+    if ( a.stroke!.changedAny ) recordStroke( a.uid, a.label, a.before, a.ch );
   }
 
   /**
@@ -109,6 +151,8 @@ export class MeshPainter {
   down( x: number, y: number, pressure: number, ctrl: boolean ): boolean {
     const o = this.piece();
     if ( !o ) return false;
+    // ( the last stroke finished first: this one starts from the paint it left )
+    this.settle();
     const { T, g, map } = prepare( o );
     const M             = pieceMatrix( o ), Minv = M.clone().invert();
     const hitAt         = this.surface( g, M );
@@ -179,6 +223,7 @@ export class MeshPainter {
     // with a stencil, the brush paints its image ( a grey map: its lightness ) where it lies on the view
     const sten   = useStencil.getState(), screen: [number, number] = [0, 0];
     const source = sten.img ? () => stencilColour( sten, screen[0], screen[1], grey ) : undefined;
+    const mpp    = ( q: THREE.Vector3 ) => this.mpp( q );
     const stroke = new EngineStroke( storeOf( T, ch ), {
       source,
       kind:     "paint",
@@ -192,14 +237,15 @@ export class MeshPainter {
       patternPx: 64,
       base:      [1, 1, 1],
       // the texels under the dab on the screen: near the surface there, facing the camera
-      cover: ( d, reach, at, f ) => {
+      // ( a few thousand texels at a time: a big brush's dab over the whole piece is carried on over frames )
+      coverSteps: function* ( d, reach, at, f ) {
         const hit = hitAt( d.x, d.y );
         if ( !hit ) return;
-        const rw         = reach * this.mpp( hit );
+        const rw         = reach * mpp( hit );
         const local      = hit.clone().applyMatrix4( Minv );
         const centre: V3 = [local.x, local.y, -local.z];
         look();
-        visit( map, centre, rw / scale, ( k ) => {
+        yield* texelsNearSteps( map, centre, rw / scale, ( k ) => {
           if ( ( known[k] || place( k ) ) !== 1 ) return;
           const sx  = onScreen[k * 2], sy = onScreen[k * 2 + 1];
           const cov = at( sx - d.x, sy - d.y, k % n, Math.floor( k / n ) );
@@ -210,7 +256,8 @@ export class MeshPainter {
         } );
       },
     } );
-    this.active = { uid: o.uid, stroke, before: px.slice(), label: erase ? "Erase paint" : grey ? `Paint ${ch}` : "Paint", ch };
+    stroke.paced = true;
+    this.active  = { uid: o.uid, stroke, before: px.slice(), label: erase ? "Erase paint" : grey ? `Paint ${ch}` : "Paint", ch };
     stroke.move( { x, y, pressure } );
     return true;
   }
@@ -228,6 +275,7 @@ export class MeshPainter {
 
   hold( ms: number ) {
     this.active?.stroke?.hold( ms );
+    this.work();
   }
 
   up() {
@@ -243,10 +291,9 @@ export class MeshPainter {
       }
       return;
     }
+    // ( the brush catches up with the pointer; its last dabs laid down over the next frames, then it's recorded )
     a.stroke!.end();
-    const T = pieceTexture( a.uid );
-    if ( a.ch === "height" && T ) updateNormal( T );
-    if ( a.stroke!.changedAny ) recordStroke( a.uid, a.label, a.before, a.ch );
+    this.finishing.push( a );
   }
 
   private gradientInfo: { o: CustomObjectEntry; T: PieceTexture; map: TexelMap; M: THREE.Matrix4; colour: Rgb; colour2: Rgb; strength: number } | null = null;
@@ -438,13 +485,6 @@ export class MeshPainter {
     if ( ch === "height" ) updateNormal( T );
     return true;
   }
-}
-
-/**
- * The texels within `r` of a point ( piece coordinates ).
-**/
-function visit( map: TexelMap, p: [number, number, number], r: number, f: ( k: number ) => void ) {
-  texelsNear( map, p, r, ( k ) => f( k ) );
 }
 
 

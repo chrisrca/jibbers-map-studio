@@ -104,6 +104,44 @@ export function windowAt( w: Window, x: number, y: number ) {
   return ( w.data[p] * ( 1 - a ) + w.data[p + 1] * a ) * ( 1 - b ) + ( w.data[p + w.W] * ( 1 - a ) + w.data[p + w.W + 1] * a ) * b;
 }
 
+/**
+ * Height at native ( x, y ) over several windows ( a file each ): the first that has it, else, between two files, bilinear
+ * over the pixels of whichever has each. Two tiles side by side leave a pixel's width between their last pixel centres
+ * that neither covers on its own ( a 2 m strip along every swissALTI3D tile's edge ): filled from coarser data, it stood
+ * as a trench or a wall along the tile lines. Files on another pixel grid don't count for that; NaN where no file has
+ * any of the four pixels.
+**/
+export function windowsAt( windows: Window[], x: number, y: number ) {
+  for ( const w of windows ) {
+    const v = windowAt( w, x, y );
+    if ( !Number.isNaN( v ) ) return v;
+  }
+  const g = windows[0];
+  if ( !g ) return NaN;
+  const fx = ( x - g.x0 ) / g.dx, fy = ( y - g.y0 ) / g.dy;
+  const i  = Math.floor( fx ), j = Math.floor( fy ), a = fx - i, b = fy - j;
+  // pixel ( gi, gj ) of the first window's grid, from any window on the same grid that has it
+  const pixel = ( gi: number, gj: number ) => {
+    const px = g.x0 + gi * g.dx, py = g.y0 + gj * g.dy;
+    for ( const w of windows ) {
+      if ( Math.abs( w.dx - g.dx ) > 1e-6 * Math.abs( g.dx ) || Math.abs( w.dy - g.dy ) > 1e-6 * Math.abs( g.dy ) ) continue;
+      const ci = ( px - w.x0 ) / w.dx, cj = ( py - w.y0 ) / w.dy, ri = Math.round( ci ), rj = Math.round( cj );
+      if ( Math.abs( ci - ri ) > 1e-3 || Math.abs( cj - rj ) > 1e-3 || ri < 0 || rj < 0 || ri >= w.W || rj >= w.H ) continue;
+      const v = w.data[rj * w.W + ri];
+      if ( !Number.isNaN( v ) ) return v;
+    }
+    return NaN;
+  };
+  let sum = 0, weight = 0;
+  for ( const [di, dj, k] of [[0, 0, ( 1 - a ) * ( 1 - b )], [1, 0, a * ( 1 - b )], [0, 1, ( 1 - a ) * b], [1, 1, a * b]] ) {
+    const v = pixel( i + di, j + dj );
+    if ( Number.isNaN( v ) || k === 0 ) continue;
+    sum    += v * k;
+    weight += k;
+  }
+  return weight > 0 ? sum / weight : NaN;
+}
+
 const DEFS: Record<string, string> = {
   "EPSG:3979": "+proj=lcc +lat_0=49 +lon_0=-95 +lat_1=49 +lat_2=77 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs",
   "EPSG:2056": "+proj=somerc +lat_0=46.9524055555556 +lon_0=7.43958333333333 +k_0=1 +x_0=2600000 +y_0=1200000 +ellps=bessel +towgs84=674.374,15.056,405.346,0,0,0,0 +units=m +no_defs",

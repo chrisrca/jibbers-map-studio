@@ -17,12 +17,15 @@ export class ModelKeys {
       if ( m.kind === "transform" ) {
         if ( k === "x" || k === "y" || k === "z" ) {
           // ( Blender's Y is the game's Z, its Z the game's Y )
-          const axis = ( { x: 0, y: 2, z: 1 } as const )[k];
+          const axis  = ( { x: 0, y: 2, z: 1 } as const )[k];
+          // ( Shift: the other two, as Blender's Shift+Z moves on X and Y )
+          const plane = e.shiftKey && m.op !== "r";
           // again: the piece's own axes; a third time: none
-          if ( m.axis === axis && !m.local ) m.local = true;
-          else if ( m.axis === axis && m.local ) { m.axis = null; m.local = false; }
+          if ( m.axis === axis && m.plane === plane && !m.local ) m.local = true;
+          else if ( m.axis === axis && m.plane === plane && m.local ) { m.axis = null; m.local = false; }
           else { m.axis = axis; m.local = false; }
-          m.dir = null;
+          m.plane = m.axis !== null && plane;
+          m.dir   = null;
           this.ed.ops.runTransform( e );
           return true;
         }
@@ -49,12 +52,12 @@ export class ModelKeys {
         this.ed.ops.runSpin( e as unknown as PointerEvent );
         return true;
       }
-      if ( ( m.kind === "transform" || m.kind === "inset" || m.kind === "bevel" || m.kind === "spin" ) && /^[0-9.-]$/.test( e.key ) ) {
+      if ( ( m.kind === "transform" || m.kind === "inset" || m.kind === "bevel" || m.kind === "spin" || m.kind === "crease" ) && /^[0-9.-]$/.test( e.key ) ) {
         m.typed += e.key;
         this.ed.rerun( e );
         return true;
       }
-      if ( ( m.kind === "transform" || m.kind === "inset" || m.kind === "bevel" || m.kind === "spin" ) && k === "backspace" ) {
+      if ( ( m.kind === "transform" || m.kind === "inset" || m.kind === "bevel" || m.kind === "spin" || m.kind === "crease" ) && k === "backspace" ) {
         m.typed = m.typed.slice( 0, -1 );
         this.ed.rerun( e );
         return true;
@@ -83,7 +86,9 @@ export class ModelKeys {
     if ( k === "i" && e.ctrlKey ) {
       // invert
       const all   = g.v.map( ( _, i ) => i );
+      const was   = this.ed.snapshot();
       this.ed.sel = this.ed.mode === "face" ? selFromFaces( g, g.f.map( ( _, i ) => i ).filter( ( f ) => !this.ed.sel.f.has( f ) ) ) : selFromVerts( g, all.filter( ( v ) => !this.ed.sel.v.has( v ) ) );
+      this.ed.selected( was );
       this.ed.sync();
       this.ed.publish();
       return true;
@@ -95,7 +100,9 @@ export class ModelKeys {
       if ( !start.length ) return true;
       const verts = linked( g, start );
       const s     = selFromVerts( g, [...this.ed.sel.v, ...verts] );
+      const was   = this.ed.snapshot();
       this.ed.sel = this.ed.mode === "face" ? selFromFaces( g, [...s.f] ) : s;
+      this.ed.selected( was );
       this.ed.sync();
       this.ed.publish();
       return true;
@@ -106,7 +113,9 @@ export class ModelKeys {
     if ( e.ctrlKey && k === "b" ) return this.ed.ops.startBevel(), true;
     if ( e.ctrlKey && k === "n" ) return this.ed.menus.op( recalcOutside( g, this.ed.sel.f.size ? this.ed.sel.f : undefined ), "Recalculate outside" ), true;
     if ( e.ctrlKey ) return false;
+    if ( k === "s" && e.shiftKey ) return this.ed.menus.snapMenu(), true;
     if ( k === "g" || k === "r" || k === "s" ) return this.ed.ops.startTransform( k ), true;
+    if ( k === "e" && e.shiftKey ) return this.ed.ops.startCrease(), true;
     if ( k === "e" ) return this.ed.ops.extrude(), true;
     if ( k === "i" ) return this.ed.ops.startInset(), true;
     if ( k === "f" ) {
@@ -143,6 +152,7 @@ export class ModelKeys {
       return true;
     }
     if ( k === "m" ) return this.ed.menus.mergeMenu(), true;
+    if ( k === "u" ) return this.ed.menus.unwrapMenu(), true;
     if ( k === "n" && e.altKey ) return this.ed.menus.normalsMenu(), true;
     return false;
   }

@@ -3,10 +3,11 @@
 // unlink ), then Preview, Surface ( Principled-style inputs, each able to take an image ), Settings, the game shader's
 // Effects and the piece's Paint. A named material is shared: a change applies wherever the map uses it, as in Blender.
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ipc } from "../../core/ipc";
 import { materialOverlay, withOverlay } from "../../core/overlay";
+import { fromBlender, toBlender } from "../../core/blenderAxes";
 import type { CustomMaterial, CustomObjectEntry } from "../../core/types";
 import { defaultMaterial, isModel, withModel } from "../../model/objects";
 import { materialName } from "../../pieces/userAssets";
@@ -83,6 +84,74 @@ const vecProp = ( m: CustomMaterial, k: string ): [number, number, number, numbe
   return p && "Vector" in p ? p.Vector : [0, 0, 0, 0];
 };
 const withProps = ( m: CustomMaterial, add: Record<string, Prop> ) => ( { ...m, extra_props: { ...props( m ), ...add } } );
+
+// A setting of one of the shader's features: its property, its name here, what it holds ( a number, a direction or
+// axis in the game's space shown in Blender's, two numbers, a colour, a switch ), its default and range.
+interface FeatureProp {
+  key:   string;
+  label: string;
+  kind:  "float" | "dir" | "pair" | "colour" | "switch";
+  def:   number | [number, number, number, number];
+  min?:  number;
+  max?:  number;
+  step?: number;
+}
+
+// The object shader's features ( Map-Tools CustomObjectLit ): each switched on by its keyword, the float mirroring it.
+const FEATURES: { label: string; keyword: string; use: string; props: FeatureProp[] }[] = [
+  { label: "Liquid", keyword: "_LIQUID", use: "_UseLiquid", props: [
+    { key: "_LiquidTiling",          label: "Tiling",           kind: "float", def: 10,                 min: 0.1, max: 100, step: 0.5  },
+    { key: "_LiquidScroll1",         label: "Scroll 1",         kind: "pair",  def: [0.05, 0.03, 0, 0],                     step: 0.01 },
+    { key: "_LiquidScroll2",         label: "Scroll 2",         kind: "pair",  def: [-0.04, 0.06, 0, 0],                    step: 0.01 },
+    { key: "_LiquidWaveHeight",      label: "Wave Height",      kind: "float", def: 0.5,                min: 0,   max: 2               },
+    { key: "_LiquidSmoothness",      label: "Smoothness",       kind: "float", def: 0.95,               min: 0,   max: 1               },
+    { key: "_LiquidFresnelPower",    label: "Fresnel Power",    kind: "float", def: 4,                  min: 0.5, max: 8               },
+    { key: "_LiquidFresnelStrength", label: "Fresnel Strength", kind: "float", def: 0.5,                min: 0,   max: 2               },
+  ] },
+  { label: "Wind Sway", keyword: "_WIND_SWAY", use: "_UseWindSway", props: [
+    { key: "_WindDirection",       label: "Direction",        kind: "dir",   def: [1, 0, 0.35, 0],                step: 0.05 },
+    { key: "_WindStrength",        label: "Strength",         kind: "float", def: 0.15,          min: 0,    max: 2              },
+    { key: "_WindSpeed",           label: "Speed",            kind: "float", def: 1,             min: 0,    max: 10             },
+    { key: "_WindVariation",       label: "Variation",        kind: "float", def: 0.4,           min: 0,    max: 1              },
+    { key: "_WindCrossSway",       label: "Cross Sway",       kind: "float", def: 0,             min: 0,    max: 1              },
+    { key: "_WindSwayAxis",        label: "Mask Axis",        kind: "dir",   def: [0, 1, 0, 0],                   step: 0.05 },
+    { key: "_WindSwayMin",         label: "Mask Min",         kind: "float", def: 0,                              step: 0.1  },
+    { key: "_WindSwayMax",         label: "Mask Max",         kind: "float", def: 1,                              step: 0.1  },
+    { key: "_WindMaskExponent",    label: "Mask Exponent",    kind: "float", def: 2,             min: 0.25, max: 8              },
+    { key: "_WindRadialInfluence", label: "Radial Influence", kind: "float", def: 0,             min: 0,    max: 1              },
+    { key: "_WindRadialMin",       label: "Radial Min",       kind: "float", def: 0,                              step: 0.1  },
+    { key: "_WindRadialMax",       label: "Radial Max",       kind: "float", def: 1,                              step: 0.1  },
+    { key: "_WindRadialExponent",  label: "Radial Exponent",  kind: "float", def: 1,             min: 0.25, max: 8              },
+  ] },
+];
+
+// The overlay's own settings ( switched on by Snow on Top ), and its fade along an axis.
+const OVERLAY_PROPS: FeatureProp[] = [
+  { key: "_OverlayColor",       label: "Colour",       kind: "colour", def: [1, 1, 1, 1]                          },
+  { key: "_OverlayDirection",   label: "Direction",    kind: "dir",    def: [0, 1, 0, 0],               step: 0.05 },
+  { key: "_OverlayAmount",      label: "Coverage",     kind: "float",  def: 0.4,  min: -1,    max: 1              },
+  { key: "_OverlaySharpness",   label: "Sharpness",    kind: "float",  def: 0.3,  min: 0.001, max: 2              },
+  { key: "_OverlayIntensity",   label: "Intensity",    kind: "float",  def: 1,    min: 0,     max: 1              },
+  { key: "_OverlaySmoothness",  label: "Smoothness",   kind: "float",  def: 0.3,  min: 0,     max: 1              },
+  { key: "_OverlayNormalBlend", label: "Normal Blend", kind: "float",  def: 0.5,  min: 0,     max: 1              },
+  { key: "_OverlayTiling",      label: "Tiling",       kind: "float",  def: 1,    min: 0.01,  max: 100, step: 0.1 },
+];
+const FADE_PROPS: FeatureProp[] = [
+  { key: "_OverlayFadeAxis",        label: "Axis",         kind: "dir",    def: [0, 1, 0, 0], step: 0.05 },
+  { key: "_OverlayFadeMin",         label: "Min",          kind: "float",  def: 0,            step: 0.1  },
+  { key: "_OverlayFadeMax",         label: "Max",          kind: "float",  def: 1,            step: 0.1  },
+  { key: "_OverlayFadeObjectSpace", label: "Object Space", kind: "switch", def: 1                        },
+];
+
+/**
+ * The material with a feature switched on or off ( the game reads the keyword; the float mirrors it ).
+**/
+const withFeature = ( m: CustomMaterial, keyword: string, use: string, on: boolean ): CustomMaterial => {
+  const kw = ( ( m.keywords ?? [] ) as string[] ).filter( ( k ) => k !== keyword );
+  if ( on ) kw.push( keyword );
+  return withProps( { ...m, keywords: kw }, { [use]: { Float: on ? 1 : 0 } } );
+};
+const hasKeyword = ( m: CustomMaterial, k: string ) => ( ( m.keywords ?? [] ) as string[] ).includes( k );
 
 export function MaterialTab( { o, live }: { o: CustomObjectEntry; live: Live } ) {
   // ( the active slot is the piece's, as Blender's active material index is the object's: kept however the tab is drawn )
@@ -217,6 +286,48 @@ export function MaterialTab( { o, live }: { o: CustomObjectEntry; live: Live } )
           {key && <button className="btn small" title="Unlink" onClick={() => { field( s, "" ); commit( "Unlink image" ); }}><BlIcon name="x" size={14} /></button>}
         </div>
       </>
+    );
+  };
+  /**
+   * A feature setting's field.
+  **/
+  const featureField = ( f: FeatureProp ) => {
+    const set  = ( p: Prop ) => change( ( mm ) => withProps( mm, { [f.key]: p } ) );
+    const four = ( mm: CustomMaterial ) => ( f.key in props( mm ) ? vecProp( mm, f.key ) : ( f.def as [number, number, number, number] ) );
+    let input: ReactNode;
+    if ( f.kind === "float" ) {
+      const v = floatProp( m!, f.key, f.def as number );
+      input   = f.min !== undefined && f.max !== undefined
+        ? <NumSlider value={v} min={f.min} max={f.max} onChange={( x ) => set( { Float: x } )} onCommit={commit} />
+        : <NumberField value={v} step={f.step ?? 0.1} onChange={( x ) => set( { Float: x } )} onCommit={commit} />;
+    } else if ( f.kind === "switch" ) {
+      input = <label className="check"><input type="checkbox" checked={floatProp( m!, f.key, f.def as number ) > 0.5} onChange={( e ) => { set( { Float: e.target.checked ? 1 : 0 } ); commit(); }} /></label>;
+    } else if ( f.kind === "colour" ) {
+      const c = four( m! );
+      input   = <ColourChip value={[c[0], c[1], c[2]]} onChange={( [r, g, b] ) => { set( { Color: [r, g, b, c[3]] } ); commit(); }} />;
+    } else if ( f.kind === "pair" ) {
+      const c = four( m! );
+      input   = (
+        <div className="pair">
+          { [0, 1].map( ( i ) => <NumberField key={i} value={c[i]} step={f.step ?? 0.01} onChange={( x ) => set( { Vector: c.map( ( y, j ) => ( j === i ? x : y ) ) as [number, number, number, number] } )} onCommit={commit} /> ) }
+        </div>
+      );
+    } else {
+      // ( the game's direction, shown in Blender's axes )
+      const c = four( m! ), b = toBlender( [c[0], c[1], c[2]] );
+      input   = (
+        <div className="vec">
+          { ( ["X", "Y", "Z"] as const ).map( ( l, i ) => (
+            <NumberField key={l} className={l.toLowerCase()} label={l} value={b[i]} step={f.step ?? 0.05} onChange={( x ) => { const n = fromBlender( b.map( ( y, j ) => ( j === i ? x : y ) ) as [number, number, number] ); set( { Vector: [n[0], n[1], n[2], 0] } ); }} onCommit={commit} />
+          ) ) }
+        </div>
+      );
+    }
+    return (
+      <div key={f.key} style={{ display: "contents" }}>
+        <label>{f.label}</label>
+        {input}
+      </div>
     );
   };
   const strength = Math.max( m?.emission_color.r ?? 0, m?.emission_color.g ?? 0, m?.emission_color.b ?? 0 );
@@ -355,6 +466,25 @@ export function MaterialTab( { o, live }: { o: CustomObjectEntry; live: Live } )
       <label className="check">
         <input type="checkbox" checked={!!materialOverlay( m )} onChange={( e ) => { change( ( mm ) => withOverlay( mm, e.target.checked ) ); commit(); }} /> Snow on Top
       </label>
+      { !!materialOverlay( m ) && (
+        <>
+          {OVERLAY_PROPS.map( featureField )}
+          <label />
+          <label className="check">
+            <input type="checkbox" checked={hasKeyword( m, "_OVERLAY_FADE" )} onChange={( e ) => { change( ( mm ) => withFeature( mm, "_OVERLAY_FADE", "_UseOverlayFade", e.target.checked ) ); commit(); }} /> Fade
+          </label>
+          {hasKeyword( m, "_OVERLAY_FADE" ) && FADE_PROPS.map( featureField )}
+        </>
+      ) }
+      { FEATURES.map( ( f ) => (
+        <div key={f.keyword} style={{ display: "contents" }}>
+          <label />
+          <label className="check">
+            <input type="checkbox" checked={hasKeyword( m, f.keyword )} onChange={( e ) => { change( ( mm ) => withFeature( mm, f.keyword, f.use, e.target.checked ) ); commit(); }} /> {f.label}
+          </label>
+          {hasKeyword( m, f.keyword ) && f.props.map( featureField )}
+        </div>
+      ) ) }
       <label>UV Scroll</label>
       <div className="pair">
         <NumberField value={scroll[0]} step={0.01} onChange={( v ) => change( ( mm ) => withProps( mm, { _UvScroll: { Vector: [v, vecProp( mm, "_UvScroll" )[1], 0, 0] } } ) )} onCommit={commit} />

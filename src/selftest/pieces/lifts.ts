@@ -213,6 +213,18 @@ export async function liftsSelftest( dir: string ) {
       const top = pieces().top.at, ground = terrain.heightAt( top[0], top[2] );
       log( `top station dragged ${moved.toFixed( 1 )} m${moved > 3 ? "" : " (FAIL)"}; on the ground (${( top[1] - ground ).toFixed( 2 )} m off); undo step "${history.nextUndo}"` );
     }
+    phase = "the gizmo's middle dragged";
+    {
+      // ( the picked piece's own ball not drawn under the gizmo; its middle circle drags the piece over the ground )
+      const before = { ...chair().lift!.endPosition }, t = pieces().top.at, [x, y] = scr( t );
+      const hidden = eng.liftTool.group.children.filter( ( c ) => c.userData.picked ).every( ( c ) => !c.visible );
+      const centre = eng.blGizmo.centreAt( x, y );
+      await drag( x, y, x - 60, y + 30, 900 );
+      await sleep( 300 );
+      const e   = chair().lift!.endPosition, moved = Math.hypot( e.x - before.x, e.z - before.z );
+      const top = pieces().top.at, off = top[1] - terrain.heightAt( top[0], top[2] );
+      log( `the gizmo's middle on the top station ${centre ? "" : "not found (FAIL)"}, its ball hidden ${hidden ? "yes" : "no (FAIL)"}; dragged ${moved.toFixed( 1 )} m${moved > 2 ? "" : " (FAIL)"}, on the ground (${off.toFixed( 2 )} m off)${Math.abs( off ) < 0.05 ? "" : " (FAIL)"}` );
+    }
     phase = "add and take away a mast";
     {
       const n0 = chair().lift!.masts.length, p = pieces();

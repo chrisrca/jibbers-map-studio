@@ -3,6 +3,7 @@
 
 import { create } from "zustand";
 import { type CustomObjectEntry, type ObjectEntry, type SpawnEntry, customName } from "../../core/types";
+import type { V3 } from "../../core/coords";
 import { copyPiece } from "../../model/objects";
 import { NEW_GROUND } from "../../trails/ground";
 import { emptyNet } from "../../trails/trails";
@@ -13,8 +14,8 @@ import { loadPaint, loadSculpt, saveSculpt } from "./remembered";
 import type { Collection, EditorState, Selection, Undoable } from "./types";
 
 export type { SculptState } from "../../sculpt/brushes";
-export { type ToolId, type CameraMode, type Selection, type Collection, type Toast, type ChunkExtras, type GameLaunch, type EditorState, type TerrainView, type Shading, type AssetTool, type View3d } from "./types";
-export { newUid, workspaceOf, unlocked, paramDefault } from "./helpers";
+export { type ToolId, type CameraMode, type LastAdd, type Selection, type Collection, type Toast, type ChunkExtras, type GameLaunch, type EditorState, type TerrainView, type Shading, type AssetTool, type View3d } from "./types";
+export { newUid, workspaceOf, unlocked, toHide, paramDefault } from "./helpers";
 
 // Set while the automated self-test runs: it mustn't change what the user's own settings/lists remember.
 export const testRun = { active: false };
@@ -32,10 +33,11 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
   trailGround:      NEW_GROUND,
   trailTool:        { width: 15, follow: true },
   trailHandle:      null,
+  showPaths:        false,
   shapeKind:        "curve",
   gizmoMode:        "translate",
   scatter:          { picks: [], radius: 8, spacing: 4, scaleJitter: 0.15, followSlope: 0.5, tilt: 4 },
-  terrainView:      { slope: false, slopeMin: 10, slopeMax: 45, slopeStep: 0, slopeOpacity: 0.85, hillshade: 0, exaggeration: 2, sunDir: 315, sunHeight: 35, contours: 0, contourOpacity: 0.5 },
+  terrainView:      { slope: false, slopeMin: 10, slopeMax: 45, slopeStep: 0, slopeOpacity: 0.85, hillshade: 0, exaggeration: 2, sunDir: 315, sunHeight: 35, contours: 0, contourOpacity: 0.5, relief: 0.75 },
   library:          null,
   objects:          [],
   spawns:           [],
@@ -65,6 +67,7 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
   hiddenInView:            {},
   cursor3d:                [0, 0, 0],
   view3d:                  { shading: "solid", xray: false, gizmos: true, orientation: "global", overlays: { grid: true, faceOrientation: false, stats: false } },
+  lastAdd:                 null,
   modelTools:              { snap: false, snapTo: "increment", proportional: false, propRadius: 1, pivot: "median" },
 
   placeholders:    [],
@@ -158,45 +161,54 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
   },
 
   duplicateSelected() {
+    return get().duplicateArray( 1, [0, 0, 0] );
+  },
+
+  duplicateArray( count, offset, yaw = 0, scale = 1 ) {
     const sel                            = get().selection;
     const newObjs:   ObjectEntry[]       = [];
     const newSpawns: SpawnEntry[]        = [];
     const newCustom: CustomObjectEntry[] = [];
-    const newSel:    Selection[]         = [];
-    for ( const s of sel ) {
-      if ( s.kind === "object" ) {
-        const o = get().objects.find( ( x ) => x.uid === s.uid );
-        if ( !o ) continue;
-        const c = { ...structuredClone( o ), uid: newUid() };
-        newObjs.push( c );
-        newSel.push( { kind: "object", uid: c.uid } );
-      } else if ( s.kind === "custom" ) {
-        const o = get().customObjects.find( ( x ) => x.uid === s.uid );
-        if ( !o ) continue;
-        const c = copyPiece( o, newUid() );
-        newCustom.push( c );
-        newSel.push( { kind: "custom", uid: c.uid } );
-      } else {
-        const o = get().spawns.find( ( x ) => x.uid === s.uid );
-        if ( !o ) continue;
-        const c = { ...structuredClone( o ), uid: newUid(), name: `${o.name} copy` };
-        newSpawns.push( c );
-        newSel.push( { kind: "spawn", uid: c.uid } );
-      }
-    }
-    if ( !newSel.length ) return [];
-    const membership = { ...get().membership };
+    const made:      Selection[]         = [];
+    let newSel:      Selection[]         = [];
+    const membership                     = { ...get().membership };
     const named: { uid: string; want: string }[] = [];
-    sel.forEach( ( s, k ) => {
-      const copy = newSel[k]?.uid;
-      if ( !copy ) return;
-      if ( membership[s.uid] ) membership[copy] = membership[s.uid];
-      const o = get().customObjects.find( ( x ) => x.uid === s.uid );
-      if ( o ) named.push( { uid: copy, want: pieceName( get(), o ) } );
-    } );
+    // ( copy k: its place, turn and size that many steps on )
+    const moved = ( p: V3, k: number ): V3 => [p[0] + offset[0] * k, p[1] + offset[1] * k, p[2] + offset[2] * k];
+    for ( let k = 1; k <= Math.max( 1, Math.round( count ) ); k++ ) {
+      newSel = [];
+      for ( const s of sel ) {
+        if ( s.kind === "object" ) {
+          const o = get().objects.find( ( x ) => x.uid === s.uid );
+          if ( !o ) continue;
+          const c = { ...structuredClone( o ), uid: newUid(), position: moved( o.position, k ), rotation: [o.rotation[0], o.rotation[1] + yaw * k, o.rotation[2]] as V3, scale: o.scale.map( ( v ) => v * scale ** k ) as V3 };
+          newObjs.push( c );
+          newSel.push( { kind: "object", uid: c.uid } );
+        } else if ( s.kind === "custom" ) {
+          const o = get().customObjects.find( ( x ) => x.uid === s.uid );
+          if ( !o ) continue;
+          const c = copyPiece( o, newUid() ), [x, y, z] = moved( [o.position.x, o.position.y, o.position.z], k );
+          c.position = { x, y, z };
+          c.rotation = { ...o.rotation, y: o.rotation.y + yaw * k };
+          c.scale    = { x: o.scale.x * scale ** k, y: o.scale.y * scale ** k, z: o.scale.z * scale ** k };
+          newCustom.push( c );
+          newSel.push( { kind: "custom", uid: c.uid } );
+          named.push( { uid: c.uid, want: pieceName( get(), o ) } );
+        } else if ( s.kind === "spawn" ) {
+          const o = get().spawns.find( ( x ) => x.uid === s.uid );
+          if ( !o ) continue;
+          const c = { ...structuredClone( o ), uid: newUid(), name: `${o.name} copy`, position: moved( o.position, k ), rotation: [o.rotation[0], o.rotation[1] + yaw * k, o.rotation[2]] as V3 };
+          newSpawns.push( c );
+          newSel.push( { kind: "spawn", uid: c.uid } );
+        } else continue;
+        if ( membership[s.uid] ) membership[newSel[newSel.length - 1].uid] = membership[s.uid];
+      }
+      made.push( ...newSel );
+    }
+    if ( !made.length ) return [];
     // ( Blender's: "Cube" copied is "Cube.001" )
     const labels = namesFor( { labels: get().labels, customObjects: [...get().customObjects, ...newCustom] }, named );
-    get().commit( "Duplicate", {
+    get().commit( count > 1 ? "Duplicate Array" : "Duplicate", {
       objects:       [...get().objects,       ...newObjs  ],
       spawns:        [...get().spawns,        ...newSpawns],
       customObjects: [...get().customObjects, ...newCustom],
@@ -204,7 +216,7 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
       labels,
     } );
     set( { selection: newSel } );
-    return newSel.map( ( s ) => s.uid );
+    return made.map( ( s ) => s.uid );
   },
 
   addSpawn( sp ) {
@@ -290,6 +302,15 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
       else delete locked[u];
     }
     get().commit( `${on ? "Lock" : "Unlock"} ${uids.length > 1 ? `${uids.length} items` : "item"}`, { locked } );
+  },
+  setHidden( uids, on ) {
+    const hiddenInView = { ...get().hiddenInView };
+    for ( const u of uids ) {
+      if ( on ) hiddenInView[u] = true;
+      else delete hiddenInView[u];
+    }
+    const gone = new Set( on ? uids : [] );
+    set( { hiddenInView, selection: get().selection.filter( ( s ) => !gone.has( s.uid ) ) } );
   },
 } ) );
 

@@ -50,7 +50,10 @@ export function ToolColumn() {
       { mode === "sculpt" && (
         <>
           <div className="tool-group">
-            {tb( "trail", "trail", "Trails", tool === "trail", () => st().setTool( "trail" ) )}
+            {tb( "trail", "trail",      "Trails",       tool === "trail", () => st().setTool( "trail" ) )}
+            {tb( "form",  "mountain",   "Formation",    tool === "shape" && shapeKind === "formation", () => useEditor.setState( { tool: "shape", shapeKind: "formation" } ) )}
+            {tb( "curve", "shapeCurve", "Ramp (H)",     tool === "shape" && shapeKind === "curve", () => useEditor.setState( { tool: "shape", shapeKind: "curve" } ) )}
+            {tb( "copy",  "shapeCopy",  "Copy Terrain", tool === "shape" && shapeKind === "stamp", () => useEditor.setState( { tool: "shape", shapeKind: "stamp" } ) )}
           </div>
           <div className="tool-group">
             { BRUSHES.map( ( b ) =>
@@ -59,10 +62,6 @@ export function ToolColumn() {
                 st().setSculpt( { brush: b.id } );
               } ),
             ) }
-          </div>
-          <div className="tool-group">
-            {tb( "curve", "shapeCurve", "Ramp (H)",     tool === "shape" && shapeKind === "curve", () => useEditor.setState( { tool: "shape", shapeKind: "curve" } ) )}
-            {tb( "copy",  "shapeCopy",  "Copy Terrain", tool === "shape" && shapeKind === "stamp", () => useEditor.setState( { tool: "shape", shapeKind: "stamp" } ) )}
           </div>
         </>
       ) }

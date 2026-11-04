@@ -1,7 +1,7 @@
 // A run's surface as a strip of points ( rows along it, columns across: the skirt each side, then the run ), easing
 // into the runs it meets; the pads where runs meet; the handles on it; its triangles.
 
-import { evalCurve } from "../../core/curve";
+import { evalCurve, PROFILES } from "../../core/curve";
 import { bez, bezD, bezDD, controls, runLength } from "./line";
 import { type TrailNet, type TrailNode, type TrailRun, type V3, nodeOf, runsAt } from "./net";
 
@@ -21,6 +21,26 @@ function lateral( r: TrailRun, t: number, s: number, halfW: number ) {
   const cross = r.crossDepth ? evalCurve( r.cross, ( s + 1 ) / 2 ) * r.crossDepth : 0;
   const side  = s < 0 ? through3( r.corners[0], r.mids[0], r.corners[2], t ) : through3( r.corners[1], r.mids[1], r.corners[3], t );
   return roll + cross + side * smooth( Math.abs( s ) );
+}
+
+/**
+ * The run's jumps and rollers ( its `features` ) at `along` metres along it, `y` metres right of its middle.
+**/
+export function featuresAt( r: TrailRun, along: number, y: number, halfW: number ) {
+  let h = 0;
+  for ( const f of r.features ?? [] ) {
+    const u = ( along - f.at ) / Math.max( 0.1, f.length );
+    if ( u <= 0 || u >= 1 ) continue;
+    // ( a gap: a kicker, nothing, then a landing down from the same height )
+    const up = f.kind === "gap"
+      ? u < 0.35 ? evalCurve( PROFILES.kicker.curve, u / 0.35 ) : u > 0.65 ? evalCurve( PROFILES.landing.curve, ( u - 0.65 ) / 0.35 ) : 0
+      : evalCurve( PROFILES[f.kind].curve, u );
+    const hw    = ( f.width > 0 ? f.width : halfW * 2 ) / 2, soft = hw * Math.max( 0.01, f.blend );
+    const d     = Math.abs( y - f.offset );
+    const side  = d <= hw - soft ? 1 : smooth( 1 - ( d - ( hw - soft ) ) / soft );
+    h          += up * f.height * side;
+  }
+  return h;
 }
 
 // How far into a run ( fraction of it ) its ends ease into the run they meet at a point with just the two.
@@ -138,7 +158,7 @@ export function runStrip( net: TrailNet, r: TrailRun, step = 1, alone = false ):
       // across: the skirt column each side, then 11 on the run
       const s   = q === 0 ? -1 : q === cols - 1 ? 1 : -1 + ( 2 * ( q - 1 ) ) / ( ACROSS - 1 );
       const out = q === 0 || q === cols - 1 ? skirt : 0;
-      let h     = lateral( r, t, s, halfW );
+      let h     = lateral( r, t, s, halfW ) + ( r.features?.length ? featuresAt( r, t * len, s * halfW, halfW ) : 0 );
       for ( const e of [ea, eb] ) {
         if ( !e ) continue;
         // the other run's side that's on our left is its right when it points the other way

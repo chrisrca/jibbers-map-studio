@@ -3,12 +3,11 @@
 import { useState } from "react";
 import { copySelection, hasClipboard, paste } from "../../map/clipboard";
 import { realTerrainOf } from "../../map/project";
-import { unlocked, useEditor } from "../../map/store";
+import { toHide, unlocked, useEditor } from "../../map/store";
 import type { PaintTool } from "../../paint/settings";
 import { mirrorTerrain } from "../../terrain/ops";
 import { HB } from "../blender/AssetsUI";
 import { BlIcon, ToolIcon } from "../blender/BlIcon";
-import { pickAndImportAny } from "../importAny";
 import { getEngine } from "../Viewport";
 import { Slider } from "../widgets/controls";
 import { Icon } from "../widgets/icons";
@@ -24,23 +23,24 @@ function selectAllItems() {
     ...st.objects.map( ( o ) => ( { kind: "object" as const, uid: o.uid } ) ),
     ...st.spawns.map( ( o ) => ( { kind: "spawn" as const, uid: o.uid } ) ),
     ...st.customObjects.map( ( o ) => ( { kind: "custom" as const, uid: o.uid } ) ),
-  ] ) );
+  ].filter( ( x ) => !st.hiddenInView[x.uid] ) ) );
+}
+
+/**
+ * Blender's Object › Show/Hide.
+**/
+export function showHideItems(): MenuItem[] {
+  const st = useEditor.getState();
+  return [
+    { label: "Show Hidden Objects", bl: "hide_off", keys: "Alt H",   disabled: !Object.keys( st.hiddenInView ).length, run: () => st.setHidden( Object.keys( st.hiddenInView ), false ) },
+    { label: "Hide Selected",       bl: "hide_on",  keys: "H",       disabled: !st.selection.length,                   run: () => st.setHidden( toHide( st ), true ) },
+    { label: "Hide Unselected",     bl: "hide_on",  keys: "Shift H", run:      () => st.setHidden( toHide( st, true ), true ) },
+  ];
 }
 
 const SELECT_MENU = (): MenuItem[] => [
   { label: "All",  keys: "Ctrl A", bl: "select_set",      run: selectAllItems },
   { label: "None", keys: "Alt A",  bl: "select_subtract", run: () => useEditor.getState().setSelection( [] ) },
-];
-
-const ADD_MENU = (): MenuItem[] => [
-  { label: "Spawn",         icon: "spawn", keys: "N", run: () => useEditor.getState().setTool( "spawn" ) },
-  { label: "Library Piece", icon: "place", keys: "P", run: () => useEditor.getState().setTool( "place" ) },
-  { sep:   true,             label: "" },
-  { label: "Ramp",           icon:  "shapeCurve", keys: "H", run: () => useEditor.setState( { tool: "shape", shapeKind: "curve" } ) },
-  { label: "Copy Terrain",   icon:  "shapeCopy", run: () => useEditor.setState( { tool: "shape", shapeKind: "stamp" } ) },
-  { sep:   true,             label: "" },
-  { label: "Import…",        icon:  "import", keys: "Ctrl I", run: () => pickAndImportAny() },
-  { label: "Real Mountain…", icon:  "mountain", run: () => useEditor.setState( { mountainImport: true } ) },
 ];
 
 /**
@@ -87,6 +87,7 @@ export function DesignHeader() {
   const tool     = useEditor( ( s ) => s.tool        );
   const v        = useEditor( ( s ) => s.view3d      );
   const tv       = useEditor( ( s ) => s.terrainView );
+  const paths    = useEditor( ( s ) => s.showPaths   );
   const [, bump] = useState( 0 );
   useState( () => window.addEventListener( "grind-lines", () => bump( ( n ) => n + 1 ) ) );
   const mode      = modeOf( tool );
@@ -102,11 +103,14 @@ export function DesignHeader() {
     { label: "Rider View",    keys:  "Ctrl R", icon: "person", run: () => eng()?.nav.enterRider() && useEditor.setState( { cameraMode: "rider" } ) },
     { label: "Slope Colours", keys:  "Ctrl L", icon: "mountain", checked: useEditor.getState().terrainView.slope, run: toggleSlope },
     { label: "Grind Lines",   icon:  "rail", checked: grindOn, run: toggleGrindLines },
+    { label: "All Paths",     icon:  "trail", checked: useEditor.getState().showPaths, run: () => useEditor.setState( { showPaths: !useEditor.getState().showPaths } ) },
   ];
   const objectItems = (): MenuItem[] => [
     { label: "Copy",      bl: "copydown",  keys: "Ctrl C",  run:      () => void copySelection() },
     { label: "Paste",     bl: "pastedown", keys: "Ctrl V",  disabled: !hasClipboard(), run: () => void paste() },
     { label: "Duplicate", bl: "duplicate", keys: "Shift D", run:      () => useEditor.getState().duplicateSelected() },
+    { sep:   true,     label: "" },
+    { label: "Show/Hide", sub: showHideItems() },
     { sep:   true,     label: "" },
     { label: "Delete", bl:    "trash", keys: "X", run: () => useEditor.getState().removeSelected() },
   ];
@@ -116,6 +120,7 @@ export function DesignHeader() {
     { sep:   true,           label: "" },
     { label: "Ramp",         icon:  "shapeCurve", keys: "H", run: () => useEditor.setState( { tool: "shape", shapeKind: "curve" } ) },
     { label: "Copy Terrain", icon:  "shapeCopy", run: () => useEditor.setState( { tool: "shape", shapeKind: "stamp" } ) },
+    { label: "Formation",    icon:  "mountain",  run: () => useEditor.setState( { tool: "shape", shapeKind: "formation" } ) },
     { sep:   true,           label: "" },
     { label: "Mirror", bl: "mod_mirror", sub: [
       { label: "Left to Right", bl: "axis_side",  run: () => mirrorTerrain( "x" ) },
@@ -134,7 +139,6 @@ export function DesignHeader() {
       />
       <MenuButton label="View" items={viewItems} />
       {mode === "object" && <MenuButton label="Select" items={SELECT_MENU} />}
-      {mode === "object" && <MenuButton label="Add" items={ADD_MENU} />}
       {mode === "object" && <MenuButton label="Object" items={objectItems} />}
       {mode === "sculpt" && <MenuButton label="Terrain" items={sculptItems} />}
       <span className="spacer" />
@@ -143,6 +147,7 @@ export function DesignHeader() {
       ) }
       <span className="spacer" />
       <HB on={grindOn} title="Grind Lines" onClick={toggleGrindLines}><Icon name="magnet" size={14} /></HB>
+      <HB on={paths} title="All Paths: every trail, ramp and formation drawn, whatever tool is out" onClick={() => useEditor.setState( { showPaths: !paths } )}><Icon name="trail" size={14} /></HB>
       <div className="seg hseg">
         <HB on={tv.slope || tv.hillshade > 0 || tv.contours > 0} title="Slope Colours (Ctrl L)" onClick={toggleSlope}><Icon name="mountain" size={14} /></HB>
         <Popover title="Terrain View">

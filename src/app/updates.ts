@@ -18,9 +18,23 @@ export async function checkForUpdate() {
     return;
   }
   if ( !update ) return;
+  await offerUpdate( update, relaunch );
+}
+
+// What offering an update needs of one ( Tauri's Update; the self-test's stand-in, to see it as users do )
+export interface UpdateOffer {
+  version: string;
+  downloadAndInstall( progress: ( e: { event: "Started"; data: { contentLength?: number } } | { event: "Progress"; data: { chunkLength: number } } | { event: "Finished" } ) => void ): Promise<void>;
+}
+
+/**
+ * The update asked about, then downloaded and installed with its progress shown, and the studio started again.
+**/
+export async function offerUpdate( update: UpdateOffer, restart: () => Promise<void> ) {
   const a = await ask( {
-    title: `Jibbers Map Studio ${update.version} is out`,
-    answers: [
+    title:    `Jibbers Map Studio ${update.version} is out`,
+    noCancel: true,
+    answers:  [
       { id: "later",  label: "Later" },
       { id: "update", label: "Update", primary: true },
     ],
@@ -37,7 +51,7 @@ export async function checkForUpdate() {
         if ( total ) st.setBusy( `Updating to ${update.version}… ${Math.round( ( got / total ) * 100 )}%` );
       } else if ( e.event === "Finished" ) st.setBusy( `Installing ${update.version}…` );
     } );
-    await relaunch();
+    await restart();
   } catch ( e ) {
     st.setBusy( null );
     st.toast( `Couldn't update: ${e}`, "error" );

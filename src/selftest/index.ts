@@ -15,13 +15,19 @@ import { brushStressSelftest } from "./terrain/brushStress";
 import { convertSelftest } from "./model/convert";
 import { curveSelftest } from "./model/curve";
 import { demsSelftest } from "./realmap/dems";
+import { designToolsSelftest } from "./app/designTools";
+import { toolsParitySelftest } from "./app/toolsParity";
+import { designLookSelftest } from "./look/designLook";
 import { dragAimSelftest } from "./assets/dragAim";
+import { droneLookSelftest, droneRawSelftest } from "./game/droneLook";
 import { dragCardsSelftest } from "./assets/dragCards";
+import { editViewSelftest } from "./model/editView";
 import { exportInnerSelftest } from "./realmap/exportInner";
 import { fileDropSelftest } from "./assets/fileDrop";
 import { flipGameSelftest } from "./pieces/flipGame";
 import { freshLiftSelftest } from "./pieces/freshLift";
 import { freshSelftest } from "./app/fresh";
+import { gameChatSelftest } from "./game/chat";
 import { gameLagSelftest } from "./game/gameLag";
 import { gameLookSelftest } from "./look/gameLook";
 import { gameRefSelftest } from "./look/gameRef";
@@ -36,16 +42,20 @@ import { inputLagSelftest } from "./game/inputLag";
 import { invoke } from "@tauri-apps/api/core";
 import { librarySelftest } from "./assets/library";
 import { liftPanelSelftest } from "./pieces/liftPanel";
+import { jibBoxSelftest } from "./pieces/jibBox";
 import { liftsSelftest } from "./pieces/lifts";
 import { mapPiecesSelftest } from "./pieces/mapPieces";
 import { loadVeilSelftest } from "./perf/loadVeil";
 import { mapNavSelftest } from "./perf/mapNav";
+import { userPerfSelftest } from "./perf/userPerf";
 import { lookSelftest } from "./look/look";
 import { mapTreesSelftest } from "./realmap/mapTrees";
 import { materialSelftest } from "./assets/material";
 import { modelSelftest } from "./model/model";
 import { mountainLagSelftest } from "./realmap/mountainLag";
 import { mountainSelftest } from "./realmap/mountain";
+import { mountainStressSelftest } from "./realmap/mountainStress";
+import { newMapLookSelftest } from "./look/newMapLook";
 import { newMapSelftest } from "./terrain/newMap";
 import { nightSelftest } from "./look/night";
 import { objectLookSelftest } from "./look/objectLook";
@@ -86,11 +96,14 @@ import { terrainViewSelftest } from "./terrain/terrainView";
 import { texCheckSelftest } from "./look/texCheck";
 import { texPaintSelftest } from "./texture/texPaint";
 import { toolsSelftest } from "./model/tools";
+import { trailStressSelftest } from "./trails/trailStress";
+import { trailTowerSelftest } from "./trails/trailTower";
 import { trailsSelftest } from "./trails/trails";
 import { treeViewSelftest } from "./look/treeView";
 import { treesSelftest } from "./look/trees";
 import { uiFixesSelftest } from "./app/uiFixes";
 import { uiSelftest } from "./app/ui";
+import { updateLookSelftest } from "./app/updateLook";
 import { updatesSelftest } from "./app/updates";
 import { userMapSelftest } from "./look/userMap";
 import { vramSelftest } from "./perf/vram";
@@ -100,19 +113,23 @@ import { wheelsSelftest } from "./pieces/wheels";
 const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   // app
   fresh:        freshSelftest,
+  designtools:  designToolsSelftest,
   icons:        iconSheet,
   panels:       panelsSelftest,
   recycle:      recycleSelftest,
   saving:       savingSelftest,
   startup:      startupSelftest,
+  toolsparity:  toolsParitySelftest,
   ui:           uiSelftest,
   uifixes:      uiFixesSelftest,
   updates:      updatesSelftest,
+  updatelook:   updateLookSelftest,
   // terrain
   brush:        brushSelftest,
   brushdrag:    brushDragSelftest,
   brushstress:  brushStressSelftest,
   newmap:       newMapSelftest,
+  newmaplook:   newMapLookSelftest,
   rampdrag:     rampDragSelftest,
   repeats:      repeatsSelftest,
   resort:       resortSelftest,
@@ -126,12 +143,15 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   inner:        innerSelftest,
   maptrees:     mapTreesSelftest,
   mountain:     mountainSelftest,
+  mtnstress:    mountainStressSelftest,
   mtnlag:       mountainLagSelftest,
   rocks:        rocksSelftest,
   // trails
   realtrails:   realTrailsSelftest,
   session:      sessionSelftest,
   trails:       trailsSelftest,
+  trailstress:  trailStressSelftest,
+  trailtower:   trailTowerSelftest,
   // paint
   grip:         gripSelftest,
   paint:        paintSelftest,
@@ -145,6 +165,7 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   // model
   convert:      convertSelftest,
   curve:        curveSelftest,
+  editview:     editViewSelftest,
   model:        modelSelftest,
   stage:        stageSelftest,
   tools:        toolsSelftest,
@@ -165,6 +186,7 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   scatter:      scatterSelftest,
   // look
   allfeatures:  allFeaturesSelftest,
+  designlook:   designLookSelftest,
   gamelook:     gameLookSelftest,
   gameref:      gameRefSelftest,
   look:         lookSelftest,
@@ -181,6 +203,7 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   freshlift:    freshLiftSelftest,
   grind:        grindSelftest,
   liftpanel:    liftPanelSelftest,
+  jibbox:       jibBoxSelftest,
   lifts:        liftsSelftest,
   mappieces:    mapPiecesSelftest,
   parts:        partsSelftest,
@@ -190,6 +213,10 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   recover:      recoverSelftest,
   wheels:       wheelsSelftest,
   // game
+  dronelook:    droneLookSelftest,
+  dronepopped:  ( dir: string ) => droneLookSelftest( dir, true ),
+  droneraw:     droneRawSelftest,
+  gamechat:     gameChatSelftest,
   gamelag:      gameLagSelftest,
   hiddenfps:    hiddenFpsSelftest,
   inputlag:     inputLagSelftest,
@@ -201,6 +228,7 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   idlefps:      idleFpsSelftest,
   loadveil:     loadVeilSelftest,
   mapnav:       mapNavSelftest,
+  userperf:     userPerfSelftest,
   vram:         vramSelftest,
 };
 

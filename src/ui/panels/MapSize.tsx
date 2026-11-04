@@ -4,6 +4,7 @@
 import { Icon } from "../widgets/icons";
 import { useEffect, useRef, useState } from "react";
 import { fixSeam, repeatOf, seamAxis, seamGap, setRepeat, useRepeatPreview, type Repeat } from "../../terrain/repeats";
+import { smoothSeam } from "../../terrain/seams";
 import { NumberField, Vec3Field } from "../widgets/controls";
 import type { TerrainChunk } from "../../terrain/terrain";
 import { applyGrow, cancelGrow, DEFAULT_GROW, mapSize, previewGrow, shrinkMap, type GrowParams, type Side } from "../../terrain/mapSize";
@@ -228,6 +229,19 @@ function ChunkRepeat( { c }: { c: TerrainChunk } ) {
           >
             Fix Seam
           </button>
+        </>
+      ) }
+      { c.adjacent.length > 0 && (
+        <>
+          <div className="section">Seams</div>
+          <label>Blend</label>
+          <NumberField value={blend} step={1} min={1} max={Math.round( c.size[0] / 2 )} digits={0} unit="m" onChange={setBlend} />
+          <label>Smooth</label>
+          <div className="seg">
+            { ( [[0, "−X"], [1, "+X"], [2, "−Z"], [3, "+Z"]] as const ).filter( ( [side] ) => c.adjacent.some( ( n ) => n.side === side ) ).map( ( [side, label] ) => (
+              <button key={side} onClick={() => { if ( !smoothSeam( c.key, side, blend ) ) useEditor.getState().toast( "That chunk's samples don't line up with this one's", "info" ); }}>{label}</button>
+            ) ) }
+          </div>
         </>
       ) }
     </div>

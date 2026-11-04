@@ -2,7 +2,7 @@
 
 import { bevel } from "../bevel";
 import { curveMesh } from "../curve";
-import { type Mesh, type V3, add, bounds, cloneMesh, compact, dot, edgesOf, ek, faceNormal, len, mul, norm, runs, sub, vertexFaces } from "../mesh";
+import { type Mesh, type V3, add, bounds, cloneMesh, compact, dot, edgesOf, ek, faceNormal, faceUvs, len, lerp3, moveCreases, mul, norm, runs, sub, vertexFaces } from "../mesh";
 import type { ModelData } from "./index";
 
 function mirror( g: Mesh, axis: number, merge: number ): Mesh {
@@ -25,8 +25,15 @@ function mirror( g: Mesh, axis: number, merge: number ): Mesh {
     out.f.push( f.map( ( v ) => twin[v] ).reverse() );
     out.m.push( g.m[fi] );
     out.s.push( g.s[fi] );
+    // ( its UVs as the original's, mirrored: the corners the other way round )
+    if ( g.u ) {
+      const uv = faceUvs( g, fi );
+      ( out.u ??= [] )[out.f.length - 1] = uv ? f.map( ( _, k ) => [uv[k * 2], uv[k * 2 + 1]] ).reverse().flat() : [];
+    }
   } );
   for ( const [a, b] of g.w ) out.w.push( [twin[a], twin[b]] );
+  // the copy's edges creased as the original's
+  if ( g.c ) out.c = { ...g.c, ...moveCreases( g.c, ( v ) => twin[v] ) };
   return compact( out ).mesh;
 }
 
@@ -42,8 +49,10 @@ function array( g: Mesh, count: number, relative: V3, constant: V3, merge: boole
       out.f.push( f.map( ( v ) => v + base ) );
       out.m.push( g.m[fi] );
       out.s.push( g.s[fi] );
+      if ( g.u ) ( out.u ??= [] )[out.f.length - 1] = [...( faceUvs( g, fi ) ?? [] )];
     } );
     for ( const [a, b] of g.w ) out.w.push( [a + base, b + base] );
+    if ( g.c ) out.c = { ...out.c, ...moveCreases( g.c, ( v ) => v + base ) };
   }
   if ( merge ) out = weld( out, 0.0005 );
   return out;
@@ -57,6 +66,8 @@ export function joinMeshes( a: Mesh, b: Mesh ): Mesh {
   return {
     v: [...a.v, ...b.v], f: [...a.f, ...b.f.map( ( f ) => f.map( ( v ) => v + n ) )], m: [...a.m, ...b.m], s: [...a.s, ...b.s],
     w: [...a.w, ...b.w.map( ( [x, y] ) => [x + n, y + n] as [number, number] )],
+    ...( a.c || b.c ? { c: { ...a.c, ...moveCreases( b.c, ( v ) => v + n ) } } : {} ),
+    ...( a.u || b.u ? { u: [...a.f.map( ( _, i ) => [...( faceUvs( a, i ) ?? [] )] ), ...b.f.map( ( _, i ) => [...( faceUvs( b, i ) ?? [] )] )] } : {} ),
   };
 }
 
@@ -78,6 +89,7 @@ export function weld( g: Mesh, d: number ): Mesh {
   const out  = cloneMesh( g );
   out.f      = out.f.map( ( f ) => f.map( ( v ) => into[v] ) );
   out.w      = out.w.map( ( [a, b] ) => [into[a], into[b]] as [number, number] );
+  out.c      = moveCreases( g.c, ( v ) => into[v] );
   // two faces now back to back ( an array's touching ends ) cancel out
   const seen = new Map<string, number>();
   const drop = new Set<number>();
@@ -140,35 +152,44 @@ function bevelSharp( g: Mesh, width: number, segments: number, angle: number ): 
   return bevel( g, sharp, width, segments ).mesh;
 }
 
+// How sharp a crease is for subdivision ( as Blender hands it to OpenSubdiv: a crease of 1 stays sharp, a weaker one
+// softens a level at a time ), and back.
+const sharpness = ( c: number ) => 10 * c * c;
+const creaseOf  = ( s: number ) => Math.sqrt( Math.max( 0, s ) / 10 );
+
 /**
- * One level of Catmull-Clark subdivision ( open borders kept along their curve ).
+ * One level of Catmull-Clark subdivision ( open borders kept along their curve; creased edges kept sharp, or part of
+ * the way: their halves creased a level less ).
 **/
 function catmullClark( g: Mesh ): Mesh {
   const edges     = edgesOf( g );
   const fp        = g.f.map( ( f ) => mul( f.reduce( ( s, v ) => add( s, g.v[v] ), [0, 0, 0] as V3 ), 1 / f.length ) );
   const out: Mesh = { v: [], f: [], m: [], s: [], w: [] };
   const vf        = vertexFaces( g );
+  const sharp     = ( k: string ) => sharpness( g.c?.[k] ?? 0 );
   // edge points
   const ep        = new Map<string, number>();
   const border    = new Set<number>();
   for ( const [k, e] of edges ) {
     const mid = mul( add( g.v[e.a], g.v[e.b] ), 0.5 );
-    const p   = e.faces.length === 2 ? mul( add( add( g.v[e.a], g.v[e.b] ), add( fp[e.faces[0]], fp[e.faces[1]] ) ), 0.25 ) : mid;
+    const s   = Math.min( 1, sharp( k ) );
+    const p   = e.faces.length === 2 ? lerp3( mul( add( add( g.v[e.a], g.v[e.b] ), add( fp[e.faces[0]], fp[e.faces[1]] ) ), 0.25 ), mid, s ) : mid;
     if ( e.faces.length !== 2 ) { border.add( e.a ); border.add( e.b ); }
     ep.set( k, out.v.push( p ) - 1 );
   }
   // moved original vertices
   const vEdges = new Map<number, string[]>();
   for ( const [k, e] of edges ) for ( const v of [e.a, e.b] ) ( vEdges.get( v ) ?? vEdges.set( v, [] ).get( v )! ).push( k );
+  const other  = ( k: string, i: number ) => {
+    const e = edges.get( k )!;
+    return g.v[e.a === i ? e.b : e.a];
+  };
   const vp = g.v.map( ( p, i ) => {
     const es = vEdges.get( i ) ?? [];
     if ( border.has( i ) ) {
       const be = es.filter( ( k ) => edges.get( k )!.faces.length !== 2 );
       if ( be.length !== 2 ) return out.v.push( [...p] as V3 ) - 1;
-      const [a, b] = be.map( ( k ) => {
-        const e = edges.get( k )!;
-        return g.v[e.a === i ? e.b : e.a];
-      } );
+      const [a, b] = be.map( ( k ) => other( k, i ) );
       return out.v.push( add( mul( p, 0.75 ), mul( add( a, b ), 0.125 ) ) ) - 1;
     }
     const n = vf[i].length;
@@ -178,7 +199,13 @@ function catmullClark( g: Mesh ): Mesh {
       const e = edges.get( k )!;
       return add( s, mul( add( g.v[e.a], g.v[e.b] ), 0.5 ) );
     }, [0, 0, 0] as V3 ), 1 / es.length );
-    return out.v.push( mul( add( add( F, mul( R, 2 ) ), mul( p, n - 3 ) ), 1 / n ) ) - 1;
+    const smooth  = mul( add( add( F, mul( R, 2 ) ), mul( p, n - 3 ) ), 1 / n );
+    // two creased edges through it: it slides along them ( a crease ); three or more: it stays put ( a corner )
+    const creased = es.filter( ( k ) => sharp( k ) > 0 );
+    if ( creased.length < 2 ) return out.v.push( smooth ) - 1;
+    const hard = creased.length === 2 ? add( mul( p, 0.75 ), mul( add( other( creased[0], i ), other( creased[1], i ) ), 0.125 ) ) : ( [...p] as V3 );
+    const s    = Math.min( 1, creased.reduce( ( t, k ) => t + sharp( k ), 0 ) / creased.length );
+    return out.v.push( lerp3( smooth, hard, s ) ) - 1;
   } );
   const fc = fp.map( ( p ) => out.v.push( p ) - 1 );
   g.f.forEach( ( f, fi ) => {
@@ -190,6 +217,14 @@ function catmullClark( g: Mesh ): Mesh {
       out.s.push( true );
     }
   } );
+  // a creased edge's two halves, a level softer
+  const c: Record<string, number> = {};
+  for ( const [k, e] of edges ) {
+    const s = sharp( k ) - 1;
+    if ( s <= 0 ) continue;
+    c[ek( vp[e.a], ep.get( k )! )] = c[ek( ep.get( k )!, vp[e.b] )] = creaseOf( s );
+  }
+  if ( Object.keys( c ).length ) out.c = c;
   return out;
 }
 

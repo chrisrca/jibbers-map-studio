@@ -23,6 +23,23 @@ export const liveReader: SampleReader = ( c, _ci, i, j ) => c.heights[j * c.res 
 // Window points i0..i1, j0..j1 ( inclusive ): the part of a window a dab can change.
 export type Box = [number, number, number, number];
 
+// Work done a few rows at a time: a big brush's dab is paused between them ( and carried on next frame ) so the view
+// keeps drawing. Each `…Steps` is its plain namesake, stopping now and then.
+export type Steps<T> = Generator<void, T, void>;
+
+/**
+ * All of the work at once.
+**/
+export function drive<T>( g: Steps<T> ): T {
+  for ( ;; ) {
+    const r = g.next();
+    if ( r.done ) return r.value;
+  }
+}
+
+// ( rows between the pauses )
+export const ROWS = 16;
+
 export class HeightWindow {
   // absolute heights
   readonly H:     Float32Array;
@@ -66,6 +83,26 @@ export class HeightWindow {
     return win;
   }
 
+  /**
+   * around(), stopping now and then.
+  **/
+  static *aroundSteps( t: Terrain, minx: number, minz: number, maxx: number, maxz: number ): Steps<HeightWindow | null> {
+    let fine: TerrainChunk | null = null;
+    for ( const c of t.chunks ) {
+      if ( maxx < c.position[0] || minx > c.position[0] + c.size[0] || maxz < c.position[2] || minz > c.position[2] + c.size[2] ) continue;
+      if ( !fine || c.spacing < fine.spacing ) fine = c;
+    }
+    if ( !fine ) return null;
+    const sp = fine.spacing, ox = fine.position[0], oz = fine.position[2];
+    const i0 = Math.floor( ( minx - ox ) / sp ), i1 = Math.ceil( ( maxx - ox ) / sp );
+    const j0 = Math.floor( ( minz - oz ) / sp ), j1 = Math.ceil( ( maxz - oz ) / sp );
+    const w  = i1 - i0 + 1, h = j1 - j0 + 1;
+    if ( w <= 0 || h <= 0 || w * h > 16e6 ) return null;
+    const win = new HeightWindow( t, ox + i0 * sp, oz + j0 * sp, sp, w, h );
+    yield* win.fillSteps( liveReader );
+    return win;
+  }
+
   wx( i: number ) {
     return this.x0 + i * this.sp;
   }
@@ -77,22 +114,28 @@ export class HeightWindow {
    * Fills H ( and the mask ) from the chunks; grid points off the map take the nearest point on it.
   **/
   fill( read: SampleReader ) {
+    drive( this.fillSteps( read ) );
+  }
+
+  *fillSteps( read: SampleReader ): Steps<void> {
     const { t, w, h, sp, H, valid } = this;
     const eps                       = 1e-6;
     // ( the mask array made only when a chunk under the window has a mask )
     for ( const c of t.chunks ) if ( c.mask && this.mask.length === 0 ) this.mask = new Float32Array( w * h );
     const mask = this.mask;
-    t.chunks.forEach( ( c, ci ) => {
+    for ( let ci = 0; ci < t.chunks.length; ci++ ) {
+      const c   = t.chunks[ci];
       const cx0 = c.position[0], cz0 = c.position[2], cx1 = cx0 + c.size[0], cz1 = cz0 + c.size[2];
       const i0  = Math.max( 0, Math.ceil( ( cx0 - this.x0 ) / sp - eps ) ), i1 = Math.min( w - 1, Math.floor( ( cx1 - this.x0 ) / sp + eps ) );
       const j0  = Math.max( 0, Math.ceil( ( cz0 - this.z0 ) / sp - eps ) ), j1 = Math.min( h - 1, Math.floor( ( cz1 - this.z0 ) / sp + eps ) );
-      if ( i0 > i1 || j0 > j1 ) return;
+      if ( i0 > i1 || j0 > j1 ) continue;
       const base = c.position[1], csp = c.spacing, res = c.res, cm = c.mask;
       // fast path: same lattice as the window ( the usual case ) and reading the live heights
       const fx0  = ( this.x0 + i0 * sp - cx0 ) / csp, fz0 = ( this.z0 + j0 * sp - cz0 ) / csp;
       if ( read === liveReader && Math.abs( csp - sp ) < 1e-9 && Math.abs( fx0 - Math.round( fx0 ) ) < 1e-4 && Math.abs( fz0 - Math.round( fz0 ) ) < 1e-4 ) {
         const ci0 = Math.round( fx0 ), cj0 = Math.round( fz0 ), Hc = c.heights;
         for ( let j = j0; j <= j1; j++ ) {
+          if ( ( j - j0 ) % ROWS === ROWS - 1 ) yield;
           const src = ( cj0 + j - j0 ) * res + ci0, dst = j * w;
           for ( let i = i0; i <= i1; i++ ) {
             const k = dst + i;
@@ -106,9 +149,10 @@ export class HeightWindow {
             }
           }
         }
-        return;
+        continue;
       }
       for ( let j = j0; j <= j1; j++ ) {
+        if ( ( j - j0 ) % ROWS === ROWS - 1 ) yield;
         const fz = ( this.z0 + j * sp - cz0 ) / csp;
         for ( let i = i0; i <= i1; i++ ) {
           const k = j * w + i;
@@ -134,7 +178,7 @@ export class HeightWindow {
           }
         }
       }
-    } );
+    }
     // off the map: copy the nearest valid point along the row, then along the column
     let any = false;
     for ( let k = 0; k < valid.length; k++ ) if ( !valid[k] ) { any = true; break; }
@@ -165,8 +209,12 @@ export class HeightWindow {
    * A window over the same grid, filled with `read` ( e.g. the terrain as it was when the stroke started ).
   **/
   sameGrid( read: SampleReader ): HeightWindow {
+    return drive( this.sameGridSteps( read ) );
+  }
+
+  *sameGridSteps( read: SampleReader ): Steps<HeightWindow> {
     const win = new HeightWindow( this.t, this.x0, this.z0, this.sp, this.w, this.h );
-    win.fill( read );
+    yield* win.fillSteps( read );
     return win;
   }
 
@@ -196,12 +244,17 @@ export class HeightWindow {
    * every chunk rectangle about to change ( the stroke snapshots it for undo ). Returns the touched chunk indices.
   **/
   writeBack( out: Float32Array, before: ( ci: number, i0: number, j0: number, i1: number, j1: number ) => void, box: Box = [0, this.w - 1, 0, this.h - 1], H: Float32Array = this.H ): ChunkRect[] {
+    return drive( this.writeBackSteps( out, before, box, H ) );
+  }
+
+  *writeBackSteps( out: Float32Array, before: ( ci: number, i0: number, j0: number, i1: number, j1: number ) => void, box: Box = [0, this.w - 1, 0, this.h - 1], H: Float32Array = this.H ): Steps<ChunkRect[]> {
     const { t, w, h, sp } = this;
     const D               = new Float32Array( w * h );
     let any               = false;
     let mi0               = w, mi1 = -1, mj0 = h, mj1 = -1;
     // ( only `box` can have changed )
-    for ( let j = box[2]; j <= box[3]; j++ )
+    for ( let j = box[2]; j <= box[3]; j++ ) {
+      if ( ( j - box[2] ) % ROWS === ROWS - 1 ) yield;
       for ( let i = box[0]; i <= box[1]; i++ ) {
         const k = j * w + i;
         const d = out[k] - H[k];
@@ -214,18 +267,20 @@ export class HeightWindow {
           if ( j > mj1 ) mj1 = j;
         }
       }
+    }
     if ( !any ) return [];
     // only the part of the window that changed ( plus one point for interpolation )
     const ax                   = this.x0 + Math.max( 0, mi0 - 1 ) * sp, bx = this.x0 + Math.min( w - 1, mi1 + 1 ) * sp;
     const az                   = this.z0 + Math.max( 0, mj0 - 1 ) * sp, bz = this.z0 + Math.min( h - 1, mj1 + 1 ) * sp;
     const touched: ChunkRect[] = [];
-    t.chunks.forEach( ( c, ci ) => {
+    for ( let ci = 0; ci < t.chunks.length; ci++ ) {
+      const c   = t.chunks[ci];
       const cx0 = c.position[0], cz0 = c.position[2];
-      if ( bx < cx0 || ax > cx0 + c.size[0] || bz < cz0 || az > cz0 + c.size[2] ) return;
+      if ( bx < cx0 || ax > cx0 + c.size[0] || bz < cz0 || az > cz0 + c.size[2] ) continue;
       const csp = c.spacing, res = c.res;
       const i0  = Math.max( 0, Math.ceil( ( ax - cx0 ) / csp - 1e-6 ) ), i1 = Math.min( res - 1, Math.floor( ( bx - cx0 ) / csp + 1e-6 ) );
       const j0  = Math.max( 0, Math.ceil( ( az - cz0 ) / csp - 1e-6 ) ), j1 = Math.min( res - 1, Math.floor( ( bz - cz0 ) / csp + 1e-6 ) );
-      if ( i0 > i1 || j0 > j1 ) return;
+      if ( i0 > i1 || j0 > j1 ) continue;
       before( ci, i0, j0, i1, j1 );
       const Hc    = c.heights, top = c.size[1];
       let changed = false;
@@ -234,6 +289,7 @@ export class HeightWindow {
         // same lattice: chunk sample ( i, j ) is window point ( wi0 + i - i0, wj0 + j - j0 )
         const wi0 = Math.round( fx0 ), wj0 = Math.round( fz0 );
         for ( let j = j0; j <= j1; j++ ) {
+          if ( ( j - j0 ) % ROWS === ROWS - 1 ) yield;
           const row = ( wj0 + j - j0 ) * w + wi0 - i0, crow = j * res;
           for ( let i = i0; i <= i1; i++ ) {
             const d = D[row + i];
@@ -247,9 +303,10 @@ export class HeightWindow {
           t.markDirtyRect( ci, i0, j0, i1, j1 );
           touched.push( { ci, i0, j0, i1, j1 } );
         }
-        return;
+        continue;
       }
       for ( let j = j0; j <= j1; j++ ) {
+        if ( ( j - j0 ) % ROWS === ROWS - 1 ) yield;
         const fz = ( cz0 + j * csp - this.z0 ) / sp;
         for ( let i = i0; i <= i1; i++ ) {
           const fx = ( cx0 + i * csp - this.x0 ) / sp;
@@ -266,7 +323,7 @@ export class HeightWindow {
         t.markDirtyRect( ci, i0, j0, i1, j1 );
         touched.push( { ci, i0, j0, i1, j1 } );
       }
-    } );
+    }
     return touched;
   }
 }
@@ -352,9 +409,14 @@ export class Lattice {
    * 0 elsewhere.
   **/
   make( at: ( i: number, j: number, K: number ) => number, box?: Box ): Float32Array {
+    return drive( this.makeSteps( at, box ) );
+  }
+
+  *makeSteps( at: ( i: number, j: number, K: number ) => number, box?: Box ): Steps<Float32Array> {
     const out              = new Float32Array( this.cw * this.ch );
     const [I0, I1, J0, J1] = this.range( box );
     for ( let J = J0; J <= J1; J++ ) {
+      if ( ( J - J0 ) % ROWS === ROWS - 1 ) yield;
       const j = this.fj( J );
       for ( let I = I0; I <= I1; I++ ) out[J * this.cw + I] = at( this.fi( I ), j, J * this.cw + I );
     }
@@ -366,11 +428,18 @@ export class Lattice {
    * f = 1 ).
   **/
   down( F: Float32Array, box?: Box ): Float32Array {
+    return drive( this.downSteps( F, box ) );
+  }
+
+  *downSteps( F: Float32Array, box?: Box ): Steps<Float32Array> {
     const { f, win } = this;
     if ( f === 1 ) return F;
     const out              = new Float32Array( this.cw * this.ch ), half = Math.floor( f / 2 );
     const [I0, I1, J0, J1] = this.range( box );
+    // ( a coarse row is f window rows )
+    const every            = Math.max( 1, Math.round( ROWS / f ) );
     for ( let J = J0; J <= J1; J++ ) {
+      if ( ( J - J0 ) % every === every - 1 ) yield;
       const jc = this.fj( J ), j0 = Math.max( 0, jc - half ), j1 = Math.min( win.h - 1, jc + f - 1 - half );
       for ( let I = I0; I <= I1; I++ ) {
         const ic = this.fi( I ), i0 = Math.max( 0, ic - half ), i1 = Math.min( win.w - 1, ic + f - 1 - half );
@@ -387,6 +456,10 @@ export class Lattice {
    * `box` only ( 0 elsewhere ).
   **/
   up( C: Float32Array, box: Box = [0, this.win.w - 1, 0, this.win.h - 1] ): Float32Array {
+    return drive( this.upSteps( C, box ) );
+  }
+
+  *upSteps( C: Float32Array, box: Box = [0, this.win.w - 1, 0, this.win.h - 1] ): Steps<Float32Array> {
     const { f, win, cw, ch } = this;
     if ( f === 1 ) return C;
     const { w } = win, out = new Float32Array( w * win.h );
@@ -397,6 +470,7 @@ export class Lattice {
       ct[i]   = cw < 2 ? 0 : Math.min( 1, Math.max( 0, ( i - this.fi( I ) ) / Math.max( 1, this.fi( I + 1 ) - this.fi( I ) ) ) );
     }
     for ( let j = box[2]; j <= box[3]; j++ ) {
+      if ( ( j - box[2] ) % ROWS === ROWS - 1 ) yield;
       const v  = ( j - this.oj ) / f, J = Math.min( Math.max( 0, ch - 2 ), Math.max( 0, Math.floor( v ) ) );
       const tj = ch < 2 ? 0 : Math.min( 1, Math.max( 0, ( j - this.fj( J ) ) / Math.max( 1, this.fj( J + 1 ) - this.fj( J ) ) ) );
       const r0 = J * cw, r1 = ch < 2 ? r0 : r0 + cw, row = j * w;

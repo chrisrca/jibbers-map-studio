@@ -26,7 +26,7 @@ export function AskDialog() {
           </label>
         ) }
         <div className="actions">
-          <button className="btn" onClick={() => answer( null )}>Cancel</button>
+          {!q.noCancel && <button className="btn" onClick={() => answer( null )}>Cancel</button>}
           { q.answers.map( ( a ) => (
             <button key={a.id} className={`btn${a.primary ? " primary" : ""}`} disabled={a.usesText && !text.trim()} onClick={() => pick( a.id )}>
               {a.label}

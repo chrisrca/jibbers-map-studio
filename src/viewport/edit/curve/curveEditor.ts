@@ -160,9 +160,11 @@ export class CurveEditor {
     this.dots.count = pts.length;
   }
 
-  setCurve( curve: CurveData, label: string | null, o0?: CustomObjectEntry ) {
+  setCurve( edited: CurveData, label: string | null, o0?: CustomObjectEntry ) {
     const st = useEditor.getState(), o = this.obj();
     if ( !o ) return;
+    // ( its points moved by hand: an arch's shape no longer says where they are )
+    const { arch: _, ...curve } = edited;
     if ( label ) {
       if ( o0 ) useEditor.setState( { customObjects: st.customObjects.map( ( x ) => ( x.uid === o.uid ? o0 : x ) ) } );
       st.updateCustom( label, [o.uid], ( x ) => withModel( x, { ...x.model!, curve } ) );

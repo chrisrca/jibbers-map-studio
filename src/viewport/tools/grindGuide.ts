@@ -56,6 +56,8 @@ export interface Shell {
   q:      THREE.Quaternion;
   radius: number;
   length: number;
+  // a box rail's: its half sizes ( its own frame ), drawn as a box
+  box?:   THREE.Vector3;
 }
 
 // Unity's local axes in three's local coordinates ( three mirrors Z )
@@ -165,12 +167,13 @@ function colliderBox( c: CustomObjectEntry["colliders"][number] ) {
 }
 
 /**
- * Rail capsules ( world colliders ) as shapes to draw.
+ * Rail capsules and boxes ( world colliders ) as shapes to draw.
 **/
 export function railShells( colliders: CustomObjectEntry["colliders"] ): Shell[] {
-  return colliders.filter( ( c ) => isRailCollider( c ) && c.shape === "Capsule" ).map( ( c ) => {
+  return colliders.filter( ( c ) => isRailCollider( c ) && ( c.shape === "Capsule" || c.shape === "Box" ) ).map( ( c ) => {
     const q                = unityEulerToQuat( arr3( c.local_rotation ) );
     const { centre, half } = colliderBox( c );
+    if ( c.shape === "Box" ) return { centre: centre.applyQuaternion( q ).add( toThree( arr3( c.local_position ) ) ), q, radius: 0, length: 0, box: half };
     const axis             = c.direction ?? 1;
     const radius           = Math.max( ...[0, 1, 2].filter( ( k ) => k !== axis ).map( ( k ) => half.getComponent( k ) ) );
     // turned so its length runs along Y, as a capsule is drawn
@@ -192,7 +195,7 @@ export function railShells( colliders: CustomObjectEntry["colliders"] ): Shell[]
 export function shellObject( shells: Shell[], mat: THREE.Material ): THREE.Group {
   const group = new THREE.Group();
   for ( const s of shells ) {
-    const m = new THREE.Mesh( new THREE.CapsuleGeometry( s.radius, s.length, 6, 16 ), mat );
+    const m = new THREE.Mesh( s.box ? new THREE.BoxGeometry( s.box.x * 2, s.box.y * 2, s.box.z * 2 ) : new THREE.CapsuleGeometry( s.radius, s.length, 6, 16 ), mat );
     m.position.copy( s.centre );
     m.quaternion.copy( s.q );
     m.renderOrder = 999;
@@ -250,8 +253,8 @@ export function grindGuide( o: CustomObjectEntry, pts: Float32Array ): GrindGuid
         lines.push( [end( -1 ), end( 1 )] );
         ups.push( up );
         size              = Math.max( size, ha * 2, hs * 2 );
-        // a capsule lying the way the setting says runs along itself, however short and thick it is
-        const alongItself = c.shape === "Capsule" && c.direction === AXIS_INDEX[per.along];
+        // a capsule ( or a rail's box ) lying the way the setting says runs along itself, however short and thick it is
+        const alongItself = ( c.shape === "Capsule" || isRailCollider( c ) ) && c.direction === AXIS_INDEX[per.along];
         judge( f, alongItself ? Infinity : ha * 2, hs * 2 );
       }
     }

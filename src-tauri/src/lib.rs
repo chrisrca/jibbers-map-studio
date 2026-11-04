@@ -78,6 +78,8 @@ pub fn run() {
             commands::game::game_focus,
             commands::game::game_release,
             commands::game::game_pop_out,
+            commands::game::game_pad,
+            commands::game::game_probe,
             commands::game::list_game_maps,
             commands::app::frontend_log,
             commands::app::selftest_dir,

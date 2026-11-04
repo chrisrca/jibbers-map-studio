@@ -54,6 +54,43 @@ describe( "building a modelled piece", () => {
     expect( Math.max( ...sub.v.map( ( p ) => Math.hypot( ...p ) ) ) ).toBeLessThan( Math.sqrt( 3 ) * 0.9 );
   } );
 
+  it( "subdivision keeps creased edges sharp ( Shift+E ), part of the way for a weak crease", () => {
+    const corner = ( c: number ) => {
+      const g = primitive( "cube" );
+      g.c     = Object.fromEntries( [...edgesOf( g ).keys()].map( ( k ) => [k, c] ) );
+      const s = evaluate( { ...newModel( g ), modifiers: [mod( "subsurf", { levels: 2 } as Partial<Modifier> )] } );
+      return Math.max( ...s.v.map( ( p ) => Math.hypot( ...p ) ) );
+    };
+    // fully creased: still a box, its corners where they were
+    expect( corner( 1 ) ).toBeCloseTo( Math.sqrt( 3 ), 6 );
+    // weakly creased ( sharp for less than a level ): rounder than that, squarer than none
+    expect( corner( 0.2 ) ).toBeLessThan( Math.sqrt( 3 ) - 1e-3 );
+    expect( corner( 0.2 ) ).toBeGreaterThan( corner( 0 ) + 1e-3 );
+    // one ring of edges creased ( the top's ): the top stays flat ( its outline a curve through the ring ), the
+    // bottom rounds off
+    const g   = primitive( "cube" );
+    const top = g.f.findIndex( ( _, i ) => faceNormal( g, i )[1] > 0.99 );
+    g.c       = Object.fromEntries( g.f[top].map( ( v, i ) => [[v, g.f[top][( i + 1 ) % 4]].sort( ( a, b ) => a - b ).join( "_" ), 1] ) );
+    const s   = evaluate( { ...newModel( g ), modifiers: [mod( "subsurf", { levels: 3 } as Partial<Modifier> )] } );
+    const up  = s.v.filter( ( p ) => p[1] > 0.999 );
+    expect( up.length                               ).toBe( 81 );
+    expect( Math.max( ...s.v.map( ( p ) => p[1] ) ) ).toBeCloseTo( 1, 9 );
+    expect( Math.min( ...s.v.map( ( p ) => p[1] ) ) ).toBeGreaterThan( -0.99 );
+  } );
+
+  it( "carries creases through Mirror, and through deleting parts of the mesh", () => {
+    const half = primitive( "cube" );
+    half.v     = half.v.map( ( [x, y, z] ) => [x > 0 ? 1 : 0, y, z] );
+    // the outer side's edges creased
+    const side = half.f.findIndex( ( f ) => f.every( ( v ) => half.v[v][0] > 0.5 ) );
+    half.c     = Object.fromEntries( half.f[side].map( ( v, i ) => [[v, half.f[side][( i + 1 ) % 4]].sort( ( a, b ) => a - b ).join( "_" ), 1] ) );
+    const m    = evaluate( { ...newModel( half ), modifiers: [mod( "mirror" )] } );
+    // both outer sides' edges, on either side of the mirror
+    expect( Object.keys( m.c ?? {} ).length ).toBe( 8 );
+    const xs = Object.keys( m.c! ).flatMap( ( k ) => k.split( "_" ).map( ( v ) => m.v[+v][0] ) );
+    expect( xs.every( ( x ) => Math.abs( Math.abs( x ) - 1 ) < 1e-9 ) ).toBe( true );
+  } );
+
   it( "colliders: a box is one box, a cylinder one convex mesh, an L a box under each flat face", () => {
     const box = modelColliders( newModel( primitive( "cube" ) ) );
     expect( box.length  ).toBe( 1     );

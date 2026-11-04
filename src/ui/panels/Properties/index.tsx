@@ -41,12 +41,14 @@ export function PropertiesEditor() {
   if ( workspaceOf( tool ) === "assets" ) return <AssetsPropertiesEditor />;
   // ( on the stage the map's settings don't come into it; Modeling has no brush )
   const onStage         = tool === "model" || tool === "material";
+  // ( the Object tab only with something to show in it: something selected, or the Trails tool's settings )
+  const item            = selection.length > 0 || tool === "trail" || onStage;
   const tabs: PropTab[] = [
     ...( tool === "sculpt" || tool === "paint" ? [{ id: "brush" as const, bl: "tool_settings", title: "Tool", label: "Tool" }] : [] ),
-    { id: "item", bl: "object_data", title: "Object", label: "Object" },
+    ...( item ? [{ id: "item" as const, bl: "object_data", title: "Object", label: "Object" }] : [] ),
     ...( onStage ? [] : [{ id: "map" as const, bl: "world", title: "Map", label: "Map" }] ),
   ];
-  const shown = tabs.some( ( t ) => t.id === tab ) ? tab : "item";
+  const shown = tabs.some( ( t ) => t.id === tab ) ? tab : ( tabs.find( ( t ) => t.id !== "brush" ) ?? tabs[0] ).id;
   return (
     <>
       <div className="area-header props-hdr">

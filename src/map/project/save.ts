@@ -8,6 +8,7 @@ import { terrain } from "../../terrain/terrain";
 import { savePieceTextures } from "../../texture/meshPaint";
 import { saveTrailFiles, trailEditorData } from "../../trails/edits";
 import { flushTrails } from "../../trails/ground";
+import { history } from "../history";
 import { useEditor } from "../store";
 import { chunkVersion, meta, savedArray, savedVersion } from "./state";
 
@@ -42,6 +43,7 @@ export function currentProject(): Project | null {
       membership:  Object.fromEntries( Object.entries( s.membership ).filter( ( [uid] ) => alive.has( uid ) ) ),
       labels:      Object.fromEntries( Object.entries( s.labels ).filter( ( [uid] ) => alive.has( uid ) ) ),
       locked:      Object.keys( s.locked ).filter( ( uid ) => alive.has( uid ) ),
+      hidden:      Object.keys( s.hiddenInView ).filter( ( uid ) => alive.has( uid ) ),
       customUids:  s.customObjects.map( ( o ) => o.uid ),
       exported:    meta.exported,
       sourceMapId: meta.sourceMapId,
@@ -64,8 +66,10 @@ export async function saveProject(): Promise<void> {
     if ( !dir || !currentProject() ) return;
     useEditor.setState( { saveState: "saving" } );
     try {
-      // the trails' ground finished ( the far part of the last change may still be under way )
+      // the trails' ground finished ( the far part of the last change may still be under way ), and the sculpt strokes
+      // still being laid down
       flushTrails();
+      history.settle();
       // painted snow masks first: saving them points the chunks at their files
       await savePaint( dir );
       await savePieceTextures( dir, new Set( mapState().customObjects.map( ( o ) => o.uid ) ) );

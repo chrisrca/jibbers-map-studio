@@ -39,6 +39,8 @@ export interface EditorData {
   labels?:      Record<string, string>;
   // uids locked in the Outliner ( missing: the surroundings are )
   locked?:      string[];
+  // uids hidden in the 3D view
+  hidden?:      string[];
   customUids?:  string[];
   // the map in the game this project last wrote ( to tell it from one it didn't: exportToGame )
   exported?:    Exported;

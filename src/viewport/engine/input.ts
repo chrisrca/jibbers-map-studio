@@ -2,13 +2,18 @@
 
 import * as THREE from "three/webgpu";
 import { toThree, toUnity } from "../../core/coords";
+import { history } from "../../map/history";
 import { useEditor } from "../../map/store";
 import { ensureLayer, PaintStroke } from "../../paint/ground";
 import { BrushStroke } from "../../sculpt/stroke/stroke";
+import { settleShapes } from "../../terrain/shapes/shapes";
 import { terrain } from "../../terrain/terrain";
 import { brushLook, snowLook } from "../render/terrainRenderer";
 import { ScatterStroke, scatterTemplates } from "../tools/scatter";
 import type { Engine } from "./engine";
+
+// how long a frame may spend laying down sculpt dabs ( ms; at 240 Hz a frame is 4.2, drawing it about 1.5 )
+const SCULPT_SHARE = 1.5;
 
 export class ViewportInput {
   constructor( private engine: Engine ) {}
@@ -18,6 +23,8 @@ export class ViewportInput {
   private rampLine = new THREE.Line( new THREE.BufferGeometry().setFromPoints( [new THREE.Vector3(), new THREE.Vector3()] ), new THREE.LineBasicNodeMaterial( { color: 0xffb000, depthTest: false } ) );
   stroke:      BrushStroke | null = null;
   paintStroke: PaintStroke | null = null;
+  // sculpt strokes let go but still being laid down ( a frame's share at a time ), oldest first
+  private laying: BrushStroke[] = [];
   // where the last ground paint stroke ended ( Shift+click paints a straight line from there )
   private lastPaintAt: [number, number] | null = null;
   // the pen's pressure on the stroke under way ( 1 for a mouse )
@@ -32,6 +39,39 @@ export class ViewportInput {
   scatterStroke: ScatterStroke | "starting" | null = null;
 
   /**
+   * A sculpt stroke under way, or let go and still being laid down.
+  **/
+  get sculpting() {
+    return !!this.stroke || this.laying.length > 0;
+  }
+
+  /**
+   * This frame's share of the sculpt strokes' waiting dabs ( before the ground goes to the graphics card and is drawn ):
+   * the strokes let go first, then the one under way. A stroke let go and done is recorded.
+  **/
+  workStrokes() {
+    const t0   = performance.now();
+    const left = () => SCULPT_SHARE - ( performance.now() - t0 );
+    while ( this.laying.length ) {
+      const s = this.laying[0];
+      if ( s.work( Math.max( 0, left() ) ) ) return;
+      this.laying.shift();
+      if ( s.end() ) useEditor.getState().markDirty();
+    }
+    if ( this.stroke && left() > 0 ) this.stroke.work( left() );
+  }
+
+  /**
+   * The sculpt strokes let go, laid down at once and recorded ( before an undo or a new stroke: the steps in order ).
+  **/
+  settleStrokes() {
+    for ( const s of this.laying.splice( 0 ) ) {
+      s.work( Infinity );
+      if ( s.end() ) useEditor.getState().markDirty();
+    }
+  }
+
+  /**
    * Its listeners on the view ( and the window: a drag let go outside the view ), and the Ramp brush's line.
   **/
   attach() {
@@ -40,6 +80,11 @@ export class ViewportInput {
     this.rampLine.frustumCulled = false;
     this.rampLine.visible       = false;
     this.engine.scene.add( this.rampLine );
+    history.settle              = () => {
+      this.settleStrokes();
+      this.engine.meshPainter.settle();
+      settleShapes();
+    };
     dom.addEventListener( "pointerdown",  this.onDown                              );
     dom.addEventListener( "pointermove",  this.onMove                              );
     dom.addEventListener( "pointerenter", () => ( this.engine.mouseInside = true ) );
@@ -55,6 +100,8 @@ export class ViewportInput {
   }
 
   detach() {
+    this.settleStrokes();
+    history.settle = () => {};
     window.removeEventListener( "pointerup", this.onUp       );
     window.removeEventListener( "keydown",   this.mods, true );
     window.removeEventListener( "keyup",     this.mods, true );
@@ -111,7 +158,7 @@ export class ViewportInput {
     // ( Blender's gizmo, in the Assets workspace )
     // ( the Trails tool: a press on a point moves the point along the snow, the gizmo on it being for its arrows )
     // ( a lift's handles too: its stations and masts, over the gizmo on its base; the pieces themselves after it )
-    if ( e.button === 0 && !( useEditor.getState().tool === "trail" && this.engine.trailTool.hints.markUnder( p.x, p.y ) ) && !this.engine.liftTool.markUnder( p.x, p.y, e.ctrlKey ) && this.engine.blGizmo.down( p.x, p.y ) ) {
+    if ( e.button === 0 && !( useEditor.getState().tool === "trail" && this.engine.trailTool.hints.markUnder( p.x, p.y ) ) && !this.engine.liftTool.markUnder( p.x, p.y, e.ctrlKey ) && !this.engine.fenceTool.markUnder( p.x, p.y, e.ctrlKey ) && !this.engine.shapeTool?.markUnder( p.x, p.y ) && this.engine.blGizmo.down( p.x, p.y ) ) {
       this.engine.renderer.domElement.setPointerCapture( e.pointerId );
       return;
     }
@@ -158,8 +205,13 @@ export class ViewportInput {
       this.engine.renderer.domElement.setPointerCapture( e.pointerId );
       return;
     }
+    // a picked fence's points, dragged over the ground; a point put down while drawing it, or with Ctrl
+    if ( st.tool === "select" && !this.engine.controls.flying && this.engine.fenceTool.down( p.x, p.y, e ) ) {
+      this.engine.renderer.domElement.setPointerCapture( e.pointerId );
+      return;
+    }
     // shape handles ( when a shape is selected ) and the Shapes tool
-    if ( st.tool !== "sculpt" && this.engine.shapeTool?.down( p.x, p.y ) ) {
+    if ( st.tool !== "sculpt" && this.engine.shapeTool?.down( p.x, p.y, e ) ) {
       this.engine.renderer.domElement.setPointerCapture( e.pointerId );
       return;
     }
@@ -192,8 +244,9 @@ export class ViewportInput {
           return st.setSelection( [sel] );
         }
         if ( !sel ) return st.setSelection( e.shiftKey ? st.selection : [] );
-        // ( a lift: the gizmo starts on the piece clicked )
+        // ( a lift: the gizmo starts on the piece clicked; a repeat: on its point nearest the click )
         if ( sel.kind === "object" && !e.shiftKey ) this.engine.liftTool.pickAt( sel.uid, p.x, p.y );
+        if ( sel.kind === "custom" && !e.shiftKey ) this.engine.fenceTool.pickAt( sel.uid, p.x, p.y );
         if ( e.shiftKey ) {
           const has = st.selection.some( ( s ) => s.uid === sel.uid );
           st.setSelection( has ? st.selection.filter( ( s ) => s.uid !== sel.uid ) : [...st.selection, sel] );
@@ -223,7 +276,10 @@ export class ViewportInput {
           return;
         }
         this.strokePressure = this.pressureOf( e );
+        // ( the last stroke finished first: this one starts from the ground it left )
+        this.settleStrokes();
         this.stroke         = new BrushStroke( terrain, sc, [u[0], u[2]], { invert: e.ctrlKey, smooth: e.shiftKey } );
+        this.stroke.paced   = true;
         this.stroke.move( { x: u[0], z: u[2], pressure: this.strokePressure } );
         this.engine.renderer.domElement.setPointerCapture( e.pointerId );
         return;
@@ -300,10 +356,15 @@ export class ViewportInput {
       this.engine.liftTool.move( p.x, p.y );
       return;
     }
+    if ( this.engine.fenceTool?.dragging ) {
+      this.engine.fenceTool.move( p.x, p.y );
+      return;
+    }
     if ( !e.buttons ) this.engine.trailTool?.hints.hover( p.x, p.y, e.ctrlKey );
     const st                = useEditor.getState();
     const hit               = this.engine.pickTerrain( p.x, p.y );
     this.engine.cursorWorld = hit;
+    if ( !e.buttons ) this.engine.shapeTool?.hover( hit );
     if ( this.scatterStroke instanceof ScatterStroke && hit ) {
       const u = toUnity( hit );
       this.scatterStroke.dab( u[0], u[2] );
@@ -371,11 +432,12 @@ export class ViewportInput {
     const painting          = st.tool === "paint", scattering = st.tool === "scatter";
     const show              = ( st.tool === "sculpt" || painting || scattering ) && ( !!this.stroke || !!this.paintStroke || ( this.engine.mouseInside && !!this.engine.cursorWorld ) ) && !this.engine.controls.riderMode && !this.engine.controls.flying;
     snowLook.showFlow.value = painting && st.paint.tool === "flow" ? 1 : 0;
-    // ( every chunk's paint loaded on entering Paint Mode, not under the first dab: a 4096² mask held a stroke 0.4 s )
+    // ( every chunk's paint loaded on entering Paint Mode, not under the first dab: a 4096² mask held a stroke 0.4 s;
+    // and its texture made, filled over a few frames, ready for that dab )
     const paintKey          = painting ? `${st.projectDir}|${terrain.chunks.map( ( c ) => c.key ).join( "," )}` : "";
     if ( paintKey && paintKey !== this.paintLoaded ) {
       this.paintLoaded = paintKey;
-      void Promise.all( terrain.chunks.map( ( c ) => ensureLayer( c ) ) );
+      for ( const c of terrain.chunks ) void ensureLayer( c ).then( () => this.engine.terrainR.paintChanged( c.key ) );
     }
     const grip = painting && st.paint.tool === "grip" ? 1 : 0;
     if ( grip !== snowLook.showGrip.value ) {
@@ -469,7 +531,7 @@ export class ViewportInput {
         }
         return false;
       };
-      const hit = st.customObjects.filter( ( o ) => !st.locked[o.uid] && inBox( o.uid ) ).map( ( o ) => ( { kind: "custom" as const, uid: o.uid } ) );
+      const hit = st.customObjects.filter( ( o ) => !st.locked[o.uid] && !st.hiddenInView[o.uid] && inBox( o.uid ) ).map( ( o ) => ( { kind: "custom" as const, uid: o.uid } ) );
       const ids = new Set( hit.map( ( h ) => h.uid ) );
       st.setSelection( b.subtract ? st.selection.filter( ( s ) => !ids.has( s.uid ) ) : b.extend ? [...st.selection.filter( ( s ) => !ids.has( s.uid ) ), ...hit] : hit );
       return;
@@ -493,6 +555,7 @@ export class ViewportInput {
     if ( e.button === 0 && this.engine.shapeTool?.dragging ) return this.engine.shapeTool.up();
     if ( e.button === 0 && this.engine.trailTool?.mouse.dragging ) return this.engine.trailTool.mouse.up();
     if ( e.button === 0 && this.engine.liftTool?.dragging ) return this.engine.liftTool.up();
+    if ( e.button === 0 && this.engine.fenceTool?.dragging ) return this.engine.fenceTool.up();
     if ( e.button === 0 && this.scatterStroke ) {
       const s            = this.scatterStroke;
       this.scatterStroke = null;
@@ -506,7 +569,8 @@ export class ViewportInput {
       return;
     }
     if ( e.button !== 0 || !this.stroke ) return;
-    if ( this.stroke.end() ) useEditor.getState().markDirty();
+    // ( its last dabs laid down over the next frames, then it's recorded )
+    this.laying.push( this.stroke );
     this.stroke           = null;
     this.rampLine.visible = false;
   };

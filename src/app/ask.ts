@@ -12,10 +12,12 @@ export interface Answer {
 }
 
 export interface Question {
-  title:   string;
-  answers: Answer[];
+  title:     string;
+  answers:   Answer[];
   // a text field above the answers, starting with this
-  text?:   { label: string; value: string };
+  text?:     { label: string; value: string };
+  // no Cancel of its own ( one of the answers says the same )
+  noCancel?: boolean;
 }
 
 interface AskState {

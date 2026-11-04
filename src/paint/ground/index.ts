@@ -22,7 +22,7 @@ export { DEFAULT_PAINT, MARKING_COLOURS, type PaintSettings, type PaintTool } fr
 export { type PaintLayer, onPaintChange, defaultMaskSize, layerOf, upsampleMask, ensureLayer, resetPaint, gripBlocked } from "./layers";
 export { PaintStroke } from "./stroke";
 export { spreadHue, encodeAngle, decodeAngle } from "./channels";
-export { layerEdit, rockOnSteep, allSnow, clearMarkings, clearPowder, clearGrip } from "./fills";
+export { layerEdit, rockOnSteep, snowfall, type Snowfall, paintRunStripes, allPowder, flowDownhill, flowAlongTrails, allSnow, clearMarkings, clearPowder, clearGrip } from "./fills";
 
 /**
  * Writes every changed layer's PNGs and points the chunks at them ( part of saving the project ).

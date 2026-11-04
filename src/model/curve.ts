@@ -36,12 +36,70 @@ export interface CurveData {
   resolution: number;
   // close the open ends
   caps:       boolean;
+  // an arch's shape: its points worked out from it ( until they're moved by hand )
+  arch?:      ArchShape;
+}
+
+// An arch ( Map-Tools' Arch Builder ): `span` metres end to end along X, `height` up, the curve's `exponent` ( 1 an
+// ellipse, less a flatter, rounder top, more a pointier one ), `twist` metres from one end to the other across it ( Z ),
+// and how many points make it.
+export interface ArchShape {
+  span:     number;
+  height:   number;
+  exponent: number;
+  twist:    number;
+  points:   number;
+}
+
+export const DEFAULT_ARCH: ArchShape = { span: 6, height: 2.5, exponent: 1, twist: 0, points: 9 };
+
+/**
+ * An arch's points, end to end ( a superellipse's top half ).
+**/
+export function archPoints( a: ArchShape ): V3[] {
+  const n = Math.max( 3, Math.round( a.points ) ), e = Math.max( 0.1, a.exponent );
+  return Array.from( { length: n }, ( _, k ): V3 => {
+    const t = ( Math.PI * k ) / ( n - 1 ), c = Math.cos( t ), s = Math.sin( t );
+    return [-( a.span / 2 ) * Math.sign( c ) * Math.abs( c ) ** e, a.height * Math.abs( s ) ** e, a.twist * ( k / ( n - 1 ) - 0.5 )];
+  } );
 }
 
 export const newCurve = ( points: V3[] ): CurveData => ( {
   splines: [{ points: points.map( ( p ) => ( { p, r: 1, sharp: false } ) ), closed: false }],
   profile: "round", radius: 0.025, thickness: 0.006, sides: 16, resolution: 12, caps: true,
 } );
+
+// A curve piece the Add menus make ( Blender's Add › Curve, as the game's jibs ).
+export interface CurvePreset {
+  label:  string;
+  points: V3[];
+  look?:  Partial<CurveData>;
+  // the points that are sharp ( a kink )
+  sharp?: number[];
+  // grinds ( a leg doesn't )
+  jib:    boolean;
+  // made from an arch's shape ( `points` then unused )
+  arch?:  ArchShape;
+}
+
+export const CURVE_PRESETS: CurvePreset[] = [
+  { label: "Rail",        points: [[-2,   0,   0 ], [2,  0,   0  ]],              jib: true                                                   },
+  { label: "Kinked Rail", points: [[-3,   0.6, 0 ], [-1, 0.6, 0  ], [3, -0.6, 0]], jib: true,  sharp: [1]                                      },
+  { label: "Curved Rail", points: [[-2.5, 0,   -1], [0,  0,   0.6], [2.5, 0, -1]], jib: true                                                   },
+  { label: "Box Rail",    points: [[-2,   0,   0 ], [2,  0,   0  ]],              jib: true,  look: { profile: "square", radius: 0.08 }       },
+  { label: "Flat Bar",    points: [[-2,   0,   0 ], [2,  0,   0  ]],              jib: true,  look: { profile: "flat", radius: 0.04, thickness: 0.004 } },
+  { label: "Arch",        points: [],                                             jib: true,  arch: DEFAULT_ARCH                              },
+  { label: "Pipe Leg",    points: [[0,    0,   0 ], [0,  0.6, 0  ]],              jib: false, look: { radius: 0.03 }                          },
+];
+
+/**
+ * A preset's curve.
+**/
+export function presetCurve( p: CurvePreset ): CurveData {
+  const c = { ...newCurve( p.arch ? archPoints( p.arch ) : p.points ), ...p.look, ...( p.arch ? { arch: { ...p.arch } } : {} ) };
+  for ( const i of p.sharp ?? [] ) c.splines[0].points[i].sharp = true;
+  return c;
+}
 
 /**
  * Where a spline goes: points along it ( and the size there ), a corner kept at every sharp point.

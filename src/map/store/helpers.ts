@@ -17,6 +17,14 @@ export const workspaceOf = ( t: ToolId ) => ( t === "sculpt" || t === "shape" ||
 export const unlocked = ( s: Pick<EditorState, "locked">, sel: Selection[] ) => sel.filter( ( x ) => !s.locked[x.uid] );
 
 /**
+ * What Blender's H hides: the selection ( `others`: everything else, Shift+H ).
+**/
+export function toHide( s: Pick<EditorState, "objects" | "spawns" | "customObjects" | "selection">, others = false ) {
+  const picked = new Set( s.selection.map( ( x ) => x.uid ) );
+  return others ? [...s.objects, ...s.spawns, ...s.customObjects].map( ( o ) => o.uid ).filter( ( u ) => !picked.has( u ) ) : [...picked];
+}
+
+/**
  * The membership with `uids` put into the active collection ( if one is ).
 **/
 export function intoActive( s: EditorState, uids: string[] ) {

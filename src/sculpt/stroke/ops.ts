@@ -3,7 +3,7 @@
 
 import { fbm } from "../../terrain/generate";
 import { type Tip } from "../tip";
-import { gaussianish, HeightWindow, Lattice, type Box } from "../window";
+import { gaussianish, HeightWindow, Lattice, ROWS, type Box, type Steps } from "../window";
 import type { BrushStroke } from "./stroke";
 import { SMOOTH_DEFAULT_SPACING, BLOCK, Dab } from "./stroke";
 
@@ -21,30 +21,33 @@ export class StrokeOps {
    * A field of the lattice's at every sample, held back where the mask protects the ground ( the mask is painted at
    * every sample; with f = 1 the weights have it already ).
   **/
-  fine( g: Lattice, C: Float32Array, box: Box ): Float32Array {
+  *fine( g: Lattice, C: Float32Array, box: Box ): Steps<Float32Array> {
     if ( g.f === 1 ) return C;
-    const F = g.up( C, box ), win = g.win;
+    const F = yield* g.upSteps( C, box ), win = g.win;
     if ( win.hasMask )
-      for ( let j = box[2]; j <= box[3]; j++ ) for ( let k = j * win.w + box[0], e = j * win.w + box[1]; k <= e; k++ ) if ( F[k] ) F[k] *= 1 - win.mask[k];
+      for ( let j = box[2]; j <= box[3]; j++ ) {
+        if ( ( j - box[2] ) % ROWS === ROWS - 1 ) yield;
+        for ( let k = j * win.w + box[0], e = j * win.w + box[1]; k <= e; k++ ) if ( F[k] ) F[k] *= 1 - win.mask[k];
+      }
     return F;
   }
 
   /**
    * Brush weight ( 0..1 ) at every lattice point: tip × filters ( × ( 1 − mask ) on a lattice of every sample ).
   **/
-  weights( win: HeightWindow, tip: Tip, g: Lattice, box: Box ): Float32Array {
+  *weights( win: HeightWindow, tip: Tip, g: Lattice, box: Box ): Steps<Float32Array> {
     const f        = this.stroke.sc.filters;
     const gw       = g.cw, gh = g.ch, gsp = win.sp * g.f;
     // ( the ground round the tip, as far as the filters look: the slope beside a point, the cavity's blur )
     const e        = f.cavity !== "all" ? Math.ceil( tip.r / 4 / win.sp ) + 2 * g.f : 2 * g.f;
-    const H        = g.down( win.H, [box[0] - e, box[1] + e, box[2] - e, box[3] + e] );
+    const H        = yield* g.downSteps( win.H, [box[0] - e, box[1] + e, box[2] - e, box[3] + e] );
     const slopeOn  = f.slope.on, heightOn = f.height.on, cavOn = f.cavity !== "all";
     const cav      = cavOn ? gaussianish( H, gw, gh, Math.max( 2, Math.round( tip.r / 4 / gsp ) ) ) : null;
     const cavScale = Math.max( 0.05, tip.r * 0.02 );
     const band     = ( v: number, lo: number, hi: number, soft: number ) =>
       v < lo - soft || v > hi + soft ? 0 : v < lo ? ( v - lo + soft ) / soft : v > hi ? ( hi + soft - v ) / soft : 1;
     const masked   = g.f === 1 && win.hasMask;
-    return g.make( ( i, j, k ) => {
+    return yield* g.makeSteps( ( i, j, k ) => {
       let wt = tip.weight( win.wx( i ), win.wz( j ) );
       if ( wt <= 0 ) return 0;
       if ( heightOn ) wt *= band( H[k], f.height.min, f.height.max, Math.max( 0.25, ( f.height.max - f.height.min ) * 0.03 ) );
@@ -67,7 +70,7 @@ export class StrokeOps {
   /**
    * The brush itself, on the window's heights ( changed where it works ). False when it did nothing.
   **/
-  op( win: HeightWindow, W: Float32Array, d: Dab, g: Lattice, Wc: Float32Array, box: Box, orig: () => Float32Array ): boolean {
+  *op( win: HeightWindow, W: Float32Array, d: Dab, g: Lattice, Wc: Float32Array, box: Box, orig: () => Steps<Float32Array> ): Steps<boolean> {
     const s                    = this.stroke.s, sign = this.stroke.sign, str = d.strength;
     const { w, h, H, sp }      = win;
     // ( each point read and then written: in place )
@@ -77,32 +80,41 @@ export class StrokeOps {
     const per                  = Math.min( 4, Math.max( 0.25, s.spacing / SMOOTH_DEFAULT_SPACING ) );
     const cells                = ( metres: number ) => Math.max( 1, Math.round( metres / sp ) );
     // ( a blur on the lattice: its radius in lattice steps )
-    const blur                 = ( F: Float32Array, metres: number ) => {
+    const blur                 = function* ( F: Float32Array, metres: number ): Steps<Float32Array> {
       const c = cells( metres );
-      return g.up( gaussianish( g.down( F, [box[0] - c - g.f, box[1] + c + g.f, box[2] - c - g.f, box[3] + c + g.f] ), g.cw, g.ch, Math.max( 1, Math.round( c / g.f ) ) ), box );
+      return yield* g.upSteps( gaussianish( yield* g.downSteps( F, [box[0] - c - g.f, box[1] + c + g.f, box[2] - c - g.f, box[3] + c + g.f] ), g.cw, g.ch, Math.max( 1, Math.round( c / g.f ) ) ), box );
     };
+    // ( a pause every few rows of the dab )
+    const pause                = ( j: number ) => ( j - bj0 ) % ROWS === ROWS - 1;
     switch ( this.stroke.id ) {
       case "draw": {
-        const O   = orig(), C = this.coverage( g, Wc, str, box );
+        const O   = yield* orig(), C = yield* this.coverage( g, Wc, str, box );
         const amt = sign * d.r * 0.3;
-        for ( let j = bj0; j <= bj1; j++ ) for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) if ( W[k] ) out[k] = O[k] + amt * C[k];
+        for ( let j = bj0; j <= bj1; j++ ) {
+          if ( pause( j ) ) yield;
+          for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) if ( W[k] ) out[k] = O[k] + amt * C[k];
+        }
         return true;
       }
       case "layer": {
-        const O  = orig();
+        const O  = yield* orig();
         const k1 = Math.min( 1, str * 1.5 );
-        for ( let j = bj0; j <= bj1; j++ ) for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) {
-          if ( !W[k] ) continue;
-          const dd = O[k] + sign * s.layerHeight * W[k] - H[k];
-          if ( sign * dd > 0 ) out[k] = H[k] + dd * k1;
+        for ( let j = bj0; j <= bj1; j++ ) {
+          if ( pause( j ) ) yield;
+          for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) {
+            if ( !W[k] ) continue;
+            const dd = O[k] + sign * s.layerHeight * W[k] - H[k];
+            if ( sign * dd > 0 ) out[k] = H[k] + dd * k1;
+          }
         }
         return true;
       }
       case "clay": {
         // each dab lays clay on the ground as the stroke found it; a point keeps the most any dab gave it
-        const O  = orig();
-        const pl = fitPlaneOn( g, Wc, d.x, d.z, g.down( O, box ), box );
-        for ( let j = bj0; j <= bj1; j++ )
+        const O  = yield* orig();
+        const pl = fitPlaneOn( g, Wc, d.x, d.z, yield* g.downSteps( O, box ), box );
+        for ( let j = bj0; j <= bj1; j++ ) {
+          if ( pause( j ) ) yield;
           for ( let i = bi0; i <= bi1; i++ ) {
             const k = j * w + i;
             if ( !W[k] ) continue;
@@ -112,23 +124,31 @@ export class StrokeOps {
             const v = O[k] + dd * Math.min( 1, W[k] * str * 0.6 * per );
             out[k]  = sign > 0 ? Math.max( H[k], v ) : Math.min( H[k], v );
           }
+        }
         return true;
       }
       case "smooth": {
         if ( sign > 0 ) {
-          const B = blur( H, s.featureSize * d.r );
-          for ( let j = bj0; j <= bj1; j++ ) for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) if ( W[k] ) out[k] = H[k] + ( B[k] - H[k] ) * Math.min( 1, W[k] * str );
+          const B = yield* blur( H, s.featureSize * d.r );
+          for ( let j = bj0; j <= bj1; j++ ) {
+            if ( pause( j ) ) yield;
+            for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) if ( W[k] ) out[k] = H[k] + ( B[k] - H[k] ) * Math.min( 1, W[k] * str );
+          }
           return true;
         }
         // enhance: the stroke's ground's detail, made stronger once
-        const O = orig(), C = this.coverage( g, Wc, str, box );
-        const B = blur( O, s.featureSize * d.r );
-        for ( let j = bj0; j <= bj1; j++ ) for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) if ( W[k] ) out[k] = O[k] + ( O[k] - B[k] ) * C[k];
+        const O = yield* orig(), C = yield* this.coverage( g, Wc, str, box );
+        const B = yield* blur( O, s.featureSize * d.r );
+        for ( let j = bj0; j <= bj1; j++ ) {
+          if ( pause( j ) ) yield;
+          for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) if ( W[k] ) out[k] = O[k] + ( O[k] - B[k] ) * C[k];
+        }
         return true;
       }
       case "flatten": {
         const pl = this.flattenPlane( win, g, Wc, d, box );
-        for ( let j = bj0; j <= bj1; j++ )
+        for ( let j = bj0; j <= bj1; j++ ) {
+          if ( pause( j ) ) yield;
           for ( let i = bi0; i <= bi1; i++ ) {
             const k = j * w + i;
             if ( !W[k] ) continue;
@@ -137,17 +157,49 @@ export class StrokeOps {
             if ( ( s.flattenDir === "raise" && dd < 0 ) || ( s.flattenDir === "lower" && dd > 0 ) ) continue;
             out[k] = H[k] + dd * Math.min( 1, W[k] * str );
           }
+        }
+        return true;
+      }
+      case "erode": {
+        // thermal erosion under the brush: what stands above the angle of repose next to a lower neighbour slides down
+        // to it, a few passes a dab, as much as the brush is strong there
+        const talus = Math.tan( ( Math.max( 5, Math.min( 80, s.erodeAngle ) ) * Math.PI ) / 180 ) * sp;
+        // ( one buffer for the passes, cleared round the box between them; the four neighbours by offset, not a list
+        // made a sample at a time )
+        const move  = new Float32Array( H.length );
+        const nb    = [-1, 1, -w, w];
+        for ( let pass = 0; pass < 4; pass++ ) {
+          if ( pass ) for ( let j = Math.max( 0, bj0 - 1 ); j <= Math.min( h - 1, bj1 + 1 ); j++ ) move.fill( 0, j * w + Math.max( 0, bi0 - 1 ), j * w + Math.min( w - 1, bi1 + 1 ) + 1 );
+          for ( let j = Math.max( 1, bj0 ); j <= Math.min( h - 2, bj1 ); j++ ) {
+            if ( pause( j ) ) yield;
+            for ( let i = Math.max( 1, bi0 ); i <= Math.min( w - 2, bi1 ); i++ ) {
+              const k = j * w + i;
+              if ( !W[k] ) continue;
+              const hk  = H[k];
+              let total = 0, most = 0;
+              for ( let q = 0; q < 4; q++ ) { const dd = hk - H[k + nb[q]]; if ( dd > talus ) { total += dd - talus; if ( dd - talus > most ) most = dd - talus; } }
+              if ( total <= 0 ) continue;
+              const amount = most * 0.5 * Math.min( 1, W[k] * str * per );
+              move[k]     -= amount;
+              for ( let q = 0; q < 4; q++ ) { const n = k + nb[q], dd = hk - H[n]; if ( dd > talus ) move[n] += ( amount * ( dd - talus ) ) / total; }
+            }
+          }
+          for ( let j = bj0; j <= bj1; j++ ) for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) if ( move[k] ) out[k] = H[k] + move[k];
+        }
         return true;
       }
       case "terrace": {
         const step = Math.max( 0.05, s.terraceStep ), off = s.terraceOffset;
         const e0   = 0.3 + 0.69 * Math.min( 1, Math.max( 0, s.terraceSharpness ) );
-        for ( let j = bj0; j <= bj1; j++ ) for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) {
-          if ( !W[k] ) continue;
-          const f      = ( H[k] - off ) / step, lo = Math.floor( f ), fr = f - lo;
-          const t      = fr <= e0 ? 0 : ( fr - e0 ) / ( 1 - e0 );
-          const shaped = off + step * ( lo + t * t * ( 3 - 2 * t ) );
-          out[k]       = H[k] + ( shaped - H[k] ) * Math.min( 1, W[k] * str * 0.5 );
+        for ( let j = bj0; j <= bj1; j++ ) {
+          if ( pause( j ) ) yield;
+          for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) {
+            if ( !W[k] ) continue;
+            const f      = ( H[k] - off ) / step, lo = Math.floor( f ), fr = f - lo;
+            const t      = fr <= e0 ? 0 : ( fr - e0 ) / ( 1 - e0 );
+            const shaped = off + step * ( lo + t * t * ( 3 - 2 * t ) );
+            out[k]       = H[k] + ( shaped - H[k] ) * Math.min( 1, W[k] * str * 0.5 );
+          }
         }
         return true;
       }
@@ -157,45 +209,52 @@ export class StrokeOps {
         const sc  = Math.max( 0.1, s.noiseScale );
         // no finer detail than the height samples can show ( it would only alias into spikes )
         const oct = Math.max( 1, Math.min( Math.round( s.noiseOctaves ), Math.floor( Math.log2( sc / ( 2 * sp ) ) ) + 1 ) );
-        const O   = orig();
+        const O   = yield* orig();
         const k1  = Math.min( 1, str * 0.6 * per );
-        const V   = this.noise( win, W, box, ( x, z ) => {
+        const V   = yield* this.noise( win, W, box, ( x, z ) => {
           // ridged: sharp crests along the noise's zero lines; billow: the opposite ( rounded lumps, sharp creases )
           const f = fbm( x / sc, z / sc, oct, 77 );
           return s.noiseType === "ridged" ? ( 1 - Math.abs( f ) * 2.2 ) ** 2 - 0.3 : s.noiseType === "billow" ? Math.abs( f ) * 1.5 - 0.2 : f * 0.7;
         } );
-        for ( let j = bj0; j <= bj1; j++ ) for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) {
-          if ( !W[k] ) continue;
-          const target = O[k] + sign * s.noiseHeight * V[k] * W[k];
-          out[k]       = H[k] + ( target - H[k] ) * k1;
+        for ( let j = bj0; j <= bj1; j++ ) {
+          if ( pause( j ) ) yield;
+          for ( let k = j * w + bi0, e = j * w + bi1; k <= e; k++ ) {
+            if ( !W[k] ) continue;
+            const target = O[k] + sign * s.noiseHeight * V[k] * W[k];
+            out[k]       = H[k] + ( target - H[k] ) * k1;
+          }
         }
         return true;
       }
       case "crease": {
         // the stroke's ground pulled in towards the centre, then carved ( or raised ) along a sharp line
-        const O     = orig(), C = this.coverage( g, Wc, str, box );
+        const O     = yield* orig(), C = yield* this.coverage( g, Wc, str, box );
         const depth = sign * d.r * 0.15;
         // ( pulled in about the dab's centre: in window steps )
         const ci    = ( d.x - win.x0 ) / sp, cj = ( d.z - win.z0 ) / sp;
-        for ( let j = bj0; j <= bj1; j++ )
+        for ( let j = bj0; j <= bj1; j++ ) {
+          if ( pause( j ) ) yield;
           for ( let i = bi0; i <= bi1; i++ ) {
             const k = j * w + i;
             if ( !W[k] ) continue;
             const f = 1 + s.pinch * 0.5 * C[k];
             out[k]  = bilinear( O, w, h, ci + ( i - ci ) * f, cj + ( j - cj ) * f ) - depth * C[k];
           }
+        }
         return true;
       }
       case "pinch": {
-        const O  = orig(), C = this.coverage( g, Wc, str, box );
+        const O  = yield* orig(), C = yield* this.coverage( g, Wc, str, box );
         const ci = ( d.x - win.x0 ) / sp, cj = ( d.z - win.z0 ) / sp;
-        for ( let j = bj0; j <= bj1; j++ )
+        for ( let j = bj0; j <= bj1; j++ ) {
+          if ( pause( j ) ) yield;
           for ( let i = bi0; i <= bi1; i++ ) {
             const k = j * w + i;
             if ( !W[k] ) continue;
             const f = 1 + sign * 0.5 * C[k];
             out[k]  = bilinear( O, w, h, ci + ( i - ci ) * f, cj + ( j - cj ) * f );
           }
+        }
         return true;
       }
       case "smudge": {
@@ -204,13 +263,15 @@ export class StrokeOps {
         const vi    = ( d.dx * reach ) / sp, vj = ( d.dz * reach ) / sp;
         // ( read from the ground before this dab: the window changes as it goes )
         const src0  = H.slice();
-        for ( let j = bj0; j <= bj1; j++ )
+        for ( let j = bj0; j <= bj1; j++ ) {
+          if ( pause( j ) ) yield;
           for ( let i = bi0; i <= bi1; i++ ) {
             const k = j * w + i;
             if ( !W[k] ) continue;
             const src = bilinear( src0, w, h, i - vi, j - vj );
             out[k]    = H[k] + ( src - H[k] ) * Math.min( 1, W[k] * str );
           }
+        }
         return true;
       }
       default:
@@ -222,12 +283,13 @@ export class StrokeOps {
    * This dab's weights ( × strength ) merged into what the stroke has covered: at each window point, the most any of
    * its dabs gave it so far. ( On the world lattice of the window's spacing, so it carries across dabs and chunks. )
   **/
-  private coverage( g: Lattice, Wc: Float32Array, str: number, box: Box ): Float32Array {
+  private *coverage( g: Lattice, Wc: Float32Array, str: number, box: Box ): Steps<Float32Array> {
     const win              = g.win, f = g.f, cw = g.cw, ch = g.ch;
     const C                = new Float32Array( cw * ch );
     const gi0              = g.gi0, gj0 = g.gj0, tag = ( win.sp * f ).toFixed( 6 );
     const [I0, I1, J0, J1] = g.range( box );
     for ( let j = J0; j <= J1; j++ ) {
+      if ( ( j - J0 ) % ROWS === ROWS - 1 ) yield;
       const gj = gj0 + j, bj = Math.floor( gj / BLOCK ), row = ( gj - bj * BLOCK ) * BLOCK;
       for ( let i = I0; i <= I1; ) {
         const gi  = gi0 + i, bi = Math.floor( gi / BLOCK ), run = Math.min( I1 + 1 - i, ( bi + 1 ) * BLOCK - gi );
@@ -246,17 +308,19 @@ export class StrokeOps {
         }
       }
     }
-    return this.fine( g, C, box );
+    return yield* this.fine( g, C, box );
   }
 
   /**
    * The Noise brush's noise `at( x, z )` at every window point under the brush, kept on the world's lattice for the
    * stroke ( it's the same wherever a dab is: worked out once a point, not once a dab ).
   **/
-  private noise( win: HeightWindow, W: Float32Array, box: Box, at: ( x: number, z: number ) => number ): Float32Array {
+  private *noise( win: HeightWindow, W: Float32Array, box: Box, at: ( x: number, z: number ) => number ): Steps<Float32Array> {
     const V   = new Float32Array( win.w * win.h );
     const gi0 = Math.round( win.x0 / win.sp ), gj0 = Math.round( win.z0 / win.sp ), tag = win.sp.toFixed( 6 );
     for ( let j = box[2]; j <= box[3]; j++ ) {
+      // ( the noise is dear: more often )
+      if ( ( j - box[2] ) % 4 === 3 ) yield;
       const gj = gj0 + j, bj = Math.floor( gj / BLOCK ), row = ( gj - bj * BLOCK ) * BLOCK;
       for ( let i = box[0]; i <= box[1]; ) {
         const gi  = gi0 + i, bi = Math.floor( gi / BLOCK ), run = Math.min( box[1] + 1 - i, ( bi + 1 ) * BLOCK - gi );

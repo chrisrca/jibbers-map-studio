@@ -3,7 +3,7 @@
 
 import { CROSS_SECTIONS, PROFILES, RADIALS, type Curve } from "../../core/curve";
 import { commitShape, deleteShape, liveShape } from "../../terrain/shapes/edits";
-import { groundWithout, kickerHeight, lipAngleFor, type CircleShape, type CurveShape, type EdgeMode, type Shape, type StampShape } from "../../terrain/shapes/shapes";
+import { groundWithout, kickerHeight, lipAngleFor, type CircleShape, type CurveShape, type EdgeMode, type FormationShape, type Shape, type StampShape } from "../../terrain/shapes/shapes";
 import { terrain } from "../../terrain/terrain";
 import { NumberField, Panel } from "../widgets/controls";
 import { CurveEditor } from "../widgets/CurveEditor";
@@ -55,7 +55,87 @@ function HeightField( { value, at, onChange }: { value: number | null; at: [numb
 export function ShapeProperties( { s }: { s: Shape } ) {
   if ( s.kind === "curve" ) return <CurveProps s={s} />;
   if ( s.kind === "stamp" ) return <StampProps s={s} />;
+  if ( s.kind === "formation" ) return <FormationProps s={s} />;
   return <CircleProps s={s} />;
+}
+
+// A formation's ways of meeting the ground and its noise's.
+const BLENDS: [FormationShape["mode"], string, string][] = [
+  ["add",   "Add",   "On top of the ground"],
+  ["raise", "Raise", "Keeps whichever is higher: the formation grows out of the ground"],
+  ["carve", "Carve", "Keeps whichever is lower: the formation digs into it"],
+  ["set",   "Set",   "The formation's height, from the ground round its outline"],
+];
+const STYLES: [FormationShape["style"], string][] = [["smooth", "Smooth"], ["ridged", "Ridged"], ["billow", "Billow"]];
+
+function FormationProps( { s }: { s: FormationShape } ) {
+  const set  = ( p: Partial<FormationShape> ) => liveShape( { ...s, ...p } );
+  const th   = ( p: Partial<FormationShape["thermal"]> ) => set( { thermal: { ...s.thermal, ...p } } );
+  const hy   = ( p: Partial<FormationShape["hydraulic"]> ) => set( { hydraulic: { ...s.hydraulic, ...p } } );
+  const num  = ( label: string, value: number, onChange: ( v: number ) => void, step: number, min: number, max: number, unit?: string, digits = 2 ) => (
+    <Field label={label}><Num value={value} step={step} min={min} max={max} unit={unit} digits={digits} onChange={onChange} /></Field>
+  );
+  const on   = ( value: boolean, onChange: ( v: boolean ) => void, label: string ) => (
+    <>
+      <label />
+      <label style={{ color: "var(--text)" }}><input type="checkbox" checked={value} onChange={( e ) => { onChange( e.target.checked ); commitShape(); }} /> {label}</label>
+    </>
+  );
+  return (
+    <Panel icon="shapeCurve" title={`Shape · ${s.name}`}>
+      <div className="props">
+        <div className="section">Formation</div>
+        <Field label="Name">
+          <input className="txt" key={s.uid} defaultValue={s.name} onBlur={( e ) => { set( { name: e.target.value } ); commitShape(); }} />
+        </Field>
+        <Field label="Mode">
+          <div className="seg">{BLENDS.map( ( [id, label, tip] ) => <button key={id} title={tip} className={s.mode === id ? "on" : ""} onClick={() => { set( { mode: id } ); commitShape(); }}>{label}</button> )}</div>
+        </Field>
+        <Field label="Style">
+          <div className="seg">{STYLES.map( ( [id, label] ) => <button key={id} className={s.style === id ? "on" : ""} onClick={() => { set( { style: id } ); commitShape(); }}>{label}</button> )}</div>
+        </Field>
+        {num( "Height",       s.height,      ( height ) => set( { height } ),           0.5, -500, 1000, "m" )}
+        {num( "Base Y",       s.baseY,       ( baseY ) => set( { baseY } ),             0.5, -500, 500,  "m" )}
+        {num( "Feature size", s.featureSize, ( featureSize ) => set( { featureSize } ), 1,   2,    2000, "m" )}
+        {num( "Roughness",    s.roughness,   ( roughness ) => set( { roughness } ),     0.5, 0,    500,  "m" )}
+        {num( "Detail",       s.detail,      ( detail ) => set( { detail: Math.round( detail ) } ), 1, 1, 8, undefined, 0 )}
+        {num( "Edge blend",   s.edgeBlend,   ( edgeBlend ) => set( { edgeBlend } ),     1,   0,    500,  "m" )}
+        {num( "Smoothing",    s.smooth,      ( smooth ) => set( { smooth } ),           0.25, 0,   50,   "m" )}
+        <div className="section">Advanced</div>
+        {num( "Peak width",   s.peakWidth,   ( peakWidth ) => set( { peakWidth } ),     1,    0,    2000, "m" )}
+        {num( "On peak",      s.onPeak,      ( onPeak ) => set( { onPeak } ),           0.05, 0,    1                )}
+        {num( "Warp",         s.warp,        ( warp ) => set( { warp } ),               0.05, 0,    3                )}
+        {num( "Lacunarity",   s.lacunarity,  ( lacunarity ) => set( { lacunarity } ),   0.1,  1.2,  4                )}
+        {num( "Gain",         s.gain,        ( gain ) => set( { gain } ),               0.05, 0.1,  0.9              )}
+        {num( "Smooth steps", s.smoothSteps, ( smoothSteps ) => set( { smoothSteps: Math.round( smoothSteps ) } ), 1, 1, 10, undefined, 0 )}
+        {num( "Seed",         s.seed,        ( seed ) => set( { seed: Math.round( seed ) } ), 1, 0, 99999, undefined, 0 )}
+        <div className="section">Thermal erosion</div>
+        {on( s.thermal.on, ( v ) => th( { on: v } ), "On" )}
+        { s.thermal.on && (
+          <>
+            {num( "Amount",      s.thermal.amount,     ( amount ) => th( { amount } ),         0.05, 0,  1                 )}
+            {num( "Steps",       s.thermal.iterations, ( iterations ) => th( { iterations: Math.round( iterations ) } ), 1, 1, 300, undefined, 0 )}
+            {num( "Slope angle", s.thermal.repose,     ( repose ) => th( { repose } ),         1,    5,  80, "°", 0       )}
+          </>
+        ) }
+        <div className="section">Hydraulic erosion</div>
+        {on( s.hydraulic.on, ( v ) => hy( { on: v } ), "On" )}
+        { s.hydraulic.on && (
+          <>
+            {num( "Droplets",  s.hydraulic.droplets,  ( droplets ) => hy( { droplets } ),   0.05,  0,    5                 )}
+            {num( "Lifetime",  s.hydraulic.lifetime,  ( lifetime ) => hy( { lifetime: Math.round( lifetime ) } ), 1, 1, 500, undefined, 0 )}
+            {num( "Inertia",   s.hydraulic.inertia,   ( inertia ) => hy( { inertia } ),     0.05,  0,    0.95              )}
+            {num( "Capacity",  s.hydraulic.capacity,  ( capacity ) => hy( { capacity } ),   0.5,   0.1,  50                )}
+            {num( "Erode",     s.hydraulic.erode,     ( erode ) => hy( { erode } ),         0.05,  0,    1                 )}
+            {num( "Deposit",   s.hydraulic.deposit,   ( deposit ) => hy( { deposit } ),     0.05,  0,    1                 )}
+            {num( "Evaporate", s.hydraulic.evaporate, ( evaporate ) => hy( { evaporate } ), 0.005, 0,    0.5, undefined, 3 )}
+            {num( "Radius",    s.hydraulic.radius,    ( radius ) => hy( { radius: Math.round( radius ) } ), 1, 1, 8, undefined, 0 )}
+          </>
+        ) }
+        <Field label=""><button className="btn small" onClick={() => deleteShape( s.uid )}>Delete shape</button></Field>
+      </div>
+    </Panel>
+  );
 }
 
 function StampProps( { s }: { s: StampShape } ) {

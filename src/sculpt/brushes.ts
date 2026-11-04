@@ -13,7 +13,7 @@
 import type { Curve } from "../core/curve";
 import type { IconName } from "../ui/widgets/icons";
 
-export type BrushId = "draw" | "layer" | "clay" | "smooth" | "flatten" | "terrace" | "noise" | "crease" | "pinch" | "smudge" | "mask";
+export type BrushId = "draw" | "layer" | "clay" | "smooth" | "flatten" | "terrace" | "noise" | "erode" | "crease" | "pinch" | "smudge" | "mask";
 
 export type FalloffPreset = "smooth" | "smoother" | "sphere" | "root"     | "sharp" | "linear" | "sharper" | "constant" | "custom";
 export type StrokeMethod  = "space"  | "airbrush" | "line"   | "anchored" | "dragdot";
@@ -65,6 +65,8 @@ export interface BrushSettings {
   // 0 = smooth steps, 1 = sharp vertical risers
   terraceSharpness: number;
   terraceOffset:    number;
+  // Erode: the slope ( degrees ) the ground slumps to
+  erodeAngle:       number;
   noiseScale:       number;
   noiseHeight:      number;
   noiseType:        "smooth" | "ridged" | "billow";
@@ -118,6 +120,7 @@ export const DEFAULT_BRUSH: BrushSettings = {
   terraceStep:      2,
   terraceSharpness: 0.7,
   terraceOffset:    0,
+  erodeAngle:       33,
   noiseScale:       8,
   noiseHeight:      1.5,
   noiseType:        "smooth",
@@ -133,6 +136,7 @@ export const BRUSHES: BrushInfo[] = [
   { id: "smooth",  label: "Smooth",  icon: "smooth",  group: "Build",   tip: "Even out bumps (Ctrl enhances details). Hold Shift with any brush to smooth", ctrl: "enhance details", defaults: { strength: 0.5 } },
   { id: "flatten", label: "Flatten", icon: "flatten", group: "Build",   tip: "Flatten to a height or along the slope; Fill only raises, Scrape only cuts. Ctrl+click picks a height", ctrl: null, defaults: { hardness: 0.5, strength: 0.6 } },
   { id: "terrace", label: "Terrace", icon: "terrace", group: "Build",   tip: "Step the ground into terraces", ctrl: null, defaults: { strength: 0.4 } },
+  { id: "erode",   label: "Erode",   icon: "mountain", group: "Build",  tip: "Wear the ground: slopes steeper than the angle slump down it, as weather does", ctrl: null, defaults: { strength: 0.5 } },
   { id: "noise",   label: "Noise",   icon: "noise",   group: "Build",   tip: "Add natural bumps, ridges or lumps (fixed in the world, so strokes join up)", ctrl: "remove", defaults: { strength: 0.3 } },
   { id: "crease",  label: "Crease",  icon: "crease",  group: "Shape",   tip: "Carve a sharp gully and pull the sides in (Ctrl: a sharp ridge)", ctrl: "ridge", defaults: { falloff: "sharper", hardness: 0, strength: 0.4 } },
   { id: "pinch",   label: "Pinch",   icon: "pinch",   group: "Shape",   tip: "Pull features towards the centre, sharpening them (Ctrl: magnify, pushing them out)", ctrl: "magnify", defaults: { strength: 0.4 } },

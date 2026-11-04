@@ -6,8 +6,9 @@
 // it takes its own change back out and applies the new one. Sculpting done over a shape afterwards is kept, and
 // undo/redo are exact.
 
-export { type EdgeMode, type CurveShape, type CircleShape, type StampShape, type StampGrid, type Shape, newCurve, newCircle, newStamp } from "./types";
+export { type EdgeMode, type CurveShape, type CircleShape, type StampShape, type StampGrid, type FormationShape, type Shape, newCurve, newCircle, newStamp, newFormation } from "./types";
+export { formationGrid, insideBy } from "./formation";
 export { captureStamp, imprintOf } from "./stamp";
 export { shapeBounds, kickerArc, lipAngleFor, kickerHeight, shapeHeightAt } from "./height";
-export { previewShape, type ShapeEdit, beginShapeEdit, commitShapeEdit, removeShape, resetShapes, groundWithout } from "./apply";
+export { previewShape, previewShapeSoon, settleShapes, whenShapesSettled, type ShapeEdit, beginShapeEdit, commitShapeEdit, removeShape, resetShapes, groundWithout } from "./apply";
 

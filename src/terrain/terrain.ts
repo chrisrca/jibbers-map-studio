@@ -315,11 +315,12 @@ export class Terrain {
   /**
    * Re-sync shared borders after edits: equal-resolution neighbours get the average of both
    * edges; a finer chunk's edge is re-sampled to the coarser neighbour's linear interpolation so
-   * the two meshes meet without cracks ( and the game sees no seam ).
+   * the two meshes meet without cracks ( and the game sees no seam ). Where three or four chunks
+   * meet at a corner, all of them get the average of all of them.
   **/
   syncEdges( chunkIndices: Iterable<number> ) {
-    const done = new Set<string>();
-    for ( const ci of chunkIndices ) {
+    const done = new Set<string>(), list = [...chunkIndices];
+    for ( const ci of list ) {
       const a = this.chunks[ci];
       if ( !a ) continue;
       for ( const { side, c: b } of a.adjacent ) {
@@ -328,6 +329,38 @@ export class Terrain {
         if ( done.has( id ) ) continue;
         done.add( id );
         this.syncPair( ci, side, bi );
+      }
+    }
+    this.syncCorners( list );
+  }
+
+  /**
+   * Corners three or four chunks share: each pair of them met halfway above, which there leaves them apart ( the
+   * pairs overlap ) and an undo off where it started ( each chunk's own corner taken back ). The pairs keep the
+   * chunks' sum, so their average is what they all get: the same for every chunk, and exact to take back.
+  **/
+  private syncCorners( chunkIndices: number[] ) {
+    const done = new Set<string>(), eps = 1e-4;
+    for ( const ci of chunkIndices ) {
+      const a = this.chunks[ci];
+      if ( !a ) continue;
+      // ( the chunks round it: its neighbours and theirs, the one across the corner among them )
+      const near = new Set( [a, ...a.adjacent.flatMap( ( n ) => [n.c, ...n.c.adjacent.map( ( m ) => m.c )] )] );
+      for ( const [i, j] of [[0, 0], [a.res - 1, 0], [0, a.res - 1], [a.res - 1, a.res - 1]] ) {
+        const x = a.position[0] + i * a.spacing, z = a.position[2] + j * a.spacing, id = `${x.toFixed( 3 )},${z.toFixed( 3 )}`;
+        if ( done.has( id ) ) continue;
+        done.add( id );
+        const at: { c: TerrainChunk; k: number; i: number; j: number }[] = [];
+        for ( const c of near ) {
+          const fi = ( x - c.position[0] ) / c.spacing, fj = ( z - c.position[2] ) / c.spacing, ri = Math.round( fi ), rj = Math.round( fj );
+          if ( Math.abs( fi - ri ) < eps && Math.abs( fj - rj ) < eps && ri >= 0 && rj >= 0 && ri < c.res && rj < c.res ) at.push( { c, k: rj * c.res + ri, i: ri, j: rj } );
+        }
+        if ( at.length < 3 ) continue;
+        const m = at.reduce( ( s, p ) => s + p.c.heights[p.k] + p.c.position[1], 0 ) / at.length;
+        for ( const p of at ) {
+          p.c.heights[p.k] = m - p.c.position[1];
+          this.markDirtyRect( this.indexOf( p.c.key ), p.i, p.j, p.i, p.j );
+        }
       }
     }
   }

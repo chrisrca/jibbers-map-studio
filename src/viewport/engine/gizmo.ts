@@ -9,6 +9,8 @@ import { history } from "../../map/history";
 import { unlocked, useEditor, workspaceOf } from "../../map/store";
 import { cancelPreview, commitMoved, commitTrails, joinDropped, previewNet, withHandle, withPointAt } from "../../trails/edits";
 import type { TrailNet } from "../../trails/trails";
+import { withRailAgain } from "../../pieces/rail";
+import { terrain } from "../../terrain/terrain";
 import { BlGizmo } from "../tools/gizmo/blGizmo";
 import type { Engine } from "./engine";
 
@@ -66,6 +68,13 @@ export class GizmoControl {
       return g.attach( p, arrow ? arrow.q : new THREE.Quaternion(), !!arrow );
     }
     if ( workspaceOf( st.tool ) === "assets" ) return this.syncAssets();
+    // the Formation tool: Move on the picked point ( as on a trail's )
+    if ( st.tool === "shape" ) {
+      const at = this.engine.shapeTool?.gizmoAt();
+      if ( !at ) return g.detach();
+      g.setMode( "translate" );
+      return g.attach( at, new THREE.Quaternion(), false );
+    }
     // the Trails tool: Move on the picked handle, else on the one picked point
     if ( st.tool === "trail" ) {
       const tip = this.trailHandleTip();
@@ -78,11 +87,14 @@ export class GizmoControl {
       g.setMode( "translate" );
       return g.attach( toThree( one.p ), new THREE.Quaternion(), false );
     }
-    // a lift: Move on its piece picked ( each station and mast is moved on its own; there's no moving the lift as one )
-    const piece = st.tool === "select" && !this.engine.editing && unlocked( st, st.selection ).length ? this.engine.liftTool.gizmoAt() : null;
+    // a lift: Move on its piece picked ( each station and mast is moved on its own; there's no moving the lift as one );
+    // a fence: on its point picked ( a repeat, with Rotate out: its sections turned each about its own middle )
+    const piece = st.tool === "select" && !this.engine.editing && unlocked( st, st.selection ).length ? this.engine.liftTool.gizmoAt() ?? this.engine.fenceTool.gizmoAt() : null;
     if ( piece ) {
-      g.setMode( "translate" );
-      return g.attach( piece, new THREE.Quaternion(), false );
+      // ( a repeat turned or scaled: along its sections' own axes there, each section about its own middle )
+      const own = st.gizmoMode !== "translate" && !this.engine.liftTool.gizmoAt() && this.engine.fenceTool.turns();
+      g.setMode( own ? st.gizmoMode : "translate" );
+      return g.attach( piece, own ? this.engine.fenceTool.sectionAxes()! : new THREE.Quaternion(), own );
     }
     // the map: on what's selected while the Select tool is out, as its Move / Rotate / Scale says
     const c = this.selectionCenter();
@@ -139,10 +151,12 @@ export class GizmoControl {
         return { on: t.snap, to: t.snapTo };
       },
       snapPoint: ( x, y, to ) => ( this.engine.editing === this.engine.modelEd && this.engine.modelEd.uid ? this.engine.modelEd.gizmo.snapTarget( x, y, to ) : this.objectSnapPoint( x, y, to ) ),
+      alongGround: ( x, y, x0, y0, P ) => this.alongGround( x, y, x0, y0, P ),
     } ) );
     g.onStart = () => {
       if ( this.engine.editing === this.engine.modelEd && this.engine.modelEd.uid ) return this.engine.modelEd.gizmo.start();
       const st = useEditor.getState();
+      if ( st.tool === "shape" && this.engine.shapeTool?.gizmoStart() ) return;
       if ( st.tool === "trail" ) {
         const tip      = this.trailHandleTip();
         const one      = st.selection[0]?.kind === "trailNode" ? st.trails.nodes.find( ( n ) => n.id === st.selection[0].uid ) : null;
@@ -156,8 +170,8 @@ export class GizmoControl {
         this.railFrom          = at ? { at, q: arrow?.q ?? new THREE.Quaternion(), point: st.railEdit.point } : null;
         return;
       }
-      // ( a lift's piece picked: it's what moves )
-      if ( st.tool === "select" && this.engine.liftTool.gizmoStart() ) return;
+      // ( a lift's piece or a fence's point picked: it's what moves )
+      if ( st.tool === "select" && ( this.engine.liftTool.gizmoStart() || this.engine.fenceTool.gizmoStart( g.op ) ) ) return;
       this.before = { objects: st.objects, spawns: st.spawns, customObjects: st.customObjects, pivot: this.objectPivot() };
     };
     g.onChange = ( delta ) => {
@@ -178,7 +192,9 @@ export class GizmoControl {
         if ( f.point !== null && p ) this.engine.railTool.preview( f.point, p );
         return;
       }
+      if ( this.engine.shapeTool?.gizmoMoving ) return this.engine.shapeTool.gizmoMove( delta );
       if ( this.engine.liftTool.gizmoMoving ) return this.engine.liftTool.gizmoMove( delta );
+      if ( this.engine.fenceTool.gizmoMoving ) return this.engine.fenceTool.gizmoMove( delta );
       if ( this.before ) this.applyDelta( delta, this.before );
     };
     g.onEnd = () => {
@@ -200,8 +216,12 @@ export class GizmoControl {
         this.engine.rails.drag = null;
         this.railFrom          = null;
         this.engine.rails.commit( g.mode === "rotate" ? "Turn rail" : "Move rail point" );
+      } else if ( this.engine.shapeTool?.gizmoMoving ) {
+        this.engine.shapeTool.gizmoEnd();
       } else if ( this.engine.liftTool.gizmoMoving ) {
         this.engine.liftTool.gizmoEnd();
+      } else if ( this.engine.fenceTool.gizmoMoving ) {
+        this.engine.fenceTool.gizmoEnd();
       } else if ( this.before ) {
         const prev  = this.before, s = useEditor.getState();
         const after = { objects: s.objects, spawns: s.spawns, customObjects: s.customObjects };
@@ -228,7 +248,9 @@ export class GizmoControl {
         this.railFrom          = null;
         this.engine.rails.sync();
       }
+      else if ( this.engine.shapeTool?.gizmoMoving ) this.engine.shapeTool.gizmoCancel();
       else if ( this.engine.liftTool.gizmoMoving ) this.engine.liftTool.gizmoCancel();
+      else if ( this.engine.fenceTool.gizmoMoving ) this.engine.fenceTool.gizmoCancel();
       else if ( this.before ) {
         const was   = this.before;
         this.before = null;
@@ -269,13 +291,32 @@ export class GizmoControl {
   }
 
   /**
+   * Move's middle circle dragged ( outside the Assets workspace ): the pivot over the ground, as the ground under the
+   * mouse goes from where it was pressed, as high off it as it was ( null off the ground: free in the view ).
+  **/
+  private alongGround( x: number, y: number, x0: number, y0: number, P: THREE.Vector3 ) {
+    if ( workspaceOf( useEditor.getState().tool ) === "assets" || this.engine.stage.shown || this.engine.editing ) return null;
+    const under = ( px: number, py: number ) => {
+      const r = this.engine.ray( px, py ).ray;
+      return terrain.raycast( r.origin, r.direction, 20000 );
+    };
+    const a = under( x0, y0 ), b = under( x, y );
+    if ( !a || !b ) return null;
+    const nx = P.x + b.x - a.x, nz = P.z + b.z - a.z;
+    const g0 = terrain.heightAt( P.x, -P.z ), g1 = terrain.heightAt( nx, -nz );
+    if ( Number.isNaN( g0 ) || Number.isNaN( g1 ) ) return null;
+    return new THREE.Vector3( nx, g1 + P.y - g0, nz );
+  }
+
+  /**
    * G / R / S in Object Mode: the selection moved, turned or scaled with the mouse ( Blender's modal transform ).
   **/
   startObjectModal( op: "translate" | "rotate" | "scale" ) {
     const st    = useEditor.getState();
-    // ( a lift's picked piece is only moved: G, from where it stands )
-    const piece = this.engine.stage.shown ? null : this.engine.liftTool.gizmoAt();
-    if ( piece && op !== "translate" ) return false;
+    // ( a lift's picked piece, or a fence's picked point, is only moved: G, from where it stands; a repeat's sections
+    // turned too: R )
+    const piece = this.engine.stage.shown ? null : this.engine.liftTool.gizmoAt() ?? this.engine.fenceTool.gizmoAt();
+    if ( piece && op !== "translate" && !( op === "rotate" && !this.engine.liftTool.gizmoAt() && this.engine.fenceTool.turns() ) ) return false;
     const c = piece ?? this.objectPivot();
     if ( !c || !unlocked( st, st.selection ).length || this.engine.blGizmo.dragging ) return false;
     this.engine.blGizmo.attach( c, this.objectOrientation(), st.view3d.orientation === "local" );
@@ -287,7 +328,7 @@ export class GizmoControl {
    * What a moved piece snaps onto under the mouse: the nearest corner on the screen of a piece that isn't moving,
    * or the surface of one ( else the floor ).
   **/
-  private objectSnapPoint( x: number, y: number, to: "vertex" | "surface" ): THREE.Vector3 | null {
+  private objectSnapPoint( x: number, y: number, to: "vertex" | "edge" | "surface" ): THREE.Vector3 | null {
     const st = useEditor.getState(), moving = new Set( st.selection.map( ( s ) => s.uid ) );
     if ( to === "surface" ) {
       const hits = this.engine.ray( x, y ).intersectObjects( this.engine.customR.pickables(), false );
@@ -296,6 +337,36 @@ export class GizmoControl {
     }
     let best: THREE.Vector3 | null = null, bd = 20, budget = 200000;
     const v                        = new THREE.Vector3();
+    if ( to === "edge" ) {
+      // the nearest edge on the screen ( its triangles' sides ), where it passes closest to the mouse's ray
+      const ray = this.engine.ray( x, y ).ray, w = new THREE.Vector3();
+      for ( const o of st.customObjects ) {
+        if ( moving.has( o.uid ) ) continue;
+        const g = this.engine.customR.objectGroup( o.uid );
+        g?.updateMatrixWorld( true );
+        g?.traverse( ( m ) => {
+          const geo = ( m as THREE.Mesh ).isMesh ? ( m as THREE.Mesh ).geometry : null, pos = geo?.getAttribute( "position" ) as THREE.BufferAttribute | undefined;
+          if ( !geo || !pos || budget <= 0 ) return;
+          const idx = geo.index, n = idx ? idx.count : pos.count;
+          budget   -= n;
+          const at  = ( k: number ) => ( idx ? idx.getX( k ) : k );
+          for ( let t = 0; t + 2 < n; t += 3 )
+            for ( let s = 0; s < 3; s++ ) {
+              v.fromBufferAttribute( pos, at( t + s ) ).applyMatrix4( m.matrixWorld );
+              w.fromBufferAttribute( pos, at( t + ( ( s + 1 ) % 3 ) ) ).applyMatrix4( m.matrixWorld );
+              const [ax, ay, fa] = this.engine.screenOf( v ), [bx, by, fb] = this.engine.screenOf( w );
+              if ( !fa || !fb ) continue;
+              const dx = bx - ax, dy = by - ay, k = Math.max( 0, Math.min( 1, ( ( x - ax ) * dx + ( y - ay ) * dy ) / ( dx * dx + dy * dy || 1 ) ) );
+              const d  = Math.hypot( ax + dx * k - x, ay + dy * k - y );
+              if ( d >= bd ) continue;
+              bd   = d;
+              best = new THREE.Vector3();
+              ray.distanceSqToSegment( v, w, undefined, best );
+            }
+        } );
+      }
+      return best;
+    }
     for ( const o of st.customObjects ) {
       if ( moving.has( o.uid ) ) continue;
       const g = this.engine.customR.objectGroup( o.uid );
@@ -333,7 +404,8 @@ export class GizmoControl {
     // ( scale is kept positive: dragged through zero it comes out mirrored, which the game can't load )
     const xf = ( pos: V3, rot: V3, scl: V3 ) => applyToTRS( delta, pos, rot, scl );
     useEditor.setState( {
-      customObjects: start.customObjects.map( ( o ) => ( ids.has( o.uid ) ? transformCustom( o, own( o ) ) : o ) ),
+      // ( a jib's rail colliders made again as it goes: at its size, not stretched with it )
+      customObjects: start.customObjects.map( ( o ) => ( ids.has( o.uid ) ? withRailAgain( transformCustom( o, own( o ) ) ) : o ) ),
       objects:       start.objects.map( ( o ) => ( ids.has( o.uid ) ? { ...o, ...xf( o.position, o.rotation, o.scale ) } : o ) ),
       spawns: start.spawns.map( ( s ) => {
         if ( !ids.has( s.uid ) ) return s;

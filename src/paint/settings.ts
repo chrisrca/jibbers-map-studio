@@ -47,6 +47,15 @@ export interface PaintSettings {
   gradient:  { shape: "linear" | "radial"; to: "fade" | "second" };
   // Fill: how different a colour can be and still be filled ( 0..1 )
   tolerance: number;
+  // the corduroy brush: along the drag, the stroke's first direction held ( lock ), a set angle ( degrees from north,
+  // +Z, towards east ), or the directions under it evened out ( smooth )
+  flowDir:   "drag" | "lock" | "fixed" | "smooth";
+  flowAngle: number;
+  // the ground brush's stroke: the stabilizer ( lazy mouse, × the radius ), mirrored and radial copies ( as sculpting's ),
+  // and stripes: `count` copies side by side across the stroke, `spacing` metres apart
+  stabilize: number;
+  symmetry:  { x: boolean; z: boolean; radial: number; pivot: [number, number] | null };
+  stripes:   { count: number; spacing: number };
 }
 
 export const DEFAULT_PAINT: PaintSettings = {
@@ -69,6 +78,11 @@ export const DEFAULT_PAINT: PaintSettings = {
   texTool:   "brush",
   gradient:  { shape: "linear", to: "fade" },
   tolerance: 0.15,
+  flowDir:   "drag",
+  flowAngle: 0,
+  stabilize: 0,
+  symmetry:  { x: false, z: false, radial: 1, pivot: null },
+  stripes:   { count: 1, spacing: 4 },
 };
 
 /**

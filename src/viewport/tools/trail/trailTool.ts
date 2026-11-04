@@ -124,17 +124,17 @@ export class TrailTool {
   }
 
   /**
-   * Redraws the trails ( while the tool is out ) and the picked one's handles.
+   * Redraws the trails ( while the tool is out, or the view's Show All Paths is on ) and the picked one's handles ( the
+   * tool's own ).
   **/
   sync() {
-    const st = useEditor.getState();
+    const st    = useEditor.getState();
+    const out   = st.tool === "trail";
     this.clear( this.marks );
     redraw();
-    this.ribbons.visible = this.shape.visible = st.tool === "trail";
-    if ( st.tool !== "trail" ) {
-      this.ghostMark.visible = false;
-      return;
-    }
+    this.ribbons.visible = this.shape.visible = out || st.showPaths;
+    if ( !out ) this.ghostMark.visible = false;
+    if ( !out && !st.showPaths ) return;
     const net   = st.trails, { nodes, runs } = this.picked();
     // runs drawn again only when they ( or what they ease into ) changed: a point dragged on a big map redrew all of
     // them every move
@@ -157,6 +157,7 @@ export class TrailTool {
     for ( const [id, d] of [...this.drawing.drawn] ) if ( !alive.has( id ) ) { this.drawing.drop( d.g ); this.drawing.drawn.delete( id ); }
     for ( const id of [...this.drawing.surfs.keys()] ) if ( !alive.has( id ) ) this.drawing.surfs.delete( id );
     this.drawing.drawShape( list );
+    if ( !out ) return;
     for ( const n of net.nodes ) this.mark( toThree( n.p ), nodes.has( n.id ) ? 8 : 6.5, nodes.has( n.id ) ? PICKED : POINT, { node: n.id } );
     // the handles of the runs leaving a picked point, and of a picked run's two ends
     const ends: { r: TrailRun; end: "a" | "b" }[] = [];

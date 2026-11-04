@@ -2,31 +2,84 @@
 
 import * as THREE from "three/webgpu";
 import { ask } from "../../app/ask";
-import { toThree, toUnity, type V3 } from "../../core/coords";
-import { transformCustom } from "../../core/transform";
+import { doOp, type OpField } from "../../app/lastOp";
+import { toThree, toUnity, unityEulerToQuat, type V3 } from "../../core/coords";
+import { deltaBetween, transformCustom } from "../../core/transform";
 import { arr3, type CustomObjectEntry } from "../../core/types";
 import { copySelection, hasClipboard, paste } from "../../map/clipboard";
 import { pieceName, uniqueName } from "../../map/names";
-import { newUid, unlocked, useEditor, type Selection } from "../../map/store";
+import { history } from "../../map/history";
+import { newUid, unlocked, useEditor, type LastAdd, type Selection } from "../../map/store";
 import { type ModelData } from "../../model/build";
-import { newCurve, type CurveData } from "../../model/curve";
+import { presetCurve, type CurvePreset } from "../../model/curve";
 import { primitive, PRIMITIVES, type PrimitiveId } from "../../model/mesh";
 import { geometryToOrigin, isModelled, mirrorLocal, originTo, originToGeometry, shade } from "../../model/objectOps";
 import { newCurveObject, newModelObject } from "../../model/objects";
+import { fenceOf, sectionFence } from "../../pieces/fence";
+import { showHideItems } from "../../ui/Toolbar/modeHeaders";
 import type { IconName } from "../../ui/widgets/icons";
 import type { MenuItem } from "../../ui/widgets/widgets";
+import { rebuilt } from "../tools/fenceTool";
 import type { Engine } from "./engine";
+
+// Duplicate Array's settings, Blender's axes ( its X, Y, Z: the game's X, Z, Y ), the turn about its Z.
+const ARRAY_FIELDS: OpField[] = [
+  { key: "count", label: "Count",      step: 1,    min: 1,    max: 200, digits: 0 },
+  { key: "x",     label: "Offset X",   step: 0.1,  unit: "m"                       },
+  { key: "y",     label: "Offset Y",   step: 0.1,  unit: "m"                       },
+  { key: "z",     label: "Offset Z",   step: 0.1,  unit: "m"                       },
+  { key: "turn",  label: "Rotation Z", step: 1,    unit: "°", digits: 1            },
+  { key: "scale", label: "Scale",      step: 0.01, min: 0.01, max: 10              },
+];
 
 // The view's menus ( Object, Add, Move to Collection ) and their operators.
 export class ViewportMenus {
   constructor( private engine: Engine ) {}
 
+  // what the last Shift+D copied and what it made ( Shift+R does it again from the copies, as far again )
+  private lastDup: { from: Selection[]; made: Selection[] } | null = null;
+
   /**
    * Blender's Shift+D: a copy of what's selected, moving with the mouse ( a click puts it down, Esc takes it back ).
   **/
   duplicateAndGrab() {
+    const from = useEditor.getState().selection;
     const made = useEditor.getState().duplicateSelected();
-    if ( made.length ) queueMicrotask( () => this.engine.gizmo.startObjectModal( "translate" ) );
+    if ( !made.length ) return;
+    this.lastDup = { from, made: useEditor.getState().selection };
+    queueMicrotask( () => this.engine.gizmo.startObjectModal( "translate" ) );
+  }
+
+  /**
+   * Blender's Shift+R ( Repeat Last, for a duplicate ): the copies copied again, as far on from them as they went from
+   * what they were copied from.
+  **/
+  repeatDuplicate() {
+    const d = this.lastDup, st = useEditor.getState();
+    if ( !d || !d.from.length || !d.made.length ) return false;
+    const at = ( s: Selection ): V3 | null => {
+      if ( s.kind === "custom" ) { const o = st.customObjects.find( ( x ) => x.uid === s.uid ); return o ? [o.position.x, o.position.y, o.position.z] : null; }
+      if ( s.kind === "object" ) return st.objects.find( ( x ) => x.uid === s.uid )?.position ?? null;
+      if ( s.kind === "spawn"  ) return st.spawns.find( ( x ) => x.uid === s.uid )?.position ?? null;
+      return null;
+    };
+    const a = at( d.from[0] ), b = at( d.made[0] );
+    if ( !a || !b ) return false;
+    st.setSelection( d.made );
+    st.duplicateArray( 1, [b[0] - a[0], b[1] - a[1], b[2] - a[2]] );
+    this.lastDup = { from: d.made, made: useEditor.getState().selection };
+    return true;
+  }
+
+  /**
+   * Map-Tools' Duplicate X Times: copies of the selection in a row ( count, offset, turn and scale per copy, adjusted
+   * after in the view's corner ).
+  **/
+  duplicateArray() {
+    const st = useEditor.getState();
+    if ( !unlocked( st, st.selection ).length ) return;
+    doOp( "Duplicate Array", ARRAY_FIELDS, { count: 3, x: 2, y: 0, z: 0, turn: 0, scale: 1 }, ( v ) =>
+      useEditor.getState().duplicateArray( v.count, [v.x, v.z, v.y], -v.turn, v.scale ) );
   }
 
   /**
@@ -74,6 +127,14 @@ export class ViewportMenus {
   }
 
   /**
+   * Shift+S: Blender's Snap menu, at the mouse.
+  **/
+  snapMenu() {
+    const snap = this.objectMenuItems().find( ( i ) => i.label === "Snap" )?.sub;
+    if ( snap ) this.menuAtMouse( "Snap", snap );
+  }
+
+  /**
    * The Object menu's operators ( the right-click menu, and the header's Object menu ).
   **/
   objectMenuItems(): MenuItem[] {
@@ -107,16 +168,21 @@ export class ViewportMenus {
         { label: "Origin to Geometry", run: each( "Origin to geometry", originToGeometry ) },
         { label: "Origin to 3D Cursor", run: each( "Origin to 3D cursor", ( o ) => originTo( o, cursor() ) ) },
       ] },
+      { label: "Make Repeat", disabled: sel.length !== 1 || !!fenceOf( sel[0] ), run: () => void this.makeFence() },
       { sep:   true,                    label:    "" },
       { label: "Copy Objects",          bl:       "copydown", keys: "Ctrl C", run: () => void copySelection() },
       { label: "Paste Objects",         bl:       "pastedown", keys: "Ctrl V", disabled: !hasClipboard(), run: () => void paste() },
       { sep:   true,                    label:    "" },
       { label: "Duplicate Objects",     bl:       "duplicate", keys: "Shift D", run: () => this.duplicateAndGrab() },
+      { label: "Duplicate Array…",      bl:       "duplicate", run: () => this.duplicateArray() },
+      { label: "Repeat Duplicate",      keys:     "Shift R", disabled: !this.lastDup, run: () => this.repeatDuplicate() },
       { sep:   true,                    label:    "" },
       { label: "Rename Active Object…", keys:     "F2", run: () => this.renameActive() },
       { sep:   true,                    label:    "" },
+      { label: "Show/Hide",             sub:      showHideItems() },
+      { sep:   true,                    label:    "" },
       { label: "Mirror",                disabled: noModels, sub: ( ["X", "Y", "Z"] as const ).map( ( a, i ) => ( { label: `${a} Local`, run: each( `Mirror ${a}`, ( o ) => mirrorLocal( o, ( [0, 2, 1] as const )[i] ) ) } ) ) },
-      { label: "Snap", sub: [
+      { label: "Snap", keys: "Shift S", sub: [
         { label: "Selection to Cursor", run: moveTo( () => cursor(), "Selection to cursor" ) },
         { label: "Selection to Grid",   run: moveTo( ( o ) => grid( toThree( arr3( o.position ) ) ), "Selection to grid" ) },
         { label: "Cursor to Selected",     disabled: !sel.length, run: () => setCursor( sel.reduce( ( a, o ) => a.add( toThree( arr3( o.position ) ) ), new THREE.Vector3() ).divideScalar( sel.length ) ) },
@@ -130,8 +196,8 @@ export class ViewportMenus {
   }
 
   /**
-   * Shift+A ( or the Add button: `anchor`, its place ): primitives and curve pieces, added sitting on the floor under
-   * the mouse ( from the button: the stage's middle ), upright on the stage.
+   * Shift+A ( or the Add button: `anchor`, its place ): primitives, added sitting on the floor under the mouse ( from
+   * the button: the stage's middle ), upright on the stage.
   **/
   addMenu( anchor?: DOMRect ) {
     const r     = this.engine.host.getBoundingClientRect();
@@ -145,41 +211,94 @@ export class ViewportMenus {
     }
     // `up` metres above the place
     const onMap = ( up: number ): V3 => toUnity( at.clone().add( new THREE.Vector3( 0, up, 0 ) ) );
-    const add   = ( id: PrimitiveId, name: string ) => () => {
-      const mesh = primitive( id );
-      if ( this.engine.modelEd.uid ) return this.engine.modelEd.addInto( mesh, this.engine.modelEd.toPiece( at ) );
+    const add   = ( id: PrimitiveId ) => () => {
+      const into = !!this.engine.modelEd.uid;
+      if ( into ) return this.addPrimitive( { uid: this.engine.modelEd.uid!, id, opts: {}, at: this.engine.modelEd.toPiece( at ), rot: [0, 0, 0], into } );
       // on the map: sitting on the ground ( a flat one just above it ); in Assets, its middle at the cursor
-      const low            = Math.min( ...mesh.v.map( ( p ) => p[1] ) );
-      const o              = newModelObject( newUid(), mesh, onMap( this.engine.stage.shown ? 0 : Math.max( 0.002, -low ) ) );
-      const sel: Selection = { kind: "custom", uid: o.uid };
-      useEditor.getState().addCustom( o, name );
-      useEditor.getState().setSelection( [sel] );
+      const low = Math.min( ...primitive( id ).v.map( ( p ) => p[1] ) );
+      this.addPrimitive( { uid: newUid(), id, opts: {}, at: onMap( this.engine.stage.shown ? 0 : Math.max( 0.002, -low ) ), rot: [0, 0, 0], into } );
     };
-    const curve = ( label: string, pts: V3[], p: Partial<CurveData> = {}, sharp: number[] = [], jib = true ) => ( {
-      label,
-      icon: "rail" as const,
-      run: () => {
-        const c = { ...newCurve( pts ), ...p };
-        for ( const i of sharp ) c.splines[0].points[i].sharp = true;
-        const o = newCurveObject( newUid(), c, onMap( jib && !this.engine.stage.shown ? 0.6 : 0 ), jib );
-        useEditor.getState().addCustom( o, label );
-        useEditor.getState().setSelection( [{ kind: "custom", uid: o.uid }] );
-      },
-    } );
     const icons: Record<PrimitiveId, IconName> = {
       plane:    "primPlane",  cube:      "cube",          circle: "primCircle", cylinder: "primCylinder", cone: "primCone",
       uvsphere: "primSphere", icosphere: "primIcosphere", torus:  "primTorus",  grid:     "primGrid",
     };
     const items: MenuItem[] = [
-      ...PRIMITIVES.map( ( p ) => ( { label: p.label, icon: icons[p.id], bl: `mesh_${p.id}`, run: add( p.id, p.label ) } ) ),
-      { sep: true, label: "" },
-      curve( "Rail",        [[-2,   0,   0 ], [2,  0,   0  ]] ),
-      curve( "Kinked Rail", [[-3,   0.6, 0 ], [-1, 0.6, 0  ], [3, -0.6, 0]], {}, [1] ),
-      curve( "Curved Rail", [[-2.5, 0,   -1], [0,  0,   0.6], [2.5, 0, -1]] ),
-      curve( "Box Rail",    [[-2,   0,   0 ], [2,  0,   0  ]], { profile: "square", radius: 0.08 } ),
-      curve( "Flat Bar",    [[-2,   0,   0 ], [2,  0,   0  ]], { profile: "flat", radius: 0.04, thickness: 0.004 } ),
-      curve( "Pipe Leg",    [[0,    0,   0 ], [0,  0.6, 0  ]], { radius: 0.03 }, [], false ),
+      ...PRIMITIVES.map( ( p ) => ( { label: p.label, icon: icons[p.id], bl: `mesh_${p.id}`, run: add( p.id ) } ) ),
     ];
     window.dispatchEvent( new CustomEvent( "viewport-menu", { detail: { ...place, title: "Add", items } } ) );
+  }
+
+  /**
+   * A primitive added ( Add › Mesh ): a new piece, or in Edit Mode into the mesh being edited, selected; kept as the
+   * last thing done, to be done again with other settings ( Blender's Adjust Last Operation ).
+  **/
+  addPrimitive( a: Omit<LastAdd, "made"> ) {
+    const name = PRIMITIVES.find( ( p ) => p.id === a.id )!.label;
+    const turn = unityEulerToQuat( a.rot );
+    let mesh   = primitive( a.id, a.opts );
+    if ( a.into ) {
+      mesh = { ...mesh, v: mesh.v.map( ( p ) => toUnity( toThree( p ).applyQuaternion( turn ) ) ) };
+      this.engine.modelEd.addInto( mesh, a.at );
+      const made = useEditor.getState().customObjects.find( ( o ) => o.uid === a.uid )?.model?.mesh;
+      if ( made ) useEditor.setState( { lastAdd: { ...a, made } } );
+      return;
+    }
+    const plain = newModelObject( a.uid, mesh, a.at );
+    const o     = a.rot.some( ( x ) => x ) ? transformCustom( plain, deltaBetween( { pos: a.at, rot: [0, 0, 0], scl: [1, 1, 1] }, { pos: a.at, rot: a.rot, scl: [1, 1, 1] } ) ) : plain;
+    useEditor.getState().addCustom( o, name );
+    useEditor.getState().setSelection( [{ kind: "custom", uid: o.uid }] );
+    const made = useEditor.getState().customObjects.find( ( x ) => x.uid === a.uid );
+    if ( made ) useEditor.setState( { lastAdd: { ...a, made } } );
+  }
+
+  /**
+   * The selected piece made a repeat ( pieces/fence.ts, sectionFence ): a section of it where the piece stood, the piece
+   * gone into it ( one undo step ); picked, to be pulled out longer as a lift is.
+  **/
+  async makeFence() {
+    const st = useEditor.getState();
+    const o  = unlocked( st, st.selection ).map( ( s ) => st.customObjects.find( ( x ) => x.uid === s.uid ) ).find( ( x ) => !!x );
+    if ( !o || fenceOf( o ) ) return st.toast( "Select one piece to repeat", "info" );
+    const local = await this.engine.customR.localVertices( o );
+    if ( !local?.length ) return st.toast( "That piece has no mesh to repeat", "info" );
+    // ( changed meanwhile: left as it is )
+    const now = useEditor.getState();
+    if ( !now.customObjects.includes( o ) ) return;
+    const fence = rebuilt( sectionFence( newUid(), o, local ) );
+    now.setSelection( [{ kind: "custom", uid: o.uid }] );
+    now.removeSelected();
+    useEditor.getState().addCustom( fence, `${pieceName( now, o )} repeat` );
+    history.mergeLast( 2, "Make repeat" );
+    // ( a jib's repeat: its rail found along it, in the same undo step )
+    await this.engine.fenceTool.railAgain( fence.uid, true );
+    return fence.uid;
+  }
+
+  /**
+   * The last Add › Mesh done again with other settings: taken back ( its undo step ), then added as they say.
+  **/
+  redoAdd( a: Omit<LastAdd, "made"> ) {
+    history.undo();
+    this.addPrimitive( a );
+  }
+
+  /**
+   * A curve piece added at `at` ( Unity ), selected; on the map, a rail's points out to be moved straight away.
+  **/
+  addCurve( p: CurvePreset, at: V3 ) {
+    const o = newCurveObject( newUid(), presetCurve( p ), at, p.jib );
+    useEditor.getState().addCustom( o, p.label );
+    useEditor.getState().setSelection( [{ kind: "custom", uid: o.uid }] );
+    if ( p.jib && !this.engine.stage.shown ) useEditor.setState( { railEdit: { uid: o.uid, point: null } } );
+    return o.uid;
+  }
+
+  /**
+   * The Design workspace's Add › Rail: a curve piece where the view looks, on the ground.
+  **/
+  addCurveInView( p: CurvePreset ) {
+    const r  = this.engine.host.getBoundingClientRect();
+    const at = this.engine.pickTerrain( r.width / 2, r.height / 2 ) ?? this.engine.controls.target.clone();
+    return this.addCurve( p, toUnity( at.add( new THREE.Vector3( 0, p.jib ? 0.6 : 0, 0 ) ) ) );
   }
 }

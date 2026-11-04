@@ -25,11 +25,11 @@ import { type CustomCollider, type CustomObjectEntry, type Rail, arr3, xyz } fro
 import { placeWith, railColliders } from "./colliders";
 import { type P3, PER_BODY_Z_UP, PROUD, isRailCollider, isStudioCollider, vec } from "./common";
 import { keepClear } from "./fit";
-import { toPiece } from "./frame";
+import { railFromView, toPiece } from "./frame";
 import { simplify } from "./shape";
 
 export { RAIL_MARK, type P3, PART_MARK, isRailCollider, isStudioCollider } from "./common";
-export { toView, toPiece, dirToView, dirToPiece } from "./frame";
+export { toView, toPiece, dirToView, dirToPiece, railToView, railFromView, railScaled, scaleOf } from "./frame";
 export { surfacePoints, autoRail, straightRail } from "./shape";
 export { railPath, unityEuler, railColliders } from "./colliders";
 export { keepClear, fitParts } from "./fit";
@@ -55,6 +55,7 @@ export function withRail( o: CustomObjectEntry, rail: Rail ): CustomObjectEntry 
   const r: Rail = {
     points:     rail.points,
     radius:     rail.radius,
+    ...( rail.box ? { box: rail.box } : {} ),
     ...( rail.up ? { up: rail.up } : {} ),
     prevMethod: o.rail?.prevMethod ?? rail.prevMethod ?? o.intended_up_method,
     solid,
@@ -65,6 +66,12 @@ export function withRail( o: CustomObjectEntry, rail: Rail ): CustomObjectEntry 
   const body = !solid ? [] : parts && !whole ? placeWith( o, keepClear( parts, r ) ) : own.map( ( c ) => ( { ...c, surface_type: "Generic" as const } ) );
   return { ...o, rail: r, intended_up_method: PER_BODY_Z_UP, colliders: [...body, ...railColliders( o, r )] };
 }
+
+/**
+ * A piece moved, turned or scaled, its rail's colliders made again where it is now, at its size ( scaled along with
+ * the rest, they stretched ): unchanged without a rail.
+**/
+export const withRailAgain = ( o: CustomObjectEntry ): CustomObjectEntry => ( o.rail ? withRail( o, o.rail ) : o );
 
 /**
  * The piece as it was before its rail: its own colliders back ( grinding again ), its setting back.
@@ -87,6 +94,10 @@ export function recoverRail( o: CustomObjectEntry ): CustomObjectEntry | null {
   const caps = o.colliders.filter( isRailCollider );
   if ( o.rail || !caps.length ) return null;
   const ends: P3[] = [];
+  // ( capsules made at the piece's size, not scaled with it ( railColliders ): their centres a rail's points by
+  // railFromView; ones from before, scaled with it, its own coordinates )
+  const sized = caps.every( ( c ) => Math.abs( Math.abs( c.local_scale.y ) - 1 ) < 1e-6 );
+  const back  = ( v: THREE.Vector3 ): P3 => ( sized ? railFromView( o, { radius: Math.max( 0.005, caps[0].radius - PROUD ) }, v ) : toPiece( o, v ) );
   caps.forEach( ( c, i ) => {
     const s        = Math.abs( c.local_scale.y ) || 1;
     const centre   = toThree( arr3( c.local_position ) );
@@ -95,8 +106,8 @@ export function recoverRail( o: CustomObjectEntry ): CustomObjectEntry | null {
     // the first and last capsules' round tips reach the rail's ends ( see railColliders )
     const a        = centre.clone().addScaledVector( axis, -( straight + ( i === 0 ? c.radius * s : 0 ) )         );
     const b        = centre.clone().addScaledVector( axis, straight + ( i === caps.length - 1 ? c.radius * s : 0 ) );
-    if ( i === 0 ) ends.push( toPiece( o, a ) );
-    ends.push( toPiece( o, b ) );
+    if ( i === 0 ) ends.push( back( a ) );
+    ends.push( back( b ) );
   } );
   const length                 = ends.slice( 1 ).reduce( ( d, p, i ) => d + vec( p ).distanceTo( vec( ends[i] ) ), 0 );
   const own                    = o.colliders.filter( ( c ) => !isStudioCollider( c ) );

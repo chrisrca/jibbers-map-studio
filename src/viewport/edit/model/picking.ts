@@ -48,6 +48,17 @@ export class ModelPicking {
   }
 
   /**
+   * The face under a screen point and where on it ( the 3D view ).
+  **/
+  faceHit( x: number, y: number ): { f: number; at: THREE.Vector3 } | null {
+    const o = this.ed.obj();
+    const h = o ? this.faceAt( o, x, y ) : null;
+    if ( !h ) return null;
+    const ray = this.ed.view.ray( x, y ).ray;
+    return { f: h.f, at: ray.origin.clone().addScaledVector( ray.direction, h.d ) };
+  }
+
+  /**
    * Whether a point of the piece can be seen ( no face in front of it ).
   **/
   visible( o: CustomObjectEntry & { model: ModelData }, p: THREE.Vector3, tris = this.tris( o ) ) {
@@ -77,6 +88,17 @@ export class ModelPicking {
       } );
       return ( best as { v: number } | null )?.v ?? null;
     }
+    return this.pickEdge( x, y, 10, tris );
+  }
+
+  /**
+   * The edge nearest a screen point, within `reach` pixels, that can be seen there ( whatever the select mode: loops
+   * and Loop Cut go by edges ).
+  **/
+  pickEdge( x: number, y: number, reach = 30, tris?: Tri[] ): string | null {
+    const o = this.ed.obj();
+    if ( !o ) return null;
+    const g                                   = o.model.mesh, M = this.ed.matrix( o ), vis = this.ed.shown( g ), seen = tris ?? this.tris( o );
     let best: { k: string; d: number } | null = null;
     for ( const [k, e] of edgesOf( g ) ) {
       if ( !vis.e.has( k ) ) continue;
@@ -85,8 +107,8 @@ export class ModelPicking {
       const dx       = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
       const t        = Math.max( 0, Math.min( 1, ( ( x - ax ) * dx + ( y - ay ) * dy ) / l2 ) );
       const d        = Math.hypot( ax + dx * t - x, ay + dy * t - y );
-      if ( d > 10 || ( best && d >= best.d ) ) continue;
-      if ( !this.visible( o, wa.clone().lerp( wb, t ), tris ) ) continue;
+      if ( d > reach || ( best && d >= best.d ) ) continue;
+      if ( !this.visible( o, wa.clone().lerp( wb, t ), seen ) ) continue;
       best = { k, d };
     }
     return best?.k ?? null;
@@ -95,7 +117,8 @@ export class ModelPicking {
   selectOnly( el: number | string | null, extend: boolean ) {
     const o = this.ed.obj();
     if ( !o ) return;
-    const g = o.model.mesh;
+    const g   = o.model.mesh;
+    const was = this.ed.snapshot();
     if ( el === null ) {
       if ( !extend ) this.ed.sel = emptySel();
     } else if ( typeof el === "string" ) {
@@ -112,6 +135,7 @@ export class ModelPicking {
       this.ed.sel = selFromVerts( g, verts );
     }
     this.ed.active = el;
+    this.ed.selected( was );
     this.ed.sync();
     this.ed.publish();
   }
@@ -119,11 +143,13 @@ export class ModelPicking {
   setMode( mode: SelectMode ) {
     const o = this.ed.obj();
     if ( !o ) return;
+    const was      = this.ed.snapshot();
     this.ed.mode   = mode;
     const g        = o.model.mesh;
     // as Blender converts: faces keep only fully selected ones
     this.ed.sel    = mode === "face" ? selFromFaces( g, [...this.ed.sel.f] ) : mode === "edge" ? selFromEdges( g, [...this.ed.sel.e] ) : selFromVerts( g, [...this.ed.sel.v] );
     this.ed.active = null;
+    this.ed.selected( was );
     this.ed.sync();
     this.ed.publish();
   }
@@ -131,8 +157,10 @@ export class ModelPicking {
   selectAll( on: boolean ) {
     const o = this.ed.obj();
     if ( !o ) return;
+    const was   = this.ed.snapshot();
     const vis   = this.ed.shown( o.model.mesh );
     this.ed.sel = on ? selFromVerts( o.model.mesh, o.model.mesh.v.map( ( _, i ) => i ).filter( ( i ) => vis.v.has( i ) ) ) : emptySel();
+    this.ed.selected( was );
     this.ed.sync();
     this.ed.publish();
   }

@@ -7,6 +7,7 @@ import { terrain } from "../../terrain/terrain";
 import { testRun, useEditor } from "../store";
 import { rememberRecent } from "./recent";
 import { currentProject, saveProject } from "./save";
+import { mapIdFrom } from "../mapId";
 import { meta, uuid } from "./state";
 
 export async function exportToGame() {
@@ -31,10 +32,11 @@ export async function exportToGame() {
     await import( "../../model/export" ).then( ( m ) => m.updateModelMeshes() ).catch( ( e ) => st.toast( `The modelled pieces weren't exported: ${e}`, "error" ) );
     // a map in the game with this id that this project didn't write ( the one it was imported from, or another
     // project's ): replaced only when you say so
-    const target = joinPath( ( await ipc.appInfo() ).mapsDir, `${st.map!.id}.jbrmap` );
-    const there  = await ipc.fileStamp( target ).catch( () => null );
-    const was    = meta.exported;
-    const ours   = was && there && was.id === st.map!.id && was.bytes === there[0] && Math.abs( was.modified - there[1] ) < 2000;
+    const mapsDir = ( await ipc.appInfo() ).mapsDir;
+    const target  = joinPath( mapsDir, `${st.map!.id}.jbrmap` );
+    const there   = await ipc.fileStamp( target ).catch( () => null );
+    const was     = meta.exported;
+    const ours    = was && there && was.id === st.map!.id && was.bytes === there[0] && Math.abs( was.modified - there[1] ) < 2000;
     if ( there && !ours && !testRun.active ) {
       st.setBusy( null );
       const name = st.map!.name.replace( /<[^>]*>/g, "" ).trim() || "This map";
@@ -49,7 +51,9 @@ export async function exportToGame() {
       if ( !a ) return null;
       st.setBusy( "Exporting…" );
       if ( a.id === "new" ) {
-        useEditor.setState( ( s ) => ( { map: s.map && { ...s.map, id: uuid(), name: a.text }, dirty: true } ) );
+        // ( its id from the new name, as its file in the game; a new one when that's the same )
+        const named = mapIdFrom( a.text );
+        useEditor.setState( ( s ) => ( { map: s.map && { ...s.map, id: named && named !== s.map.id ? named : uuid(), name: a.text }, dirty: true } ) );
         rememberRecent( dir, a.text, useEditor.getState().map!.id );
       }
     }
@@ -57,6 +61,12 @@ export async function exportToGame() {
     const r     = await ipc.exportProject( dir );
     // what was written, so the next export knows it's its own
     const stamp = await ipc.fileStamp( r.path ).catch( () => null );
+    // the map's id changed since its last export: the copy under the old id goes ( when it's still as written then )
+    if ( was && was.id !== useEditor.getState().map!.id ) {
+      const old  = joinPath( mapsDir, `${was.id}.jbrmap` );
+      const then = await ipc.fileStamp( old ).catch( () => null );
+      if ( then && then[0] === was.bytes && Math.abs( then[1] - was.modified ) < 2000 ) await ipc.recycle( old ).catch( () => {} );
+    }
     if ( stamp ) {
       meta.exported = { id: useEditor.getState().map!.id, bytes: stamp[0], modified: stamp[1] };
       await ipc.saveProject( dir, currentProject()! );
@@ -89,6 +99,9 @@ export async function playInGame() {
   try {
     const outcome = await ipc.playInGame( id, embed );
     useEditor.setState( ( s ) => ( { gameLaunch: s.gameLaunch && { ...s.gameLaunch, started: true } } ) );
+    // the game given the focus back ( pressing Play took it ), in the Game tab or popped out: without it the game's
+    // camera takes no look input, the drone neither turns nor moves ( a game just starting takes it itself )
+    if ( outcome === "reloaded" ) await ipc.gameFocus().catch( () => {} );
     const messages = {
       reloaded:  ["Reloading your map in Jibbers",  "success"],
       restarted: ["Restarting Jibbers on your map", "success"],

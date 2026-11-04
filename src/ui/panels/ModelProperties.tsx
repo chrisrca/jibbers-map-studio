@@ -3,6 +3,7 @@
 import type { CustomObjectEntry } from "../../core/types";
 import { evaluate, MODIFIERS, type ModelData, type Modifier } from "../../model/build";
 import { builtOf, lodPreview, withModel } from "../../model/objects";
+import { archPoints, type ArchShape } from "../../model/curve";
 import { useEffect, useState } from "react";
 import { getEngine } from "../Viewport";
 import { NumberField } from "../widgets/controls";
@@ -47,6 +48,11 @@ export function modelRows( { o, set, commit, only }: { o: CustomObjectEntry & { 
   );
   const c        = model.curve;
   const putCurve = ( p: Partial<NonNullable<ModelData["curve"]>> ) => put( { curve: { ...c!, ...p } } );
+  // ( a new arch shape: its points again )
+  const putArch  = ( p: Partial<ArchShape> ) => {
+    const arch = { ...c!.arch!, ...p };
+    putCurve( { arch, splines: [{ closed: false, points: archPoints( arch ).map( ( q ) => ( { p: q, r: 1, sharp: false } ) ) }] } );
+  };
   return (
     <>
       { c && only !== "modifiers" && (
@@ -76,6 +82,17 @@ export function modelRows( { o, set, commit, only }: { o: CustomObjectEntry & { 
           <NumberField value={c.resolution} step={1} min={1} max={64} digits={0} onChange={( resolution ) => putCurve( { resolution: Math.round( resolution ) } )} onCommit={commit} />
           <label />
           <label className="check"><input type="checkbox" checked={c.caps} onChange={( e ) => { putCurve( { caps: e.target.checked } ); commit(); }} /> Close the ends</label>
+          { c.arch && (
+            <>
+              <div className="section">Arch</div>
+              { ( [["span", "Span", 0.1, 0.5, 100, "m"], ["height", "Height", 0.1, 0.05, 50, "m"], ["exponent", "Shape", 0.05, 0.2, 4, undefined], ["twist", "Twist", 0.1, -50, 50, "m"], ["points", "Points", 1, 3, 64, undefined]] as const ).map( ( [k, label, step, min, max, unit] ) => (
+                <div key={k} style={{ display: "contents" }}>
+                  <label>{label}</label>
+                  <NumberField value={c.arch![k]} step={step} min={min} max={max} digits={k === "points" ? 0 : 2} unit={unit} onChange={( v ) => putArch( { [k]: k === "points" ? Math.round( v ) : v } )} onCommit={commit} />
+                </div>
+              ) ) }
+            </>
+          ) }
         </>
       ) }
       { only !== "data" && <>

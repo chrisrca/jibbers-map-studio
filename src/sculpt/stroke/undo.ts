@@ -2,7 +2,7 @@
 // whole stroke one undo step.
 
 import type { TerrainChunk, TileSnapshot } from "../../terrain/terrain";
-import { HeightWindow, liveReader, type ChunkRect, type SampleReader } from "../window";
+import { HeightWindow, liveReader, ROWS, type ChunkRect, type SampleReader, type Steps } from "../window";
 import type { BrushStroke } from "./stroke";
 
 // Snapshots and undo.
@@ -45,8 +45,8 @@ export class StrokeUndo {
    * The ground as it was when the stroke started, on `win`'s grid: the live heights, with every snapshotted
    * ( already changed ) tile copied over them.
   **/
-  original( win: HeightWindow ): Float32Array {
-    const O            = win.sameGrid( liveReader );
+  *original( win: HeightWindow ): Steps<Float32Array> {
+    const O            = yield* win.sameGridSteps( liveReader );
     const { w, h, sp } = O;
     for ( const [ci, m] of this.before ) {
       const c       = this.stroke.t.chunks[ci];
@@ -56,10 +56,12 @@ export class StrokeUndo {
         const fi  = ( sx0 - O.x0 ) / sp, fj = ( sz0 - O.z0 ) / sp;
         const sw  = ( ( snap.w - 1 ) * c.spacing ) / sp, sh = ( ( snap.h - 1 ) * c.spacing ) / sp;
         if ( fi > w - 1 || fj > h - 1 || fi + sw < 0 || fj + sh < 0 ) continue;
-        if ( !aligned || Math.abs( fi - Math.round( fi ) ) > 1e-4 || Math.abs( fj - Math.round( fj ) ) > 1e-4 ) return win.sameGrid( this.origReader ).H;
+        if ( !aligned || Math.abs( fi - Math.round( fi ) ) > 1e-4 || Math.abs( fj - Math.round( fj ) ) > 1e-4 ) return ( yield* win.sameGridSteps( this.origReader ) ).H;
         const a = Math.round( fi ), b = Math.round( fj ), base = c.position[1];
-        for ( let j = Math.max( 0, -b ); j < snap.h && b + j < h; j++ )
+        for ( let j = Math.max( 0, -b ); j < snap.h && b + j < h; j++ ) {
+          if ( j % ROWS === ROWS - 1 ) yield;
           for ( let i = Math.max( 0, -a ); i < snap.w && a + i < w; i++ ) O.H[( b + j ) * w + a + i] = snap.data[j * snap.w + i] + base;
+        }
       }
     }
     return O.H;

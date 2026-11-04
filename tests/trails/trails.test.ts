@@ -405,3 +405,51 @@ describe( "the bend", () => {
     expect( solveField( net, S, field, [] )       ).toBe( field );
   } );
 } );
+
+describe( "trails over tiles", () => {
+  // four 200 m tiles meeting at ( 200, 200 ), 1 m apart, the same slope as the one tile above
+  const tiles = () => {
+    const res = 201;
+    terrain.setChunks( [[0, 0], [200, 0], [0, 200], [200, 200]].map( ( [x, z], k ) => {
+      const h = new Float32Array( res * res );
+      for ( let j = 0; j < res; j++ ) for ( let i = 0; i < res; i++ ) h[j * res + i] = 100 + 40 - ( z + j ) * 0.1;
+      return { key: `t${k}`, position: [x, -100, z] as [number, number, number], size: [200, 400, 200] as [number, number, number], res, heights: h };
+    } ) );
+  };
+  // every sample two tiles share, as each has it: the biggest difference
+  const seam = () => {
+    let most = 0;
+    const by = new Map<string, number>();
+    for ( const c of terrain.chunks )
+      for ( let j = 0; j < c.res; j++ )
+        for ( let i = 0; i < c.res; i++ ) {
+          if ( i > 0 && j > 0 && i < c.res - 1 && j < c.res - 1 ) continue;
+          const k = `${c.position[0] + i},${c.position[2] + j}`, y = c.heights[j * c.res + i] + c.position[1], was = by.get( k );
+          if ( was === undefined ) by.set( k, y );
+          else most = Math.max( most, Math.abs( y - was ) );
+        }
+    return most;
+  };
+  const all = () => terrain.chunks.map( ( c ) => Float32Array.from( c.heights ) );
+
+  it( "a run beside where tiles meet changes their shared edges alike, and undoes exactly", () => {
+    // ( runs at many distances from the corner: some changed area ends a sample short of a tile's edge )
+    for ( let off = 0; off < 30; off += 1.37 ) {
+      tiles();
+      history.clear();
+      resetTrailGround();
+      const was               = all();
+      const a                 = { id: trailId( "n" ), p: [150 + off, 15, 120] as [number, number, number] }, b = { id: trailId( "n" ), p: [170 + off, 9, 185 + off] as [number, number, number] };
+      const net: TrailNet     = { nodes: [a, b], runs: [] };
+      net.runs.push( newRun( net, a.id, b.id, 12 ) );
+      commitNet( net, S, "Add run", () => {} );
+      expect( seam() ).toBeLessThan( 1e-3 );
+      history.undo();
+      expect( seam() ).toBeLessThan( 1e-3 );
+      const now = all();
+      let back  = 0;
+      for ( const [k, h] of now.entries() ) for ( let q = 0; q < h.length; q++ ) back = Math.max( back, Math.abs( h[q] - was[k][q] ) );
+      expect( back ).toBeLessThan( 1e-3 );
+    }
+  } );
+} );

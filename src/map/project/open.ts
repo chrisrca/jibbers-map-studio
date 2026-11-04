@@ -6,8 +6,10 @@ import { type CustomObjectEntry, type PlaceholderInfo, type Project, isScenery }
 import { resetPaint } from "../../paint/ground";
 import { leaveAssetsForNewMap } from "../../pieces/assetScene";
 import { fitMissingParts, fixJibs, refreshGameLook, undoUpMethodSwitch } from "../../pieces/library";
-import { recoverRail, withRail } from "../../pieces/rail";
+import { fenceOf, isRepeat, withFence } from "../../pieces/fence";
+import { PART_MARK, RAIL_MARK, recoverRail, withRail } from "../../pieces/rail";
 import type { NewMapOptions } from "../../terrain/generate";
+import { dropShapeEdit } from "../../terrain/shapes/edits";
 import { type Shape, resetShapes } from "../../terrain/shapes/shapes";
 import { type ChunkInit, terrain } from "../../terrain/terrain";
 import { loadPieceTextures, resetPieceTextures } from "../../texture/meshPaint";
@@ -75,6 +77,7 @@ async function applyProject( dir: string, p: Project, heights: Float32Array[] ) 
     spawns:           p.spawns,
     customObjects,
     locked:           Object.fromEntries( locked.map( ( u ) => [u, true as const] ) ),
+    hiddenInView:     Object.fromEntries( ( editor.hidden ?? [] ).map( ( u ) => [u, true as const] ) ),
     collections:      editor.collections ?? [],
     membership:       editor.membership ?? {},
     labels:           editor.labels ?? {},
@@ -89,6 +92,7 @@ async function applyProject( dir: string, p: Project, heights: Float32Array[] ) 
   terrain.setChunks( inits );
   // shapes are already baked into the saved heights; edits from here on re-apply relative to that
   resetShapes();
+  dropShapeEdit();
   useEditor.setState( { shapes: ( editor.shapes ?? [] ) as Shape[] } );
   await loadTrailData( dir, editor.trails );
 
@@ -120,6 +124,17 @@ async function applyProject( dir: string, p: Project, heights: Float32Array[] ) 
     useEditor.setState( { customObjects: jibs.list, dirty: true } );
     useEditor.getState().toast( `Turned ${jibs.fixed} piece${jibs.fixed > 1 ? "s" : ""} the right way up: no different to look at, but the game was reading the underside as the top`, "info" );
   }
+  // repeats made of a piece with its rail on ( its capsules copied into every section, its solid set aside, so only the
+  // rail could be hit ): the section's own colliders kept, the repeat made again over the ground, solid
+  const list   = useEditor.getState().customObjects;
+  const mended = list.map( ( o ) => {
+    const f = fenceOf( o ), sec = f?.style.infill.section;
+    if ( !f || !isRepeat( f ) || !sec?.colliders.some( ( c ) => c.mesh_ref === RAIL_MARK || c.mesh_ref === PART_MARK ) ) return o;
+    const colliders = sec.colliders.filter( ( c ) => c.mesh_ref !== RAIL_MARK ).map( ( c ) => ( c.mesh_ref === PART_MARK ? { ...c, mesh_ref: "" } : c ) );
+    const fixed     = { ...o, fence: { ...f, style: { ...f.style, infill: { ...f.style.infill, section: { ...sec, colliders } } } } } as CustomObjectEntry;
+    return withFence( fixed, ( x, z ) => terrain.heightAt( x, z ), ( uid ) => list.find( ( q ) => q.uid === uid ) );
+  } );
+  if ( mended.some( ( o, i ) => o !== list[i] ) ) useEditor.setState( { customObjects: mended, dirty: true } );
   // pieces placed from assets saved over since
   void import( "../../pieces/assetFiles" ).then( ( m ) => m.catchUpPlaced() ).then( ( n ) => n && useEditor.getState().toast( `Updated ${n} piece${n > 1 ? "s" : ""} from assets saved since`, "info" ) );
 }
@@ -155,12 +170,13 @@ export async function closeProject() {
   await ipc.gameRelease().catch( () => {} );
   history.clear();
   resetShapes();
+  dropShapeEdit();
   resetPaint();
   resetPieceTextures();
   terrain.setChunks( [] );
   useEditor.setState( {
     projectDir:  null, map: null, objects: [], spawns: [], customObjects: [], shapes: [], selection: [],
-    collections: [], membership: {}, labels: {}, activeCollection: null, locked: {},
+    collections: [], membership: {}, labels: {}, activeCollection: null, locked: {}, hiddenInView: {},
     library:     null, chunkExtras: {}, dirty: false, centerTab: "editor", tool: "select", gameCopy: "none", lastSavedAt: null,
   } );
 }

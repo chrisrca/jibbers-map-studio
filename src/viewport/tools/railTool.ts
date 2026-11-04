@@ -5,7 +5,7 @@
 
 import * as THREE from "three/webgpu";
 import type { CustomObjectEntry, Rail } from "../../core/types";
-import { dirToPiece, dirToView, railColliders, railPath, toPiece, toView, type P3 } from "../../pieces/rail";
+import { dirToPiece, dirToView, railColliders, railFromView, railPath, railToView, type P3 } from "../../pieces/rail";
 import { railShells, shellMaterial, shellObject } from "./grindGuide";
 
 const CURVE  = 0x4fc3ff;
@@ -94,11 +94,11 @@ export class RailTool {
    * Where point `i` is in the 3D view.
   **/
   pointInView( i: number ): THREE.Vector3 | null {
-    return this.piece && this.points[i] ? toView( this.piece, this.points[i] ) : null;
+    return this.piece?.rail && this.points[i] ? railToView( this.piece, this.piece.rail, this.points[i] ) : null;
   }
 
   toPiece( w: THREE.Vector3 ): P3 | null {
-    return this.piece ? toPiece( this.piece, w ) : null;
+    return this.piece?.rail ? railFromView( this.piece, this.piece.rail, w ) : null;
   }
 
   /**
@@ -123,7 +123,7 @@ export class RailTool {
     const o = this.piece;
     if ( !o?.rail || !this.points.length ) return;
     const rail: Rail = { ...o.rail, points: this.points, up: this.up };
-    const path       = railPath( rail ).map( ( p ) => toView( o, [p.x, p.y, p.z] ) );
+    const path       = railPath( rail ).map( ( p ) => railToView( o, rail, [p.x, p.y, p.z] ) );
     const box        = new THREE.Box3().setFromPoints( path );
     const size       = Math.max( box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z, 0.5 );
     const r          = THREE.MathUtils.clamp( size * 0.006, 0.01, 0.06 );
@@ -157,7 +157,7 @@ export class RailTool {
     if ( this.turning ) return;
     this.points.forEach( ( p, i ) => {
       const m = new THREE.Mesh( new THREE.SphereGeometry( r * ( i === this.picked ? 3.4 : 2.6 ), 16, 12 ), i === this.picked ? this.mats.picked : this.mats.handle );
-      m.position.copy( toView( o, p ) );
+      m.position.copy( railToView( o, rail, p ) );
       m.renderOrder = 1002;
       m.userData    = { index: i };
       this.group.add( m );

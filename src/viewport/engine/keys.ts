@@ -116,10 +116,14 @@ export class ViewportKeys {
     }
     // Transforms are gizmo-only: single-letter keys here would collide with fly-mode WASD/QE.
     if ( this.engine.controls.flying ) return;
+    // ( the Formation tool: Enter or Escape lets go of the picked point, to start another formation )
+    if ( ( k === "enter" || k === "escape" ) && this.engine.shapeTool?.done() ) return;
     if ( k === "f" ) this.engine.nav.frameSelection();
     else if ( st.selection.length && ( k === "delete" || k === "x" ) ) {
-      // ( a lift's mast last clicked: that mast, not the lift )
+      // ( a lift's mast last clicked: that mast, not the lift; a fence's or a formation's point, not the whole of it )
       if ( this.engine.liftTool.deleteMast() ) return;
+      if ( this.engine.fenceTool.deletePoint() ) return;
+      if ( this.engine.shapeTool?.deletePoint() ) return;
       for ( const sel of st.selection.filter( ( x ) => x.kind === "shape" ) ) deleteShape( sel.uid );
       if ( useEditor.getState().selection.length ) useEditor.getState().removeSelected();
     }
@@ -151,6 +155,11 @@ export class ViewportKeys {
       this.engine.menus.addMenu();
       return true;
     }
+    // Shift+S: the Snap menu ( Edit Mode has its own )
+    if ( k === "s" && e.shiftKey && !e.ctrlKey && !this.engine.editing && !this.engine.blGizmo.dragging ) {
+      this.engine.menus.snapMenu();
+      return true;
+    }
     // a G / R / S drag under way: X / Y / Z ( Shift: the other two ) hold it to an axis or plane, Esc lets go, Enter keeps
     if ( this.engine.blGizmo.dragging ) {
       if ( k === "escape" ) this.engine.blGizmo.cancel();
@@ -159,6 +168,8 @@ export class ViewportKeys {
       return true;
     }
     if ( this.engine.editing ) return this.engine.editing.key( e );
+    // ( Shift+R: the last duplicate again, before R's rotate )
+    if ( k === "r" && e.shiftKey && !e.ctrlKey && !e.altKey ) return this.engine.menus.repeatDuplicate();
     if ( !e.ctrlKey && !e.altKey && ( k === "g" || k === "r" || k === "s" ) ) return this.engine.gizmo.startObjectModal( ( { g: "translate", r: "rotate", s: "scale" } as const )[k] );
     if ( k === "d" && e.shiftKey && !e.ctrlKey ) {
       if ( !unlocked( st, st.selection ).length ) return false;

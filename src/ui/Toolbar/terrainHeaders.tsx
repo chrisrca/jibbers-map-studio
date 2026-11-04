@@ -14,7 +14,7 @@ import { Dropdown, NumSlider } from "../widgets/widgets";
 import { showBrushSettings } from "./tools";
 
 /**
- * The terrain view's settings ( Blender's overlay popover ): slope colours, hillshade, contour lines.
+ * The terrain view's settings ( Blender's overlay popover ): slope colours, relief, hillshade, contour lines.
 **/
 export function TerrainViewPanel() {
   const v   = useEditor( ( s ) => s.terrainView );
@@ -30,6 +30,7 @@ export function TerrainViewPanel() {
       <NumSlider label="Bands" value={v.slopeStep} min={0} max={15} step={1} fmt={( x ) => ( x ? deg( x ) : "Smooth" )} onChange={( slopeStep ) => set( { slopeStep } )} />
       <NumSlider label="Opacity" value={v.slopeOpacity} min={0.1} max={1} step={0.05} fmt={( x ) => `${Math.round( x * 100 )}%`} onChange={( slopeOpacity ) => set( { slopeOpacity } )} />
       <div className="pop-sep" />
+      <NumSlider label="Relief" value={v.relief} min={0} max={1} step={0.05} fmt={( x ) => ( x ? `${Math.round( x * 100 )}%` : "Off" )} onChange={( relief ) => set( { relief } )} />
       <NumSlider label="Hillshade" value={v.hillshade} min={0} max={1} step={0.05} fmt={( x ) => ( x ? `${Math.round( x * 100 )}%` : "Off" )} onChange={( hillshade ) => set( { hillshade } )} />
       <NumSlider label="Exaggeration" value={v.exaggeration} min={1} max={8} step={0.25} fmt={( x ) => `${x.toFixed( 2 )}×`} onChange={( exaggeration ) => set( { exaggeration } )} />
       <NumSlider label="Sun Direction" value={v.sunDir} min={0} max={359} step={1} fmt={deg} onChange={( sunDir ) => set( { sunDir } )} />
@@ -84,7 +85,7 @@ export function ShapeHeader() {
   };
   return (
     <>
-      <b><Icon name={kind === "curve" ? "shapeCurve" : kind === "circle" ? "shapeCircle" : "shapeCopy"} size={14} /> {kind === "curve" ? "Curve" : kind === "circle" ? "Circle" : "Copy"}</b>
+      <b><Icon name={kind === "curve" ? "shapeCurve" : kind === "circle" ? "shapeCircle" : kind === "formation" ? "mountain" : "shapeCopy"} size={14} /> {kind === "curve" ? "Curve" : kind === "circle" ? "Circle" : kind === "formation" ? "Formation" : "Copy"}</b>
       { kind === "curve" && (
         <div className="seg">
           { Object.entries( PROFILES ).map( ( [id, p] ) => (
@@ -101,7 +102,7 @@ export function ShapeHeader() {
             <NumberField value={set.lipAngle} step={1} min={0} max={60} digits={0} unit="°" onChange={( lipAngle ) => update( { lipAngle } )} />
           </div>
         </div>
-      ) : kind !== "stamp" && <div className="group">
+      ) : kind !== "stamp" && kind !== "formation" && <div className="group">
         <label>{kind === "curve" ? "Height" : "Depth"}</label>
         <div style={{ width: 70 }}>
           <NumberField value={set.height} step={0.1} onChange={( height ) => update( { height } )} />
@@ -116,7 +117,7 @@ export function ShapeHeader() {
         </div>
       ) }
       <span style={{ color: "var(--muted)" }}>
-        {kind === "curve" ? "Drag along the run, from the start to the lip/end" : kind === "circle" ? "Drag from the centre out" : "Drag a box over the terrain to copy, then drag the copy's centre handle to place it"} · click a shape to edit it · Del removes
+        {kind === "curve" ? "Drag along the run, from the start to the lip/end" : kind === "circle" ? "Drag from the centre out" : kind === "formation" ? "Click its outline point by point; its first point or Enter closes it" : "Drag a box over the terrain to copy, then drag the copy's centre handle to place it"} · click a shape to edit it · Del removes
       </span>
     </>
   );
@@ -170,6 +171,7 @@ export function BrushHeader() {
         </>
       ) }
       {sc.brush === "terrace" && <Num label="Step" value={b.terraceStep} step={0.25} unit="m" onChange={( terraceStep ) => set( { terraceStep } )} />}
+      {sc.brush === "erode" && <Num label="Angle" value={b.erodeAngle} step={1} unit="°" onChange={( erodeAngle ) => set( { erodeAngle } )} />}
       { sc.brush === "noise" && (
         <>
           <Num label="Size" value={b.noiseScale} step={0.5} unit="m" onChange={( noiseScale ) => set( { noiseScale } )} />

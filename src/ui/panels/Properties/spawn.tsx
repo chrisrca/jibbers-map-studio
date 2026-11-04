@@ -40,7 +40,6 @@ export function SpawnProperties( { sp, live }: { sp: SpawnEntry; live: Live } ) 
         <label>Heading</label>
         <NumberField value={heading} step={1} digits={0} unit="°" onChange={( v ) => setSpeedHeading( speed * 3.6, v )} onCommit={commit} />
         <Vec3Field label="Velocity" value={sp.velocity} digits={2} unit="m/s" onChange={( v ) => edit( ( x ) => ( { ...x, velocity: v } ) )} onCommit={commit} />
-        <div className="note">Speed is km/h. The blue line shows a frictionless ride from this spawn — use it to size jumps.</div>
       </div>
     </Panel>
   );

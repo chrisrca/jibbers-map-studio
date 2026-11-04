@@ -1,7 +1,7 @@
 // Properties editor › Brush tab in Paint mode: the paint brush's settings and the whole-map fills.
 
 import { useState, type ReactNode } from "react";
-import { allSnow, clearGrip, clearMarkings, clearPowder, rockOnSteep } from "../../paint/ground";
+import { allPowder, allSnow, clearGrip, clearMarkings, clearPowder, flowAlongTrails, flowDownhill, snowfall, type Snowfall } from "../../paint/ground";
 import { useEditor } from "../../map/store";
 import { mergeBrush, PAINT_PRESETS, type PaintBrush } from "../../paint/engine/brush";
 import { FALLOFFS } from "../../sculpt/tip";
@@ -12,6 +12,7 @@ import { MarkingSwatches } from "../widgets/MarkingSwatches";
 import { NumberField, Panel } from "../widgets/controls";
 import { BLENDS, PAINT_TOOLS } from "../Toolbar";
 import { Dropdown, NumSlider } from "../widgets/widgets";
+import { getEngine } from "../Viewport";
 
 /**
  * Puts a preset's brush ( and its hardness and strength ) on the colour brushes.
@@ -57,6 +58,14 @@ const Field = ( { label, children }: { label: string; children: ReactNode } ) =>
     <div>{children}</div>
   </>
 );
+// the corduroy brush's ways of setting the direction
+const FLOW_DIRS: { value: "drag" | "lock" | "fixed" | "smooth"; label: string }[] = [
+  { value: "drag",   label: "Along the drag" },
+  { value: "lock",   label: "First drag, held" },
+  { value: "fixed",  label: "Set angle" },
+  { value: "smooth", label: "Smooth" },
+];
+
 const Check = ( { value, onChange, label }: { value: boolean; onChange: ( v: boolean ) => void; label: string } ) => (
   <label className="check">
     <input type="checkbox" checked={value} onChange={( e ) => onChange( e.target.checked )} /> {label}
@@ -69,7 +78,8 @@ export function PaintProperties() {
   const set               = st.setPaint;
   const b                 = p.brush;
   const setB              = ( x: Partial<PaintBrush> ) => set( { brush: { ...b, ...x } } );
-  const [steep, setSteep] = useState( 38 );
+  const [fall, setFall]   = useState<Snowfall>( { rockFrom: 35, rockFull: 50, crevices: 0.5, lineLow: null, lineHigh: null } );
+  const setF              = ( x: Partial<Snowfall> ) => setFall( { ...fall, ...x } );
   const info              = PAINT_TOOLS.find( ( t ) => t.id === p.tool )!;
   const onPiece           = useEditor( ( s ) => s.tool === "material" );
   const colourTool        = onPiece;
@@ -136,6 +146,50 @@ export function PaintProperties() {
         ) }
         <Field label="Hardness">{slider( p.hardness, ( hardness ) => set( { hardness } ) )}</Field>
         {( p.tool === "powder" || p.tool === "grip" ) && <Field label="Depth">{slider( p.powder, ( powder ) => set( { powder } ), 0, 1, ( v ) => `${( v * 100 ).toFixed( 0 )} cm` )}</Field>}
+        { p.tool === "flow" && !onPiece && (
+          <>
+            <Field label="Direction">
+              <Dropdown value={p.flowDir} menuTitle="Direction" options={FLOW_DIRS} onChange={( flowDir ) => set( { flowDir } )} />
+            </Field>
+            { p.flowDir === "fixed" && (
+              <Field label="Angle">
+                <NumberField value={p.flowAngle} step={1} min={0} max={359} digits={0} unit="°" onChange={( flowAngle ) => set( { flowAngle } )} />
+              </Field>
+            ) }
+          </>
+        ) }
+
+        { !onPiece && (
+          <>
+            <div className="section">Stroke</div>
+            <Field label="Stabilize">
+              <NumberField value={p.stabilize} step={0.05} min={0} max={5} onChange={( stabilize ) => set( { stabilize } )} />
+            </Field>
+            <Field label="Stripes">
+              <div style={{ display: "flex", gap: 6 }}>
+                <NumberField value={p.stripes.count} step={1} min={1} max={12} digits={0} onChange={( count ) => set( { stripes: { ...p.stripes, count: Math.round( count ) } } )} />
+                <NumberField value={p.stripes.spacing} step={0.5} min={0.1} max={100} unit="m" onChange={( spacing ) => set( { stripes: { ...p.stripes, spacing } } )} />
+              </div>
+            </Field>
+            <div className="section">Symmetry</div>
+            <Field label="Mirror">
+              <div style={{ display: "flex", gap: 10 }}>
+                <Check value={p.symmetry.x} onChange={( x ) => set( { symmetry: { ...p.symmetry, x } } )} label="Left ↔ right" />
+                <Check value={p.symmetry.z} onChange={( z ) => set( { symmetry: { ...p.symmetry, z } } )} label="Front ↔ back" />
+              </div>
+            </Field>
+            <Field label="Radial">
+              <NumberField value={p.symmetry.radial} step={1} min={1} max={12} digits={0} onChange={( radial ) => set( { symmetry: { ...p.symmetry, radial: Math.round( radial ) } } )} />
+            </Field>
+            <Field label="Centre">
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <span className="muted">{p.symmetry.pivot ? `${p.symmetry.pivot[0].toFixed( 1 )}, ${p.symmetry.pivot[1].toFixed( 1 )}` : "map centre"}</span>
+                <button className="btn small" title="The ground in the middle of the view" onClick={() => { const c = getEngine()?.groundAtViewCentre(); if ( c ) set( { symmetry: { ...p.symmetry, pivot: c } } ); }}>View centre</button>
+                {p.symmetry.pivot && <button className="btn small" onClick={() => set( { symmetry: { ...p.symmetry, pivot: null } } )}>Map centre</button>}
+              </div>
+            </Field>
+          </>
+        ) }
 
         { colourTool && (
           <>
@@ -211,12 +265,41 @@ export function PaintProperties() {
         ) }
 
         {!onPiece && <div className="section">Fill the whole map</div>}
-        { !onPiece && <Field label="Rock on steep">
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <div style={{ width: 60 }}>
-              <NumberField value={steep} step={1} min={5} max={85} digits={0} unit="°" onChange={setSteep} />
-            </div>
-            <button className="btn small" onClick={() => run( "Painting rock on steep ground", () => rockOnSteep( steep ) )}>Apply</button>
+        { !onPiece && (
+          <>
+            <Field label="Rock from">
+              <div style={{ display: "flex", gap: 6 }}>
+                <NumberField value={fall.rockFrom} step={1} min={5} max={85} digits={0} unit="°" onChange={( rockFrom ) => setF( { rockFrom } )} />
+                <NumberField value={fall.rockFull} step={1} min={5} max={89} digits={0} unit="°" onChange={( rockFull ) => setF( { rockFull } )} />
+              </div>
+            </Field>
+            <Field label="Crevices">{slider( fall.crevices, ( crevices ) => setF( { crevices } ), 0, 1, pct )}</Field>
+            <Field label="Snow line">
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <Check value={fall.lineLow !== null} onChange={( on ) => setF( on ? { lineLow: 0, lineHigh: 20 } : { lineLow: null, lineHigh: null } )} label="" />
+                { fall.lineLow !== null && (
+                  <>
+                    <NumberField value={fall.lineLow} step={1} unit="m" onChange={( lineLow ) => setF( { lineLow } )} />
+                    <NumberField value={fall.lineHigh ?? fall.lineLow + 20} step={1} unit="m" onChange={( lineHigh ) => setF( { lineHigh } )} />
+                  </>
+                ) }
+              </div>
+            </Field>
+            <Field label="Snowfall">
+              <button className="btn small" onClick={() => run( "Letting the snow fall", () => snowfall( fall ) )}>Apply</button>
+            </Field>
+          </>
+        ) }
+        { !onPiece && <Field label="Corduroy">
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button className="btn small" onClick={() => run( "Laying the corduroy downhill", flowDownhill )}>Downhill</button>
+            <button className="btn small" onClick={() => run( "Laying the corduroy along the trails", flowAlongTrails )}>Along trails</button>
+          </div>
+        </Field> }
+        { !onPiece && <Field label="Powder">
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button className="btn small" title={`Powder ${Math.round( p.powder * 100 )} cm deep everywhere`} onClick={() => run( "Covering everything in powder", () => allPowder( p.powder ) )}>All</button>
+            <button className="btn small" title={`Powder ${Math.round( p.powder * 100 )} cm deep off the trails and marked pistes`} onClick={() => run( "Powder off the pistes", () => allPowder( p.powder, true ) )}>Off piste</button>
           </div>
         </Field> }
         { !onPiece && <Field label="Reset">
