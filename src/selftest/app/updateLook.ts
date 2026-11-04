@@ -25,7 +25,7 @@ export async function updateLookSelftest( dir: string ) {
     const total   = 30e6;
     let   step    = "";
     const offered = offerUpdate( {
-      version: "0.1.1",
+      version: "0.2.0",
       downloadAndInstall: async ( progress ) => {
         progress( { event: "Started", data: { contentLength: total } } );
         for ( let got = 0; got < total; got += total / 40 ) {
