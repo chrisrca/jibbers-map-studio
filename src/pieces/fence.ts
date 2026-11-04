@@ -8,13 +8,14 @@
 // a third, see-through ), with any piece of the map used for its posts or its panels copied along it beside that
 // ( "kit" parts, and their colliders ). Grindable, its top rail ( or rope, or the line over its posts ) is its rail.
 
+import * as THREE from "three/webgpu";
 import { toThree, toUnity, type V3 } from "../core/coords";
 import { pieceMatrix, transformCustom, composeUnity } from "../core/transform";
-import { xyz, type CustomCollider, type CustomMaterial, type CustomObjectEntry, type CustomPart } from "../core/types";
+import { xyz, type CustomCollider, type CustomMaterial, type CustomObjectEntry, type CustomPart, type Rail } from "../core/types";
 import { type Mesh } from "../model/mesh";
 import { evaluate, joinMeshes, newModel } from "../model/build";
 import { defaultMaterial, isModel, newModelObject, withModel } from "../model/objects";
-import { toPiece, toView, withRail } from "./rail";
+import { autoRail, PART_MARK, RAIL_MARK, toPiece, toView, withoutRail, withRail } from "./rail";
 
 export interface FenceStyle {
   // the most metres between two posts
@@ -47,6 +48,12 @@ export interface FenceStyle {
     length?:      number;
     section?:     CustomObjectEntry;
     sectionMesh?: { mesh: Mesh; materials: CustomMaterial[] };
+    // the section's own grind rail ( as the piece had it, or as found along it ), in the section's space, from its -X
+    // end to its +X: a jib repeat's rail is it laid along every gap, so it follows the path however it bends
+    sectionRail?: { points: V3[]; radius: number; box?: [number, number] };
+    // how the sections are turned ( a three.js quaternion ) and sized, each its own way: see sectionTransform
+    sectionTurn?: [number, number, number, number];
+    sectionSize?: V3;
   };
   // the colours of the posts, the rails or ropes, the net ( sRGB 0..1 ) and how see-through the net is
   postColour:  [number, number, number];
@@ -280,11 +287,17 @@ export function withFence( o: CustomObjectEntry, ground: ( x: number, z: number 
   const feet  = shape.posts.map( ( p ) => p.at ), loop = f.closed && f.points.length > 2;
   const gaps  = feet.map( ( a, i ) => ( i + 1 < feet.length || loop ? { a, b: feet[( i + 1 ) % feet.length] } : null ) )
     .filter( ( g ): g is { a: V3; b: V3 } => !!g && Math.hypot( g.b[0] - g.a[0], g.b[2] - g.a[2] ) >= 1e-3 );
+  // ( a repeat's sections turned and sized as it says, each its own way, before they're laid )
+  const turnSize = isRepeat( f ) ? sectionTransform( s.infill ) : null;
+  const shaped   = ( p: V3 ): V3 => ( turnSize ? toUnity( toThree( p ).applyMatrix4( turnSize ) ) : p );
   // ( a section modelled here: its mesh laid into every gap, as the kit's parts are below )
-  if ( own ) shape.mesh = gaps.reduce( ( m, { a, b } ) => {
-    const lay = sectionFrame( a, b, s.infill.length ?? 1 );
-    return joinMeshes( m, { ...own.mesh, v: own.mesh.v.map( lay ), m: own.mesh.m.map( ( k ) => k + made.length ) } );
-  }, shape.mesh );
+  if ( own ) {
+    const v0 = own.mesh.v.map( shaped );
+    shape.mesh = gaps.reduce( ( m, { a, b } ) => {
+      const lay = sectionFrame( a, b, s.infill.length ?? 1 );
+      return joinMeshes( m, { ...own.mesh, v: v0.map( lay ), m: own.mesh.m.map( ( k ) => k + made.length ) } );
+    }, shape.mesh );
+  }
   // ( `quick`, while a point's being moved: no colliders or grind rail, made once it's put down )
   const model = { ...newModel( shape.mesh ), ...( o.model ? { smoothAngle: o.model.smoothAngle } : {} ), ...( quick ? { colliders: "none" as const } : {} ) };
   const part  = { ...o.parts[0], materials: mats };
@@ -292,19 +305,38 @@ export function withFence( o: CustomObjectEntry, ground: ( x: number, z: number 
   // ( fenceTool's railAgain lays it along the new shape ); a fence made here is a jib along its top if it's grindable )
   const repeat = isRepeat( f ), riding = repeat ? {} : { surface_type: s.grind ? "Jib" : "Generic", can_magnetize: s.grind };
   let next     = withModel( { ...o, parts: [part], kitColliders: undefined, ...riding, rail: undefined } as CustomObjectEntry, model );
-  if ( repeat && !quick && o.rail && next.surface_type === "Jib" ) next = withRail( next, o.rail );
+  // ( a jib repeat's rail: its section's, laid along every gap as the sections are; one made before it kept its
+  // section's rail kept as it was, to be found along it again. Laid once the copies are in, below: their own
+  // colliders set aside with the rest, or each section's ran across it, grindable, as well )
+  const along     = repeat && next.surface_type === "Jib" ? s.infill.sectionRail : undefined;
+  let line: Rail | null = null;
+  if ( along && !quick ) {
+    const points: V3[] = [];
+    for ( const { a, b } of gaps )
+      for ( const p of along.points.map( shaped ).map( sectionFrame( a, b, s.infill.length ?? 1 ) ) ) {
+        const q = points[points.length - 1];
+        if ( !q || Math.hypot( p[0] - q[0], p[1] - q[1], p[2] - q[2] ) > 0.01 ) points.push( p );
+      }
+    const k = s.infill.sectionSize ?? [1, 1, 1];
+    if ( points.length > 1 ) line = { points, radius: along.radius * Math.sqrt( k[1] * k[2] ), ...( along.box ? { box: [along.box[0] * k[2], along.box[1] * k[1]] as [number, number] } : {} ) };
+  } else if ( repeat && !quick && !along && o.rail && next.surface_type === "Jib" ) line = o.rail;
   if ( !repeat && s.grind && !quick && shape.rail && shape.rail.length > 1 )
     next = withRail( next, { points: shape.rail, radius: shape.radius, ...( s.infill.kind === "rails" && s.infill.profile !== "round" ? { box: [s.infill.size / ( s.infill.profile === "flat" ? 5 : 1 ), s.infill.size] as [number, number] } : {} ) } );
   // the map's pieces copied along it: a post at every foot, a panel in every gap
   const kitParts: CustomPart[] = [], kitColliders: CustomCollider[] = [];
   // ( `rise`: metres up per metre along, a section tilted to run from one foot to the next )
-  const copy                   = ( src: CustomObjectEntry, at: V3, dir: [number, number], stretch: number, rise = 0 ) => {
+  // ( `pre`: how it's turned and sized first, in its own space )
+  const copy                   = ( src: CustomObjectEntry, at: V3, dir: [number, number], stretch: number, rise = 0, pre: THREE.Matrix4 | null = null ) => {
     const yaw   = ( Math.atan2( -dir[1], dir[0] ) * 180 ) / Math.PI, pitch = ( Math.atan( rise ) * 180 ) / Math.PI;
     const world = toUnity( toView( o, at ) );
-    const delta = composeUnity( world, [0, yaw, pitch], [stretch, 1, 1] ).multiply( pieceMatrix( src ).invert() );
+    const delta = composeUnity( world, [0, yaw, pitch], [stretch, 1, 1] ).multiply( pre ?? new THREE.Matrix4() ).multiply( pieceMatrix( src ).invert() );
     const moved = transformCustom( src, delta );
     kitParts.push( ...moved.parts.filter( ( p ) => p.lod_index <= 0 ) );
-    kitColliders.push( ...moved.colliders.map( ( c ) => ( { ...c, surface_type: repeat ? next.surface_type : ( "Generic" as const ) } ) ) );
+    // ( solid round a repeat's own rail; a repeat that's a jib without one grinds on them, as the piece did. A section
+    // copied with its piece's rail on ( made before it was taken off ): that rail's capsules left out, the parts fitted
+    // round it kept as plain solid )
+    const own = repeat ? moved.colliders.filter( ( c ) => c.mesh_ref !== RAIL_MARK ).map( ( c ) => ( c.mesh_ref === PART_MARK ? { ...c, mesh_ref: "" } : c ) ) : moved.colliders;
+    kitColliders.push( ...own.map( ( c ) => ( { ...c, surface_type: repeat && !along ? next.surface_type : ( "Generic" as const ) } ) ) );
   };
   const postPiece = s.post.kind === "piece" && s.post.piece ? pieceOf( s.post.piece ) : undefined;
   if ( postPiece ) for ( const p of shape.posts ) copy( postPiece, p.at, p.dir, 1 );
@@ -314,11 +346,12 @@ export function withFence( o: CustomObjectEntry, ground: ( x: number, z: number 
       const d    = Math.hypot( b[0] - a[0], b[2] - a[2] );
       // ( a section of your own: from foot to foot, up or down the slope; else level, as long as the gap )
       const mine = !!s.infill.section, rise = mine ? ( b[1] - a[1] ) / d : 0, run = mine ? Math.hypot( d, b[1] - a[1] ) : d;
-      copy( panel, [( a[0] + b[0] ) / 2, ( a[1] + b[1] ) / 2, ( a[2] + b[2] ) / 2], [( b[0] - a[0] ) / d, ( b[2] - a[2] ) / d], run / Math.max( 0.05, s.infill.length ?? d ), rise );
+      copy( panel, [( a[0] + b[0] ) / 2, ( a[1] + b[1] ) / 2, ( a[2] + b[2] ) / 2], [( b[0] - a[0] ) / d, ( b[2] - a[2] ) / d], run / Math.max( 0.05, s.infill.length ?? d ), rise, turnSize );
     }
   // ( `quick`: the rail it had kept meanwhile, so its grind line has one to follow and isn't worked out from the mesh )
-  const kept = quick && o.rail ? { rail: o.rail } : {};
-  return { ...next, ...kept, parts: [...next.parts, ...kitParts], colliders: [...next.colliders, ...kitColliders], ...( kitColliders.length ? { kitColliders } : {} ) } as CustomObjectEntry;
+  const kept  = quick && o.rail ? { rail: o.rail } : {};
+  const whole = { ...next, ...kept, parts: [...next.parts, ...kitParts], colliders: [...next.colliders, ...kitColliders], ...( kitColliders.length ? { kitColliders } : {} ) } as CustomObjectEntry;
+  return line ? withRail( whole, line ) : whole;
 }
 
 /**
@@ -349,10 +382,19 @@ export function sectionFence( uid: string, o: CustomObjectEntry, local: Float32A
   };
   // ( the same for its parts, which are in the world: its place taken off, then that; kept with its own place at the
   // origin, so copying it along is just placing it. A piece modelled here: its mesh instead, its own part left out )
-  const moved   = transformCustom( o, composeUnity( into( [0, 0, 0] ), [0, alongZ ? 90 : 0, 0], sc ).multiply( pieceMatrix( o ).invert() ) );
+  // ( its own colliders, as they were before its rail: the rail's capsules aren't the section's, the repeat lays its own )
+  const moved   = transformCustom( o.rail ? withoutRail( o ) : o, composeUnity( into( [0, 0, 0] ), [0, alongZ ? 90 : 0, 0], sc ).multiply( pieceMatrix( o ).invert() ) );
   const model   = isModel( o ) ? `Models/${o.uid}/` : null;
   const section = { ...moved, model: undefined, rail: undefined, position: xyz( [0, 0, 0] ), rotation: xyz( [0, 0, 0] ), scale: xyz( [1, 1, 1] ), ...( model ? { parts: moved.parts.filter( ( p ) => !p.mesh.startsWith( model ) ), colliders: [] } : {} ) };
   const mesh    = isModel( o ) ? evaluate( o.model ) : null;
+  // its grind rail: the piece's own, else as found along it; in the section's space, -X end first
+  const found   = o.rail ?? autoRail( local ).rail;
+  const railed  = found?.points.length && found.points.length > 1 ? found.points.map( into ) : null;
+  const rail    = railed && found ? {
+    points: railed[0][0] > railed[railed.length - 1][0] ? railed.reverse() : railed,
+    radius: found.radius * Math.max( sc[1], Math.min( sc[0], sc[2] ) ),
+    ...( found.box ? { box: [found.box[0] * Math.min( sc[0], sc[2] ), found.box[1] * sc[1]] as [number, number] } : {} ),
+  } : null;
   // where it stood, and the way it ran ( Unity, world )
   const where   = toUnity( toView( o, mid ) );
   const end     = toUnity( toView( o, alongZ ? [mid[0], y0, z1] : [x1, y0, mid[2]] ) );
@@ -364,6 +406,7 @@ export function sectionFence( uid: string, o: CustomObjectEntry, local: Float32A
     infill:  {
       ...structuredClone( ROAD.infill ), kind: "panel", length, section,
       ...( mesh ? { sectionMesh: { mesh: { ...mesh, v: mesh.v.map( into ) }, materials: o.parts[0].materials } } : {} ),
+      ...( rail ? { sectionRail: rail } : {} ),
     },
     grind:   false,
   };
@@ -371,6 +414,54 @@ export function sectionFence( uid: string, o: CustomObjectEntry, local: Float32A
   const f    = { ...newFence( uid, where, [], style ), surface_type: o.surface_type, can_magnetize: o.can_magnetize, can_stabilize: o.can_stabilize, can_rotate: o.can_rotate };
   const ends = [-length / 2, length / 2].map( ( t ) => fenceLocal( f, [where[0] + ( dx / dl ) * t, where[1], where[2] + ( dz / dl ) * t] ) );
   return { ...f, fence: { points: ends, closed: false, style } } as CustomObjectEntry;
+}
+
+/**
+ * How a repeat's sections are turned and sized, each about its middle foot ( three.js space, a section's own ): its
+ * turn after its size, as Unity's own transforms go.
+**/
+export function sectionTransform( inf: FenceStyle["infill"] ) {
+  const q = inf.sectionTurn ? new THREE.Quaternion( ...inf.sectionTurn ) : new THREE.Quaternion();
+  return new THREE.Matrix4().compose( new THREE.Vector3(), q, new THREE.Vector3( ...( inf.sectionSize ?? [1, 1, 1] ) ) );
+}
+
+/**
+ * A repeat with its sections turned to `q` ( three.js space, a section's own ).
+**/
+export function withSectionTurn( f: FenceData, q: THREE.Quaternion ): FenceData {
+  return { ...f, style: { ...f.style, infill: { ...f.style.infill, sectionTurn: [q.x, q.y, q.z, q.w] } } };
+}
+
+/**
+ * A repeat with its sections sized `size` along their own X, Y and Z: as long along the path as that makes them ( the
+ * axis of theirs that's turned to run along it ), so as many fit.
+**/
+export function withSectionSize( f: FenceData, size: V3 ): FenceData {
+  const inf  = f.style.infill, was = inf.sectionSize ?? [1, 1, 1];
+  const q    = inf.sectionTurn ? new THREE.Quaternion( ...inf.sectionTurn ) : new THREE.Quaternion();
+  // ( which of its own axes runs along the path, turned as it is )
+  const path = new THREE.Vector3( 1, 0, 0 ).applyQuaternion( q.clone().invert() );
+  const axis = [Math.abs( path.x ), Math.abs( path.y ), Math.abs( path.z )].reduce( ( b, v, k, all ) => ( v > all[b] ? k : b ), 0 );
+  const k    = size.map( ( v ) => Math.max( 0.05, v ) ) as V3;
+  const len  = Math.max( 0.05, ( inf.length ?? f.style.spacing ) * ( k[axis] / ( was[axis] || 1 ) ) );
+  return { ...f, style: { ...f.style, spacing: len, infill: { ...inf, length: len, sectionSize: k } } };
+}
+
+/**
+ * A repeat with each of its sections turned by `q` ( three.js space, a section's own: about its middle foot ), after
+ * however they were.
+**/
+export function turnedSections( f: FenceData, q: THREE.Quaternion ): FenceData {
+  const was = f.style.infill.sectionTurn ? new THREE.Quaternion( ...f.style.infill.sectionTurn ) : new THREE.Quaternion();
+  return withSectionTurn( f, q.clone().multiply( was ) );
+}
+
+/**
+ * A repeat with each of its sections scaled by `k` along its own X, Y and Z, about its middle foot.
+**/
+export function scaledSections( f: FenceData, k: V3 ): FenceData {
+  const was = f.style.infill.sectionSize ?? [1, 1, 1];
+  return withSectionSize( f, [was[0] * k[0], was[1] * k[1], was[2] * k[2]] );
 }
 
 /**

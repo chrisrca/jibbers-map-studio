@@ -33,6 +33,9 @@ export async function newMapLookSelftest( dir: string ) {
       eng.nav.lookAtUnity( [sx * 700, 260, sz * 700], [-sx * 100, 0, -sz * 100] );
       await snap( `${name}-none` );
     }
+    // ( every tile of ground made with the game's snow in, none showing a stand-in swapped for it )
+    const tiles = ( eng.terrainR as unknown as { tiles: { gameLook: boolean }[][] } ).tiles.flat();
+    log( `${tiles.length && tiles.every( ( t ) => t.gameLook ) ? "ok  " : "FAIL"} ground: ${tiles.filter( ( t ) => t.gameLook ).length} of ${tiles.length} tiles made with the game's snow` );
     const cube = newModelObject( newUid(), primitive( "cube", { size: 1 } ), [0, 0.5, 0] );
     st().addCustom( cube, "Cube" );
     st().setSelection( [{ kind: "custom", uid: cube.uid }] );

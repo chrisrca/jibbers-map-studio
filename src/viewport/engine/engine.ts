@@ -192,6 +192,11 @@ export class Engine {
     this.liftTool.onPicked       = () => this.syncObjects();
     this.fenceTool.onPicked      = () => this.syncObjects();
     this.fenceTool.localVertices = ( o ) => this.customR.localVertices( o );
+    // ( the gizmo's middle circle on a lift's piece or a fence's point: dragged over the ground, as the piece's handle )
+    this.liftTool.centreUnder    = this.fenceTool.centreUnder = ( x, y ) => this.blGizmo.centreAt( x, y );
+    this.liftTool.gizmoShown     = this.fenceTool.gizmoShown  = () => this.blGizmo.attached;
+    this.customR.guides.busy     = ( uid ) => this.fenceTool.busyWith === uid;
+    this.fenceTool.onIdle        = () => this.customR.guides.update();
     this.objectsR.liftPicked     = ( uid ) => this.liftTool.pickedOf( uid );
     this.scene.add( this.shapeTool.group, this.growPreview.group, this.railTool.group, this.stage.group, this.emptyFloor.group );
     this.unsub.push( onGrowPreview( ( p ) => this.growPreview.show( p ) )                        );

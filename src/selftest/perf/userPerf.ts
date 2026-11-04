@@ -333,7 +333,9 @@ export async function userPerfSelftest( dir: string ) {
       const p0 = world( 0 ), p1 = world( 1 ), near = [p0[0] + ( p1[0] - p0[0] ) * 0.85, p0[1] + ( p1[1] - p0[1] ) * 0.85] as [number, number];
       await io.click( ...io.scr( [near[0], g( ...near ) + 0.5, near[1]] ), 150 );
       await sleep( 300 );
-      const gz     = eng.fenceTool.gizmoAt(), picks = !!gz && Math.hypot( gz.x - p1[0], -gz.z - p1[1] ) < 0.1 && st().selection[0]?.uid === uid;
+      // ( the gizmo where the point's ball is, not under it )
+      const gz     = eng.fenceTool.gizmoAt(), ball = eng.fenceTool.group.children.find( ( c ) => c.userData.picked );
+      const picks  = !!gz && Math.hypot( gz.x - p1[0], -gz.z - p1[1] ) < 0.1 && st().selection[0]?.uid === uid && !!ball && ball.position.distanceTo( gz ) < 1e-3;
       // ( that point moved down into the ground with the gizmo: it stays there, the sections' ends with it )
       eng.fenceTool.gizmoStart();
       eng.fenceTool.gizmoMove( new THREE.Matrix4().makeTranslation( 0, -0.4, 0 ) );
@@ -347,10 +349,109 @@ export async function userPerfSelftest( dir: string ) {
       await sleep( 300 );
       await io.drag( ...on( world( 0 ) ), ...on( [world( 0 )[0] + 1, world( 0 )[1] + 1] ), 300 );
       await sleep( 600 );
-      const rides  = fence()?.surface_type === "Jib" && !!jibBtn;
-      const right = made && laid && placed === 2 && left === 2 && full && picks && sunk && Math.abs( lowest + 0.4 ) < 0.05 && rides;
+      const rides  = fence()?.surface_type === "Jib" && !!jibBtn && !!fence()?.rail;
+      // ( the gizmo's middle on the picked point dragged: the point over the ground, its own ball not drawn under it )
+      eng.fenceTool.pickAt( uid!, ...on( world( 1 ) ) );
+      await sleep( 300 );
+      const w1     = world( 1 ), c1 = io.scr( [w1[0], g( ...w1 ) - 0.4, w1[1]] );
+      const hidden = eng.fenceTool.group.children.filter( ( c ) => c.userData.picked ).every( ( c ) => !c.visible ) && eng.blGizmo.centreAt( ...c1 );
+      await io.drag( ...c1, c1[0] + 40, c1[1] + 15, 300 );
+      await sleep( 500 );
+      const slid   = Math.hypot( world( 1 )[0] - w1[0], world( 1 )[1] - w1[1] ) > 0.5 && Math.abs( ( fenceOf( fence()! )!.lift?.[1] ?? 0 ) + 0.4 ) < 1e-6;
+      // ( Rotate out: a ring of the gizmo on the picked point dragged, every section turned about its own middle, the path
+      // left as it was )
+      const pts0   = JSON.stringify( fenceOf( fence()! )!.points ), sec0 = JSON.stringify( fenceOf( fence()! )!.style.infill.sectionMesh?.mesh.v );
+      useEditor.setState( { gizmoMode: "rotate" } );
+      eng.gizmo.sync();
+      await sleep( 300 );
+      const gp     = ( eng.blGizmo as unknown as { pick( x: number, y: number ): { kind: string } | null; pivot: THREE.Vector3 } );
+      const [px, py] = io.scr( toUnity( gp.pivot ) );
+      let ring: [number, number] | null = null;
+      for ( let r = 20; r < 160 && !ring; r += 4 )
+        for ( let a = 0; a < 360 && !ring; a += 10 ) {
+          const x = px + r * Math.cos( ( a * Math.PI ) / 180 ), y = py + r * Math.sin( ( a * Math.PI ) / 180 );
+          if ( gp.pick( x, y )?.kind === "ring" ) ring = [x, y];
+        }
+      if ( ring ) await io.drag( ...ring, ring[0] + 50, ring[1] + 40, 400 );
+      await sleep( 500 );
+      // ( Scale out: its sections 1.5 times as long along the gizmo's X, the way they run; the path left as it was )
+      useEditor.setState( { gizmoMode: "scale" } );
+      eng.gizmo.sync();
+      const len0   = fenceOf( fence()! )!.style.infill.length ?? 0, piv = gp.pivot.clone(), ax = new THREE.Matrix4().makeRotationFromQuaternion( eng.fenceTool.sectionAxes()! );
+      eng.fenceTool.gizmoStart( "scale" );
+      eng.fenceTool.gizmoMove( new THREE.Matrix4().makeTranslation( piv.x, piv.y, piv.z ).multiply( ax ).multiply( new THREE.Matrix4().makeScale( 1.5, 1, 1 ) ).multiply( ax.clone().invert() ).multiply( new THREE.Matrix4().makeTranslation( -piv.x, -piv.y, -piv.z ) ) );
+      eng.fenceTool.gizmoEnd();
+      await sleep( 400 );
+      const scaled = Math.abs( ( fenceOf( fence()! )!.style.infill.length ?? 0 ) - len0 * 1.5 ) < 1e-3 && JSON.stringify( fenceOf( fence()! )!.points ) === pts0 && eng.blGizmo.mode === "scale";
+      useEditor.setState( { gizmoMode: "translate" } );
+      const tq     = fenceOf( fence()! )!.style.infill.sectionTurn;
+      const turned = JSON.stringify( fenceOf( fence()! )!.points ) === pts0 && !!tq && Math.abs( tq[3] ) < 0.9999 && fence()!.rotation.y === 0 && !!sec0;
+      // ( any piece: the gizmo's middle drags it over the ground, as high off it as it was )
+      const crate = newModelObject( newUid(), primitive( "cube", { size: 1 } ), [b0[0] + 6, g( b0[0] + 6, b0[1] ) + 0.5, b0[1]] );
+      st().addCustom( crate, "Crate" );
+      st().setSelection( [{ kind: "custom", uid: crate.uid }] );
+      await sleep( 400 );
+      const cp     = ( eng.blGizmo as unknown as { pivot: THREE.Vector3 } ).pivot.clone(), cs = io.scr( toUnity( cp ) );
+      await io.drag( ...cs, cs[0] + 80, cs[1] + 40, 400 );
+      await sleep( 300 );
+      const cr     = st().customObjects.find( ( o ) => o.uid === crate.uid )!, gone = Math.hypot( cr.position.x - crate.position.x, cr.position.z - crate.position.z );
+      const along  = gone > 1 && Math.abs( cr.position.y - g( cr.position.x, cr.position.z ) - 0.5 ) < 0.02;
+      const right = made && laid && placed === 2 && left === 2 && full && picks && sunk && Math.abs( lowest + 0.4 ) < 0.05 && rides && hidden && slid && turned && scaled && along;
       if ( !right ) failed.push( "fence editing" );
-      log( `${right ? "ok  " : "FAIL"} fence: made of a board from its panel ${made} (${button ? "its button" : "the menu"}); pulled out 12 m: ${feet.length - 1} sections, corners on the ground at each foot ${sat.join( "," )} ${laid}; ${placed} points, ${left} after one put in and one taken out, made in full after moving ${full}; clicked near its end, that point picked ${picks}; moved 0.4 m into the ground ${sunk}, its sections' ends ${lowest.toFixed( 2 )} m off it; made a jib in Riding, still one after a point moved ${rides} (want true, 5 sections, true, 2, 2, true, true, true, -0.40, true)` );
+      log( `${right ? "ok  " : "FAIL"} fence: made of a board from its panel ${made} (${button ? "its button" : "the menu"}); pulled out 12 m: ${feet.length - 1} sections, corners on the ground at each foot ${sat.join( "," )} ${laid}; ${placed} points, ${left} after one put in and one taken out, made in full after moving ${full}; clicked near its end, that point picked ${picks}; moved 0.4 m into the ground ${sunk}, its sections' ends ${lowest.toFixed( 2 )} m off it; made a jib in Riding, still one after a point moved ${rides}; the gizmo's middle, the ball under it hidden ${hidden}, dragged it over the ground ${slid}; a Rotate ring turned each section, not the whole ${turned}; Scale made each 1.5 times as long ${scaled}; a crate dragged by the gizmo's middle ${gone.toFixed( 1 )} m over the ground ${along} (want true, 5 sections, true, 2, 2, true, true, true, -0.40, true, true, true, true, true, true)` );
+      // ( a repeat of one of the game's features, a jib: pulled out, then a point dragged about by the gizmo's middle )
+      {
+        const { loadLibrary, placeEntry } = await import( "../../pieces/library" );
+        await loadLibrary();
+        const f0 = [at[0] + 10, at[1] + 6] as [number, number];
+        st().setTool( "select" );
+        await placeEntry( feature( "battleship_box_wide" ), [f0[0], g( ...f0 ), f0[1]] );
+        await sleep( 1500 );
+        const box = st().selection[0]?.uid;
+        st().setSelection( box ? [{ kind: "custom", uid: box }] : [] );
+        await eng.menus.makeFence();
+        await sleep( 1500 );
+        const rid  = st().selection[0]?.uid, rep = () => st().customObjects.find( ( o ) => o.uid === rid );
+        // ( its grind guide green as soon as it's made: grabbed along its rail, nothing else on it grindable )
+        const first = eng.customR.guides.of( rid! );
+        const wpt  = ( i: number ): [number, number] => { const o = rep()!, w = fenceWorld( o, fenceOf( o )!.points[i] ); return [w[0], w[2]]; };
+        const len  = fenceOf( rep()! )?.style.infill.length ?? 4, [q0, q1] = [wpt( 0 ), wpt( 1 )];
+        const out  = [q0[0] + ( ( q1[0] - q0[0] ) / len ) * len * 5, q0[1] + ( ( q1[1] - q0[1] ) / len ) * len * 5] as [number, number];
+        eng.nav.lookAtUnity( [( q0[0] + out[0] ) / 2 - 14, g( ...q0 ) + 22, ( q0[1] + out[1] ) / 2 - 14], [( q0[0] + out[0] ) / 2, g( ...q0 ), ( q0[1] + out[1] ) / 2] );
+        await sleep( 500 );
+        await io.click( ...on( wpt( 1 ) ), 150 );
+        await io.drag( ...on( wpt( 1 ) ), ...on( out ), 400 );
+        await sleep( 2000 );
+        const jib = rep()?.surface_type === "Jib" && !!rep()?.rail;
+        await run( "fence: a jib repeat, a point dragged by the gizmo's middle", async () => {
+          const c = io.scr( toUnity( eng.fenceTool.gizmoAt()! ) );
+          await io.glide( ...c, 150 );
+          await io.press( 0 );
+          for ( let t = 0; t < 1.5; t += 1 / 240 ) {
+            [m.x, m.y] = [c[0] + Math.sin( t * 4 ) * 60, c[1] + ( 1 - Math.cos( t * 4 ) ) * 30];
+            send( "pointermove", {} );
+            await io.frame();
+            if ( t > 0.5 && t < 0.51 ) log( `  mid-drag: its grind guide ${eng.customR.guides.of( rid! ) ? "shown (FAIL)" : "not shown"}` );
+          }
+          await io.release( 0 );
+        } );
+        await sleep( 2500 );
+        // ( bent: two points Ctrl+clicked in off to one side; its rail still along it, not across the bend )
+        for ( const k of [0.35, 0.7] ) {
+          const p = wpt( 0 ), q = wpt( fenceOf( rep()! )!.points.length - 1 ), dx = q[0] - p[0], dz = q[1] - p[1];
+          await io.click( ...on( [p[0] + dx * k - dz * 0.25, p[1] + dz * k + dx * 0.25] ), 200, { ctrlKey: true } );
+          await sleep( 600 );
+        }
+        await sleep( 1500 );
+        const path  = fenceOf( rep()! )!.points, rp = rep()?.rail?.points ?? [];
+        const off   = ( p: number[] ) => Math.min( ...path.slice( 1 ).map( ( b, i ) => {
+          const a = path[i], ux = b[0] - a[0], uz = b[1] - a[1], t = Math.max( 0, Math.min( 1, ( ( p[0] - a[0] ) * ux + ( p[2] - a[1] ) * uz ) / ( ux * ux + uz * uz || 1 ) ) );
+          return Math.hypot( p[0] - a[0] - ux * t, p[2] - a[1] - uz * t );
+        } ) );
+        const worst = rp.length ? Math.max( ...rp.map( off ) ) : Infinity;
+        const bent  = path.length === 4 && worst < 0.5;
+        log( `${jib && !!rep()?.rail && bent && !!first?.ok ? "ok  " : "FAIL"} repeat of a feature: its guide green when made ${!!first?.ok}; a jib with its rail ${jib}; after the drag, its rail ${!!rep()?.rail}, its guide back ${!!eng.customR.guides.of( rid! )}; bent with ${path.length} points, its rail ${rp.length} points, at most ${worst.toFixed( 2 )} m off the path (want true, true, true, 4, under 0.5)` );
+      }
       st().setTool( "sculpt" );
       await sleep( 500 );
     }

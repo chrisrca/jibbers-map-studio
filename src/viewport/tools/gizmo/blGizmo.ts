@@ -32,6 +32,9 @@ export interface GizmoView {
   snapping:   () => { on: boolean; to: SnapTo };
   // a vertex or surface point under a screen point ( not on what's being moved ), for snapping onto
   snapPoint?: ( x: number, y: number, to: Exclude<SnapTo, "increment"> ) => THREE.Vector3 | null;
+  // Move's middle circle dragged from ( x0, y0 ) to ( x, y ): where the pivot goes over the ground, as high off it as
+  // it was ( null: free in the view, as Blender's )
+  alongGround?: ( x: number, y: number, x0: number, y0: number, pivot: THREE.Vector3 ) => THREE.Vector3 | null;
 }
 
 export class BlGizmo {
@@ -77,6 +80,17 @@ export class BlGizmo {
   }
   get dragging() {
     return !!this.drag;
+  }
+  // what the drag under way does
+  get op() {
+    return this.drag?.op ?? null;
+  }
+
+  /**
+   * Whether ( x, y ) is on Move's middle circle ( free in the view ).
+  **/
+  centreAt( x: number, y: number ) {
+    return this.pick( x, y )?.kind === "view";
   }
 
   setMode( m: GizmoMode ) {
@@ -290,6 +304,8 @@ export class BlGizmo {
     const name     = ( a: number ) => "XYZ"[a];
     let delta      = new THREE.Matrix4();
     let text       = "";
+    // ( Move's middle circle: over the ground, where there's ground and it's wanted )
+    const ground   = h.kind === "view" && !d.modal ? this.view.alongGround?.( vx, vy, d.x0, d.y0, P ) ?? null : null;
     this.look.clearFeedback();
     if ( h.kind === "axis" && d.op === "scale" ) {
       // scaling along an axis: how much farther along it ( on screen ) the mouse is than it was
@@ -336,6 +352,11 @@ export class BlGizmo {
       delta = about( new THREE.Matrix4().makeRotationAxis( ring.n, turn ) );
       this.look.showTurn( ring, turn );
       text = `Rotation: ${deg( turn ).toFixed( 2 )}°${h.kind === "ring" ? ` along ${frame} ${name( h.axis )}` : ""}`;
+    } else if ( ground ) {
+      // the middle circle: over the ground
+      const v = ground.sub( P );
+      delta   = new THREE.Matrix4().makeTranslation( v.x, v.y, v.z );
+      text    = `D: ${fmtM( v.x )}  ${fmtM( -v.z )}  ${fmtM( v.y )} (${fmtM( v.length() )}) over the ground`;
     } else {
       // moving: along the axis, in the plane, or in the view
       const hit = this.planeHit( h, vx, vy );

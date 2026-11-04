@@ -2,14 +2,15 @@
 // the ground, or moved with the gizmo, which sits on the point picked ( the one clicked, or nearest where the fence was
 // clicked; its first till then ) and moves it along the ground, or up and down off it ( into it too ); Ctrl+click on
 // the ground puts a point into the nearest stretch, X / Delete takes away the point picked. While a point moves the
-// fence is made again without what only matters once it's put down ( its colliders, its grind rail ).
+// fence is made again without what only matters once it's put down ( its colliders, its grind rail ). A repeat turned
+// with the gizmo ( Rotate, or R ) turns each of its sections about its own middle, not the whole of it.
 
 import * as THREE from "three/webgpu";
-import { toThree, toUnity, type V3 } from "../../core/coords";
+import { toThree, toUnity, unityEulerToQuat, type V3 } from "../../core/coords";
 import type { CustomObjectEntry } from "../../core/types";
 import { history } from "../../map/history";
 import { useEditor } from "../../map/store";
-import { fenceLocal, fenceOf, fenceWorld, isRepeat, liftAt, withFence, type FenceData } from "../../pieces/fence";
+import { fenceLocal, fenceOf, fenceWorld, isRepeat, liftAt, scaledSections, turnedSections, withFence, type FenceData } from "../../pieces/fence";
 import { partsFor } from "../../pieces/library";
 import { autoRail, withRail } from "../../pieces/rail";
 import { terrain } from "../../terrain/terrain";
@@ -42,11 +43,19 @@ export class FenceTool {
   private ball   = new THREE.SphereGeometry( 1, 14, 10 );
   private mats   = new Map<number, THREE.Material>();
   // a point being dragged: the fence, which point, the pieces before ( one undo step ), whether it's moved
-  private grab:  { uid: string; index: number; before: CustomObjectEntry[]; moved: boolean } | null = null;
+  // ( `off`: from the ground under the mouse to the point, kept as it's dragged: it doesn't jump to the mouse )
+  private grab:  { uid: string; index: number; before: CustomObjectEntry[]; moved: boolean; off: [number, number] } | null = null;
   // the point last clicked ( the gizmo's on it; X takes it away )
   private picked: { uid: string; index: number } | null = null;
   // a move with the gizmo under way: the point, where it was, the pieces before
   private moving: { uid: string; index: number; from: V3; before: CustomObjectEntry[] } | null = null;
+  // a turn ( or a scaling ) with the gizmo under way: the repeat, the pieces before, how its sections face by the
+  // picked point
+  private turning: { uid: string; before: CustomObjectEntry[]; frame: THREE.Quaternion; axes: THREE.Quaternion; scale: boolean } | null = null;
+  // the gizmo's middle circle under the mouse; the gizmo shown ( set by the engine ): pressed there, the point picked is
+  // dragged over the ground, as its handle was ( the handle itself not drawn under the gizmo )
+  centreUnder: ( x: number, y: number ) => boolean = () => false;
+  gizmoShown:  () => boolean                       = () => false;
   // the point picked changed ( the gizmo goes to it )
   onPicked: () => void = () => {};
   // a piece's vertices in its own space, as drawn ( the engine's renderer: a repeat's rail found along it again )
@@ -108,7 +117,7 @@ export class FenceTool {
       const f = this.footOf( o, i );
       const m = new THREE.Mesh( this.ball, this.mat( on === i ? PICKED : POINT ) );
       m.position.copy( toThree( [f[0], f[1] + 0.3, f[2]] ) );
-      m.userData    = { index: i, px: 9 };
+      m.userData    = { index: i, px: 9, picked: on === i };
       m.renderOrder = 13;
       this.group.add( m );
     } );
@@ -122,11 +131,14 @@ export class FenceTool {
   frame() {
     if ( !this.group.children.length ) return;
     const cam = this.camera(), k = ( 2 * Math.tan( THREE.MathUtils.degToRad( cam.fov ) / 2 ) ) / Math.max( 1, this.viewHeight() );
-    for ( const c of this.group.children ) c.scale.setScalar( ( c.userData.px as number ) * k * cam.position.distanceTo( c.position ) );
+    for ( const c of this.group.children ) {
+      c.scale.setScalar( ( c.userData.px as number ) * k * cam.position.distanceTo( c.position ) );
+      if ( c.userData.picked ) c.visible = !this.gizmoShown();
+    }
   }
 
   private handleAt( x: number, y: number ): number | null {
-    const hit = this.raycast( x, y ).intersectObjects( this.group.children, false )[0];
+    const hit = this.raycast( x, y ).intersectObjects( this.group.children.filter( ( c ) => c.visible ), false )[0];
     return hit ? ( hit.object.userData.index as number ) : null;
   }
 
@@ -146,7 +158,7 @@ export class FenceTool {
   **/
   markUnder( x: number, y: number, ctrl = false ) {
     const o = this.target();
-    return !!o && ( ctrl || this.handleAt( x, y ) !== null );
+    return !!o && ( ctrl || this.handleAt( x, y ) !== null || this.centreUnder( x, y ) );
   }
 
   /**
@@ -155,9 +167,10 @@ export class FenceTool {
   down( x: number, y: number, e: { ctrlKey: boolean } ): boolean {
     const o = this.target();
     if ( !o ) return false;
-    const st = useEditor.getState(), i = this.handleAt( x, y );
+    const st = useEditor.getState(), i = this.handleAt( x, y ) ?? ( this.centreUnder( x, y ) ? this.pickedOn( o ) : null );
     if ( i !== null ) {
-      this.grab = { uid: o.uid, index: i, before: st.customObjects, moved: false };
+      const foot = this.footOf( o, i ), g = this.groundAt( x, y, foot[1] ) ?? foot;
+      this.grab  = { uid: o.uid, index: i, before: st.customObjects, moved: false, off: [foot[0] - g[0], foot[2] - g[2]] };
       this.pick( o.uid, i );
       return true;
     }
@@ -204,6 +217,15 @@ export class FenceTool {
   }
 
   /**
+   * The fence whose point is being dragged or moved, or whose sections are being turned, if one is.
+  **/
+  get busyWith(): string | null {
+    return this.grab?.uid ?? this.moving?.uid ?? this.turning?.uid ?? null;
+  }
+  // a drag over ( set by the engine: the jib's grind guide back )
+  onIdle: () => void = () => {};
+
+  /**
    * The fence `uid` with point `index` over `w` ( Unity, world; `up`: its height over the ground, else as it was ), made
    * again quickly.
   **/
@@ -229,12 +251,14 @@ export class FenceTool {
 
   /**
    * A repeat that's a jib with a rail, its shape changed: its rail found along it again ( as Make rail finds a piece's )
-   * and kept in the same undo step as the change. Nothing if anything else changed meanwhile.
+   * and kept in the same undo step as the change ( `make`: one made if it has none yet ). Nothing if anything else
+   * changed meanwhile.
   **/
-  async railAgain( uid: string ) {
+  async railAgain( uid: string, make = false ) {
     const top = history.last, find = () => useEditor.getState().customObjects.find( ( q ) => q.uid === uid );
     const o   = find();
-    if ( !top || !o?.rail || o.surface_type !== "Jib" || !isRepeat( fenceOf( o ) ) ) return;
+    // ( one with its section's rail has it laid along it as it's made: nothing to find )
+    if ( !top || !( o?.rail || make ) || o?.surface_type !== "Jib" || !isRepeat( fenceOf( o ) ) || fenceOf( o )!.style.infill.sectionRail ) return;
     const pts  = await this.localVertices( o );
     const made = pts ? autoRail( pts ) : null;
     if ( !made?.rail || history.last !== top || find() !== o ) return;
@@ -251,7 +275,7 @@ export class FenceTool {
     const g = o && this.groundAt( x, y, o.position.y );
     if ( !g ) return;
     gr.moved = true;
-    this.withPointAt( gr.before, gr.uid, gr.index, g );
+    this.withPointAt( gr.before, gr.uid, gr.index, [g[0] + gr.off[0], g[1], g[2] + gr.off[1]] );
   }
 
   /**
@@ -261,6 +285,7 @@ export class FenceTool {
     const gr  = this.grab;
     this.grab = null;
     if ( gr?.moved ) this.keep( gr.uid, gr.before, "Move point" );
+    this.onIdle();
   }
 
   // ---- the gizmo on the picked point
@@ -270,22 +295,57 @@ export class FenceTool {
   **/
   gizmoAt(): THREE.Vector3 | null {
     const o = this.target();
-    return o && o.fence.points.length ? toThree( this.footOf( o, this.pickedOn( o ) ) ) : null;
+    // ( where its ball is, a little up: the gizmo takes the ball's place )
+    const f = o && o.fence.points.length ? this.footOf( o, this.pickedOn( o ) ) : null;
+    return f ? toThree( [f[0], f[1] + 0.3, f[2]] ) : null;
   }
 
   /**
-   * A gizmo move starting: true when there's a fence being edited ( its picked point moves ).
+   * Which way the repeat's sections face by the picked point ( three.js space: their X the way the path runs there ),
+   * for the gizmo's axes: a turn or a scaling along them is made each section's own.
   **/
-  gizmoStart(): boolean {
+  sectionAxes(): THREE.Quaternion | null {
+    const o = this.target(), F = this.pathFrame(), t = o?.fence.style.infill.sectionTurn;
+    return F && t ? F.multiply( new THREE.Quaternion( ...t ) ) : F;
+  }
+
+  /**
+   * Which way the path runs by the picked point ( three.js space: its X along the path ).
+  **/
+  private pathFrame(): THREE.Quaternion | null {
+    const o = this.target();
+    if ( !o || o.fence.points.length < 2 ) return o ? new THREE.Quaternion() : null;
+    const p      = o.fence.points, i = this.pickedOn( o ), j = i + 1 < p.length ? i + 1 : i - 1;
+    const [a, b] = j > i ? [p[i], p[j]] : [p[j], p[i]];
+    return unityEulerToQuat( [0, ( Math.atan2( -( b[1] - a[1] ), b[0] - a[0] ) * 180 ) / Math.PI, 0] );
+  }
+
+  /**
+   * Whether the fence being edited turns with the gizmo: a repeat ( its sections, each about its own middle ).
+  **/
+  turns() {
+    return isRepeat( this.target()?.fence ?? null );
+  }
+
+  /**
+   * A gizmo drag starting: true when there's a fence being edited ( its picked point moves; a turn, a repeat's sections
+   * turn ).
+  **/
+  gizmoStart( op: "move" | "turn" | "scale" | null = "move" ): boolean {
     const o = this.target();
     if ( !o || !o.fence.points.length ) return false;
+    if ( op === "turn" || op === "scale" ) {
+      if ( !isRepeat( o.fence ) ) return false;
+      this.turning = { uid: o.uid, before: useEditor.getState().customObjects, frame: this.pathFrame()!, axes: this.sectionAxes()!, scale: op === "scale" };
+      return true;
+    }
     const i     = this.pickedOn( o );
     this.moving = { uid: o.uid, index: i, from: this.footOf( o, i ), before: useEditor.getState().customObjects };
     return true;
   }
 
   get gizmoMoving() {
-    return !!this.moving;
+    return !!this.moving || !!this.turning;
   }
 
   /**
@@ -293,22 +353,48 @@ export class FenceTool {
    * ( or into it ) as it goes up or down.
   **/
   gizmoMove( delta: THREE.Matrix4 ) {
+    if ( this.turning ) return this.turnBy( delta );
     const mv = this.moving, o = mv && mv.before.find( ( q ) => q.uid === mv.uid ), f = o && fenceOf( o );
     if ( !mv || !f ) return;
     const w = toUnity( toThree( mv.from ).applyMatrix4( delta ) );
     this.withPointAt( mv.before, mv.uid, mv.index, w, liftAt( f, mv.index ) + w[1] - mv.from[1] );
   }
 
+  /**
+   * The gizmo's turn so far applied to every section of the repeat, each about its own middle, made again quickly.
+  **/
+  private turnBy( delta: THREE.Matrix4 ) {
+    const tr = this.turning!, o = tr.before.find( ( q ) => q.uid === tr.uid ), f = o && fenceOf( o );
+    if ( !o || !f ) return;
+    // ( the world's change as the sections' own: their frame undone, changed, put back; the gizmo's axes are theirs,
+    // so a scaling along one is along theirs )
+    const F    = new THREE.Matrix4().makeRotationFromQuaternion( tr.scale ? tr.axes : tr.frame );
+    const own  = F.clone().invert().multiply( delta ).multiply( F );
+    let next: FenceData;
+    if ( tr.scale ) {
+      const e = own.elements;
+      next    = scaledSections( f, [Math.max( 0.05, Math.hypot( e[0], e[1], e[2] ) ), Math.max( 0.05, Math.hypot( e[4], e[5], e[6] ) ), Math.max( 0.05, Math.hypot( e[8], e[9], e[10] ) )] );
+    } else {
+      const q = new THREE.Quaternion();
+      own.decompose( new THREE.Vector3(), q, new THREE.Vector3() );
+      next    = turnedSections( f, q );
+    }
+    useEditor.setState( ( s ) => ( { customObjects: s.customObjects.map( ( x ) => ( x.uid === tr.uid ? withPath( o, next, true ) : x ) ) } ) );
+  }
+
   gizmoEnd() {
-    const mv    = this.moving;
-    this.moving = null;
+    const mv = this.moving, tr = this.turning;
+    this.moving = this.turning = null;
     if ( mv ) this.keep( mv.uid, mv.before, "Move point" );
+    if ( tr ) this.keep( tr.uid, tr.before, tr.scale ? "Scale sections" : "Turn sections" );
+    this.onIdle();
   }
 
   gizmoCancel() {
-    const mv    = this.moving;
-    this.moving = null;
-    if ( mv ) useEditor.setState( { customObjects: mv.before } );
+    const before = this.moving?.before ?? this.turning?.before;
+    this.moving  = this.turning = null;
+    if ( before ) useEditor.setState( { customObjects: before } );
+    this.onIdle();
   }
 
   /**

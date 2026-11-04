@@ -39,6 +39,8 @@ export class Tile {
   readonly flowNode: ReturnType<typeof texture>;
   readonly snowNode: ReturnType<typeof texture>;
   readonly rockNode: ReturnType<typeof texture>;
+  // whether it was made with the game's snow and rock in ( one made without is made again once they are )
+  readonly gameLook = !!gameTex.snow;
 
   constructor( public chunk: TerrainChunk, public ci: number, readonly tx: number, readonly tz: number, maskTex: THREE.Texture, markings: boolean, flowTex: THREE.Texture | null = null ) {
     this.markings.value                = markings ? 1 : 0;

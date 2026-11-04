@@ -1,6 +1,8 @@
 // A piece's grind rail in Properties: its points, shape and parts, and whether the game will grind it.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { fenceOf } from "../../../pieces/fence";
+import { rebuilt } from "../../../viewport/tools/fenceTool";
 import type { CustomObjectEntry } from "../../../core/types";
 import { useEditor } from "../../../map/store";
 import type { Profile } from "../../../model/curve";
@@ -26,6 +28,12 @@ export function RailEditor( { o, set, commit }: { o: CustomObjectEntry; set: ( f
   const editing         = useEditor( ( s ) => ( s.railEdit?.uid === o.uid ? s.railEdit : null ) );
   const [busy, setBusy] = useState( false );
   const remake          = () => {
+    // ( a repeat with its section's rail: that laid along it again )
+    if ( fenceOf( o )?.style.infill.sectionRail ) {
+      set( ( x ) => rebuilt( x ) );
+      commit();
+      return;
+    }
     setBusy( true );
     makeRail( o, set, commit ).finally( () => setBusy( false ) );
   };
@@ -37,8 +45,6 @@ export function RailEditor( { o, set, commit }: { o: CustomObjectEntry; set: ( f
   if ( !o.rail )
     return (
       <>
-        <label>Rail</label>
-        <span style={{ alignSelf: "center", color: "var(--muted)" }}>none yet</span>
         <label />
         <div>{resetButton}</div>
       </>
@@ -77,26 +83,49 @@ export function RailEditor( { o, set, commit }: { o: CustomObjectEntry; set: ( f
       </>
     );
   }
+  // ( a repeat's rail is its section's laid along it: kept there too, or it'd go back as it's made again )
+  const inSection = ( x: CustomObjectEntry ): CustomObjectEntry => {
+    const f = fenceOf( x ), r = f?.style.infill.sectionRail;
+    if ( !f || !r || !x.rail ) return x;
+    // ( kept as the section's own, before it's sized )
+    const k           = f.style.infill.sectionSize ?? [1, 1, 1];
+    const sectionRail = { ...r, radius: x.rail.radius / Math.sqrt( k[1] * k[2] ), ...( x.rail.box ? { box: [x.rail.box[0] / k[2], x.rail.box[1] / k[1]] as [number, number] } : {} ) };
+    if ( !x.rail.box ) delete ( sectionRail as { box?: unknown } ).box;
+    return { ...x, fence: { ...f, style: { ...f.style, infill: { ...f.style.infill, sectionRail } } } } as CustomObjectEntry;
+  };
+  // the box's half width or half height as it is
+  const x0   = ( k: "w" | "h" ) => ( k === "w" ? o.rail!.box![0] : o.rail!.box![1] );
+  // a size ( half of it, metres ) shown across in centimetres
+  const size = ( v: number, to: ( half: number ) => { radius?: number; box?: [number, number] } ) => (
+    <NumberField
+      value={v * 200}
+      unit="cm"
+      step={0.5}
+      min={1}
+      digits={1}
+      onChange={( cm ) => set( ( x ) => ( x.rail ? inSection( withRail( x, { ...x.rail, ...to( Math.max( 0.005, cm / 200 ) ) } ) ) : x ) )}
+      onCommit={commit}
+    />
+  );
   return (
     <>
       <label>Rail</label>
       <span style={{ alignSelf: "center", color: "var(--muted)" }}>
         {o.rail.points.length < 2 ? "being laid: Ctrl+click along its top" : `${o.rail.points.length} points · ${o.colliders.filter( isRailCollider ).length} segments`}
       </span>
-      <label>Thickness</label>
-      <NumberField
-        value={o.rail.radius * 200}
-        unit="cm"
-        step={0.5}
-        min={1}
-        digits={1}
-        onChange={( v ) => set( ( x ) => {
-          if ( !x.rail ) return x;
-          const radius = Math.max( 0.005, v / 200 );
-          return withRail( x, { ...x.rail, radius, ...( x.rail.box ? { box: [radius, radius] as [number, number] } : {} ) } );
-        } )}
-        onCommit={commit}
-      />
+      { o.rail.box ? (
+        <>
+          <label>Width</label>
+          {size( o.rail.box[0], ( w ) => ( { box: [w, x0( "h" )] } ) )}
+          <label>Height</label>
+          {size( o.rail.box[1], ( h ) => ( { box: [x0( "w" ), h] } ) )}
+        </>
+      ) : (
+        <>
+          <label>Thickness</label>
+          {size( o.rail.radius, ( radius ) => ( { radius } ) )}
+        </>
+      ) }
       <label>Collider</label>
       <div className="seg">
         { ( [["round", "Round", "Capsules"], ["box", "Box", "Boxes"]] as const ).map( ( [id, label, tip] ) => (
@@ -108,7 +137,7 @@ export function RailEditor( { o, set, commit }: { o: CustomObjectEntry; set: ( f
               set( ( x ) => {
                 if ( !x.rail ) return x;
                 const { box: _b, ...line } = x.rail;
-                return withRail( x, id === "box" ? { ...line, box: [x.rail.radius, x.rail.radius] } : line );
+                return inSection( withRail( x, id === "box" ? { ...line, box: [x.rail.radius, x.rail.radius] } : line ) );
               } );
               commit();
             }}
@@ -143,22 +172,6 @@ export function RailEditor( { o, set, commit }: { o: CustomObjectEntry; set: ( f
       {edit}
     </>
   );
-}
-
-/**
- * When the grind line in the view runs across the piece: why, and the fix. Nothing otherwise.
-**/
-export function GrindStatus( { o }: { o: CustomObjectEntry } ) {
-  const [, bump] = useState( 0 );
-  useEffect( () => {
-    const f = () => bump( ( n ) => n + 1 );
-    window.addEventListener( "grind-guides", f );
-    return () => window.removeEventListener( "grind-guides", f );
-  }, [] );
-  const g = getEngine()?.customR.guides.of( o.uid ) ?? null;
-  if ( !g || g.ok ) return null;
-  if ( g.problem !== "across" ) return null;
-  return <div className="note warn">{`The game looks for this rail running across it (the red line), so it won't grab you. ${o.rail ? "Reset" : "Make rail"} lays one along it.`}</div>;
 }
 
 /**

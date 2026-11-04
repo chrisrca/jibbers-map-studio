@@ -15,9 +15,10 @@ use std::sync::Mutex;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
+use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetParent, GetWindowLongPtrW, PostMessageW, WM_CLOSE, GetWindowRect, GetWindowTextW, IsIconic, IsWindow, IsWindowVisible,
+    ClipCursor, EnumWindows, GetClassNameW, GetForegroundWindow, GetParent, GetWindowThreadProcessId, GetWindowLongPtrW, PostMessageW, WM_CLOSE, GetWindowRect, GetWindowTextW, IsIconic, IsWindow, IsWindowVisible,
     SetForegroundWindow, SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_TOP, SWP_FRAMECHANGED,
     SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_RESTORE, SW_SHOW, WS_CAPTION, WS_CHILD, WS_EX_APPWINDOW,
     WS_EX_DLGMODALFRAME, WS_EX_TOOLWINDOW, WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
@@ -133,6 +134,22 @@ unsafe fn park(hwnd: HWND) {
         if ex & WS_EX_TOOLWINDOW == 0 || ex & WS_EX_APPWINDOW != 0 {
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ((ex & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW) as isize);
         }
+    }
+}
+
+/// The studio's window made the foreground window again, from the game's (out of sight), and the cursor let go of
+/// (a game that locks it clips it to itself). Windows lets only the foreground's own input hand that on: this thread
+/// joins the game's input for the moment it takes.
+unsafe fn give_back(studio: HWND, game: HWND) {
+    unsafe {
+        let theirs = GetWindowThreadProcessId(game, std::ptr::null_mut());
+        let mine = GetCurrentThreadId();
+        let joined = theirs != 0 && AttachThreadInput(mine, theirs, 1) != 0;
+        SetForegroundWindow(studio);
+        if joined {
+            AttachThreadInput(mine, theirs, 0);
+        }
+        ClipCursor(std::ptr::null());
     }
 }
 
@@ -295,6 +312,12 @@ fn start_watchdog() {
                 if parked {
                     if IsWindowVisible(hwnd) != 0 || !GetParent(hwnd).is_null() {
                         park(hwnd);
+                    }
+                    // the game made itself the foreground window while out of sight (loading, re-applying its
+                    // display settings): the keyboard and a locked cursor went with it, and the studio couldn't be
+                    // used. The studio is given the foreground back and the cursor freed
+                    if GetForegroundWindow() == hwnd {
+                        give_back(parent, hwnd);
                     }
                     continue;
                 }

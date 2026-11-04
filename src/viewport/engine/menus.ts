@@ -271,6 +271,8 @@ export class ViewportMenus {
     now.removeSelected();
     useEditor.getState().addCustom( fence, `${pieceName( now, o )} repeat` );
     history.mergeLast( 2, "Make repeat" );
+    // ( a jib's repeat: its rail found along it, in the same undo step )
+    await this.engine.fenceTool.railAgain( fence.uid, true );
     return fence.uid;
   }
 

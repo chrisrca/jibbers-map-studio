@@ -5,8 +5,9 @@ import { composeUnity, transformCustom } from "../../src/core/transform";
 import { arr3, type CustomObjectEntry } from "../../src/core/types";
 import { recalcOutside } from "../../src/model/mesh";
 import { newModel } from "../../src/model/build";
+import { isRailCollider, withRail } from "../../src/pieces/rail";
 import { withModel } from "../../src/model/objects";
-import { FENCE_PRESETS, fenceOf, fenceShape, fenceWorld, isRepeat, newFence, postSpots, sectionFence, withFence, type FenceData, type FenceStyle } from "../../src/pieces/fence";
+import { FENCE_PRESETS, fenceOf, fenceShape, fenceWorld, isRepeat, newFence, postSpots, scaledSections, sectionFence, turnedSections, withFence, type FenceData, type FenceStyle } from "../../src/pieces/fence";
 
 const style = ( name: string ): FenceStyle => structuredClone( FENCE_PRESETS.find( ( p ) => p.name === name )!.style );
 
@@ -180,6 +181,74 @@ describe( "a fence of your own section", () => {
       expect( near( A[i].local_position, [feet[i][0], feet[i][1] - 0.2 * i, feet[i][2]] ), `section ${i}'s start` ).toBe( true );
       expect( near( B[i].local_position, [feet[i + 1][0], feet[i + 1][1] - 0.2 * ( i + 1 ), feet[i + 1][2]] ), `section ${i}'s end` ).toBe( true );
     }
+  } );
+
+  it( "its sections turned ( a quarter about the up ): each about its own middle, still one to a gap", () => {
+    const f    = sectionFence( "f", flat, local ), d = fenceOf( f )!;
+    const q    = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), Math.PI / 2 );
+    const run: [number, number][] = [d.points[0], [d.points[0][0] + 4, d.points[0][1]]];
+    const o    = withFence( { ...f, fence: { ...turnedSections( d, q ), points: run } } as CustomObjectEntry, () => 0, () => undefined );
+    const A    = o.parts.filter( ( p ) => p.mesh === "A" ), B = o.parts.filter( ( p ) => p.mesh === "B" );
+    const mids = postSpots( run, false, 2 ).slice( 0, 2 ).map( ( p ) => fenceWorld( f, [p[0] + 1, p[1]] )[0] );
+    expect( A.length ).toBe( 2 );
+    for ( let i = 0; i < 2; i++ ) {
+      // ( across the path now: at the gap's middle along it, a metre either side )
+      expect( A[i].local_position.x ).toBeCloseTo( mids[i], 5 );
+      expect( B[i].local_position.x ).toBeCloseTo( mids[i], 5 );
+      expect( Math.abs( A[i].local_position.z - B[i].local_position.z ) ).toBeCloseTo( 2, 5 );
+    }
+  } );
+
+  it( "a jib's repeat: its rail the section's, laid along every gap, so it follows a bent path ( not across it )", () => {
+    const jib  = { ...piece, surface_type: "Jib", rail: { points: [[-1, 1, 0], [0, 1, 0], [1, 1, 0]], radius: 0.05 } } as CustomObjectEntry;
+    const f    = sectionFence( "f", jib, local ), d = fenceOf( f )!;
+    expect( d.style.infill.sectionRail?.points.length ).toBe( 3 );
+    // ( a V: 6 m one way, 6 m back the other )
+    const [x0, z0] = d.points[0];
+    const run: [number, number][] = [[x0, z0], [x0 + 6, z0 + 3], [x0, z0 + 6]];
+    const o    = withFence( { ...f, fence: { ...d, points: run } } as CustomObjectEntry, () => 0, () => undefined );
+    const off  = ( p: number[] ) => Math.min( ...run.slice( 1 ).map( ( b, i ) => {
+      const a = run[i], ux = b[0] - a[0], uz = b[1] - a[1], t = Math.max( 0, Math.min( 1, ( ( p[0] - a[0] ) * ux + ( p[2] - a[1] ) * uz ) / ( ux * ux + uz * uz ) ) );
+      return Math.hypot( p[0] - a[0] - ux * t, p[2] - a[1] - uz * t );
+    } ) );
+    expect( o.rail!.points.length ).toBeGreaterThan( 6 );
+    for ( const p of o.rail!.points ) {
+      expect( off( p ) ).toBeLessThan( 1e-6 );
+      // ( the fence's own space: the ground, at 0, is its level below it )
+      expect( p[1] + f.position.y ).toBeCloseTo( 1, 5 );
+    }
+  } );
+
+  it( "a jib's repeat grinds on its rail alone: the copies' own colliders solid round it, as soon as it's made", () => {
+    const box  = { shape: "Box" as const, surface_type: "Jib" as const, local_position: { x: 0, y: 0.5, z: 0 }, local_rotation: { x: 0, y: 0, z: 0 }, local_scale: { x: 1, y: 1, z: 1 }, center: { x: 0, y: 0, z: 0 }, size: { x: 2, y: 1, z: 0.5 }, radius: 0, height: 0, direction: 1, mesh_ref: "" };
+    const jib  = transformCustom( { ...flat, model: undefined, surface_type: "Jib", colliders: [box], rail: { points: [[-1, 1, 0], [1, 1, 0]], radius: 0.05 } } as CustomObjectEntry, at );
+    const f    = sectionFence( "f", jib, local ), d = fenceOf( f )!;
+    const run: [number, number][] = [d.points[0], [d.points[0][0] + ( d.points[1][0] - d.points[0][0] ) * 3, d.points[0][1] + ( d.points[1][1] - d.points[0][1] ) * 3]];
+    const o    = withFence( { ...f, fence: { ...d, points: run } } as CustomObjectEntry, ground, () => undefined );
+    expect( o.rail ).toBeDefined();
+    expect( o.colliders.filter( ( c ) => c.surface_type === "Jib" ).every( isRailCollider ) ).toBe( true );
+    expect( o.colliders.filter( ( c ) => !isRailCollider( c ) ).length ).toBeGreaterThanOrEqual( 3 );
+  } );
+
+  it( "a piece with its rail on ( its own colliders set aside ): the repeat solid with them, not just its rail", () => {
+    const box  = { shape: "Box" as const, surface_type: "Jib" as const, local_position: { x: 0, y: 0.5, z: 0 }, local_rotation: { x: 0, y: 0, z: 0 }, local_scale: { x: 1, y: 1, z: 1 }, center: { x: 0, y: 0, z: 0 }, size: { x: 2, y: 1, z: 0.5 }, radius: 0, height: 0, direction: 1, mesh_ref: "" };
+    const jib  = withRail( transformCustom( { ...flat, model: undefined, surface_type: "Jib", colliders: [box] } as CustomObjectEntry, at ), { points: [[-1, 1, 0], [1, 1, 0]], radius: 0.05 } );
+    expect( jib.colliders.every( isRailCollider ) || jib.colliders.some( ( c ) => c.surface_type === "Generic" ) ).toBe( true );
+    const f    = sectionFence( "f", jib, local ), d = fenceOf( f )!;
+    expect( d.style.infill.section!.colliders.some( isRailCollider ) ).toBe( false );
+    const run: [number, number][] = [d.points[0], [d.points[0][0] + ( d.points[1][0] - d.points[0][0] ) * 3, d.points[0][1] + ( d.points[1][1] - d.points[0][1] ) * 3]];
+    const o    = withFence( { ...f, fence: { ...d, points: run } } as CustomObjectEntry, ground, () => undefined );
+    expect( o.colliders.filter( ( c ) => !isRailCollider( c ) && c.shape === "Box" ).length ).toBe( 3 );
+  } );
+
+  it( "its sections scaled: each about its own middle, longer along the path as well ( fewer of them )", () => {
+    const f = sectionFence( "f", flat, local ), d = fenceOf( f )!;
+    const k = scaledSections( d, [2, 1.5, 1] );
+    expect( k.style.infill.length ).toBeCloseTo( 4, 5 );
+    expect( k.style.spacing ).toBeCloseTo( 4, 5 );
+    const run: [number, number][] = [d.points[0], [d.points[0][0] + 8, d.points[0][1]]];
+    const o = withFence( { ...f, fence: { ...k, points: run } } as CustomObjectEntry, () => 0, () => undefined );
+    expect( o.parts.filter( ( p ) => p.mesh === "A" ).length ).toBe( 2 );
   } );
 
   it( "a section that runs along its own Z, off its origin: turned to run along the fence just the same, from where it stood", () => {

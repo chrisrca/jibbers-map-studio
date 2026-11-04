@@ -214,9 +214,12 @@ export class TerrainRenderer {
     const same = ( a: TerrainChunk, b: TerrainChunk ) =>
       a.heights === b.heights && a.res === b.res && a.snowMask === b.snowMask && a.size[0] === b.size[0] && a.size[1] === b.size[1] &&
       a.position[0] === b.position[0] && a.position[1] === b.position[1] && a.position[2] === b.position[2];
+    // ( none kept when the game's textures have just come in: see useGameSnow )
+    const anew  = this.anew;
+    this.anew   = false;
     const reuse = chunks.map( ( c, ci ) => {
       const o = oldRows.get( c.key );
-      return o && same( o.row[0].chunk, c ) && o.markings === markings[ci] ? o : null;
+      return !anew && o && same( o.row[0].chunk, c ) && o.markings === markings[ci] ? o : null;
     } );
     const masks: THREE.Texture[] = [];
     for ( const [ci, c] of chunks.entries() ) masks.push( reuse[ci]?.mask ?? ( ( c.snowMask && ( await this.loadMask( c.snowMask ) ) ) || white ) );
@@ -235,12 +238,18 @@ export class TerrainRenderer {
     }
     if ( gen !== this.generation ) return;
 
-    const kept = new Set( reuse.filter( Boolean ).map( ( o ) => o!.row ) );
-    for ( const row of this.tiles ) if ( !kept.has( row ) ) for ( const t of row ) {
-      this.group.remove( t.mesh );
-      this.uploads.delete( t );
-      t.dispose();
-    }
+    const kept  = new Set( reuse.filter( Boolean ).map( ( o ) => o!.row ) );
+    const letGo = ( rows: Tile[][] ) => {
+      for ( const row of rows ) for ( const t of row ) {
+        this.group.remove( t.mesh );
+        this.uploads.delete( t );
+        t.dispose();
+      }
+    };
+    // ( all made afresh: the old ones shown till the new ones are, the ground never gone meanwhile )
+    const drop  = this.tiles.filter( ( row ) => !kept.has( row ) );
+    if ( anew ) this.leftover.push( ...drop );
+    else letGo( drop );
     this.tiles      = [];
     this.masks      = masks;
     this.markingsOf = markings;
@@ -282,6 +291,7 @@ export class TerrainRenderer {
     }
     await this.show( made, gen );
     if ( gen !== this.generation ) return;
+    letGo( this.leftover.splice( 0 ) );
     redraw();
     // painted chunks show their live paint
     for ( const ci of fresh ) if ( layerOf( chunks[ci].key ) ) this.applyPaint( chunks[ci].key );
@@ -301,19 +311,23 @@ export class TerrainRenderer {
   }
 
   private markingsOf: boolean[] = [];
+  // every tile to be made afresh on the next rebuild, and the ones it's to replace once it's done
+  private anew                = false;
+  private leftover: Tile[][]  = [];
 
   /**
-   * The game's snow and rock textures, once read from it: on every tile from now on.
+   * The game's snow and rock textures, once read from it: on every tile from now on. Tiles made before they came ( a
+   * new map's first ground, at start ) are made again with them: swapped into a tile already drawn ( its shader made
+   * for the plain stand-in, a texture of another kind ), it went on showing the stand-in, or the rock, in places.
   **/
   useGameSnow( snow: THREE.Texture, rock: THREE.Texture ) {
-    gameTex.snow = snow;
-    gameTex.rock = rock;
-    for ( const row of this.tiles )
-      for ( const t of row ) {
-        t.snowNode.value = snow;
-        t.rockNode.value = rock;
-      }
+    gameTex.snow            = snow;
+    gameTex.rock            = rock;
     snowLook.gameSnow.value = 1;
+    if ( this.tiles.some( ( row ) => row.length ) ) {
+      this.anew = true;
+      void this.rebuild();
+    }
     redraw();
   }
 

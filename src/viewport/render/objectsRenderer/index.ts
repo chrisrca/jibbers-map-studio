@@ -155,7 +155,8 @@ export class ObjectsRenderer {
     const sp = spawns.find( ( s ) => selSpawn.has( s.uid ) );
     if ( sp ) {
       const sim            = simulateRide( this.terrain, sp.position, sp.velocity );
-      const geo            = new THREE.BufferGeometry().setFromPoints( sim.points );
+      // ( a little over the snow, or it's lost in it )
+      const geo            = new THREE.BufferGeometry().setFromPoints( sim.points.map( ( p ) => p.clone().setY( p.y + 0.25 ) ) );
       this.spawns.ridePath = new THREE.Line( geo, new THREE.LineBasicNodeMaterial( { color: 0x38bdf8 } ) );
       this.group.add( this.spawns.ridePath );
       this.rideInfo = { maxAirtime: sim.maxAirtime, endSpeed: sim.endSpeed };

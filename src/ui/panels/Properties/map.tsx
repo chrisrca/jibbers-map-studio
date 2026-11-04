@@ -43,7 +43,7 @@ export function MapProperties() {
         <input className="txt" key={`a${map.id}`} defaultValue={map.author ?? ""} onBlur={( e ) => e.target.value !== ( map.author ?? "" ) && setMap( "Author", { author: e.target.value } )} />
         <label>Map version</label>
         <input className="txt" key={`v${map.id}`} defaultValue={map.modVersion ?? "1.0"} onBlur={( e ) => e.target.value !== ( map.modVersion ?? "1.0" ) && setMap( "Map version", { modVersion: e.target.value } )} />
-        <label>Scale</label>
+        <label title="The whole map scaled by this in the game">World scale</label>
         <NumberField value={map.scale ?? 1} step={0.05} digits={2} min={0.1} max={3} onChange={( v ) => setMap( "Map scale", { scale: v } )} />
         <label>Mountains</label>
         <label style={{ color: "var(--text)" }}>
@@ -62,7 +62,6 @@ export function MapProperties() {
         <div style={{ gridColumn: "1 / -1" }}>
           <MapSizeEditor />
         </div>
-        <div className="note">Select a feature or spawn to edit it. Nothing selected shows these map settings.</div>
       </div>
     </Panel>
   );
