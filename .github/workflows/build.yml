@@ -33,8 +33,9 @@ jobs:
 
       - run: npm ci
 
-      # type-checks and builds the UI, compiles the Rust app, and makes the installer (NSIS)
-      - run: npx tauri build
+      # type-checks and builds the UI, compiles the Rust app, and makes the installer (NSIS). Unsigned: the update key
+      # stays on the machine that publishes releases (release.ps1), so CI doesn't make the updater's signed files
+      - run: npx tauri build --config src-tauri/tauri.ci.conf.json
 
       - uses: actions/upload-artifact@v5
         with:
