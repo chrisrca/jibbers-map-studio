@@ -15,7 +15,8 @@ export async function assetNavSelftest( dir: string ) {
     const eng = await waitFor( () => getEngine(), "engine", 60000 );
     await sleep( 1000 );
     await waitFor( () => !eng.veil.loading, "the veil", 600000 );
-    const trees = eng.trees.builtTrees;
+    // ( the map's trees are among its pieces )
+    const trees = eng.customR.group;
     await waitFor( () => trees.children.length > 0, "the map's trees", 60000 );
     log( `Design: map trees ${trees.children.length} groups, shown ${trees.visible}` );
     [...document.querySelectorAll<HTMLButtonElement>( ".workspaces button" )].find( ( b ) => b.textContent === "Assets" )?.click();

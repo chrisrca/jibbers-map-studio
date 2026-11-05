@@ -14,9 +14,27 @@
 import { ipc, joinPath } from "../../core/ipc";
 import { encodePng } from "../../core/png";
 import { useEditor } from "../../map/store";
+import { setRockLayers } from "../../terrain/shapes/shapes";
 import { terrain } from "../../terrain/terrain";
 import { spreadHue } from "./channels";
-import { layers } from "./layers";
+import { changed, ensureLayer, layers, makeFour } from "./layers";
+
+// ( a formation's rock painted into the layers too )
+setRockLayers( {
+  layerOf: ( key ) => layers.get( key ) ?? null,
+  four:    ( key ) => {
+    const L = layers.get( key );
+    if ( L ) makeFour( L );
+  },
+  ensure:  ( key ) => {
+    const c = terrain.chunks[terrain.indexOf( key )];
+    return c ? ensureLayer( c ) : Promise.resolve();
+  },
+  changed: ( key, rect ) => {
+    const L = layers.get( key );
+    if ( L ) changed( L, rect );
+  },
+} );
 
 export { DEFAULT_PAINT, MARKING_COLOURS, type PaintSettings, type PaintTool } from "../settings";
 export { type PaintLayer, onPaintChange, defaultMaskSize, layerOf, upsampleMask, ensureLayer, resetPaint, gripBlocked } from "./layers";

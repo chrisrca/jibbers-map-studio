@@ -134,13 +134,13 @@ export class ViewLook {
       this.views.map = keep;
       if ( s.railEdit ) useEditor.setState( { railEdit: null } );
       this.engine.stage.show( new THREE.Vector3( 0, 0, 0 ) );
-      for ( const g of [this.engine.terrainR.group, this.engine.objectsR.group, this.engine.trees.builtTrees] ) g.visible = false;
+      for ( const g of [this.engine.terrainR.group, this.engine.objectsR.group] ) g.visible = false;
       // ( Blender's opening view: down on the origin from front right )
       show( this.views.assets ?? { target: new THREE.Vector3( 0, 0.5, 0 ), distance: 12, yaw: Math.PI * 0.25, pitch: -0.45, flySpeed: 4 } );
     } else {
       this.views.assets = keep;
       this.engine.stage.hide();
-      for ( const g of [this.engine.terrainR.group, this.engine.objectsR.group, this.engine.trees.builtTrees] ) g.visible = true;
+      for ( const g of [this.engine.terrainR.group, this.engine.objectsR.group] ) g.visible = true;
       if ( this.views.map ) show( this.views.map );
     }
   }

@@ -195,7 +195,7 @@ export async function repaintScenery( uid: string, angle: number ) {
   const key = await ipc.repaintScenery( st.projectDir, prefix, angle );
   st.updateCustom( `Rocks from ${angle}°`, [uid], ( o ) => ( {
     ...o,
-    scenery: { rockAngle: angle },
+    scenery: { ...o.scenery, rockAngle: angle },
     parts:   o.parts.map( ( p ) => ( p.mesh.startsWith( `${prefix}/` ) ? { ...p, materials: p.materials.map( ( m ) => ( { ...m, base_tex: key } ) ) } : p ) ),
   } ) );
 }

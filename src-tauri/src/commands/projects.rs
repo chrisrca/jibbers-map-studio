@@ -77,6 +77,23 @@ pub async fn import_jbrmap(map_path: String, project_dir: String) -> CmdResult<p
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UnityImport {
+    pub project: project::Project,
+    pub notes: Vec<String>,
+}
+
+/// A Unity scene ( made with Map-Tools ) made a new project.
+#[tauri::command]
+pub async fn import_unity(scene_path: String, project_dir: String) -> CmdResult<UnityImport> {
+    tauri::async_runtime::spawn_blocking(move || crate::unity::import(&PathBuf::from(scene_path), &PathBuf::from(project_dir)))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|(project, notes)| UnityImport { project, notes })
+        .map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExportResult {
     path: String,
     bytes: u64,

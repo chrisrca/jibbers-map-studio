@@ -3,7 +3,7 @@
 import { evalCurve, evalRepeated } from "../../../core/curve";
 import { terrain } from "../../terrain";
 import { stampSample } from "./stamp";
-import { formationAt, formationBounds } from "./formation";
+import { formationAt, formationBounds, insideBy } from "./formation";
 import type { CurveShape, Shape } from "./types";
 
 const smooth = ( u: number ) => u * u * ( 3 - 2 * u );
@@ -30,6 +30,8 @@ export function shapeBounds( s: Shape ): [number, number, number, number] {
 **/
 export function shapeAt( s: Shape, x: number, z: number, ground: ( x: number, z: number ) => number ): { h: number; blend: number } | null {
   if ( s.kind === "formation" ) return formationAt( s, x, z, ground );
+  // ( a paint stroke paints; it leaves the ground as it is )
+  if ( s.kind === "paint" ) return null;
   if ( s.kind === "stamp" ) {
     const g  = s.grid;
     // world → stamp-local: the inverse of the turn its outline is drawn with ( shapeTool stampCorners )
@@ -139,9 +141,23 @@ export function kickerHeight( s: CurveShape, ground: ( x: number, z: number ) =>
 }
 
 /**
+ * Where a point is along a paint stroke and across it ( 0..1 each ), or null off it.
+**/
+export function strokeAt( s: { start: [number, number]; end: [number, number]; width: number }, x: number, z: number ): { t: number; ct: number } | null {
+  const dx = s.end[0] - s.start[0], dz = s.end[1] - s.start[1], len = Math.hypot( dx, dz );
+  if ( len < 1e-3 || s.width <= 0 ) return null;
+  const fx = dx / len, fz = dz / len, px = x - s.start[0], pz = z - s.start[1];
+  const t  = ( px * fx + pz * fz ) / len, lx = px * fz - pz * fx + s.width / 2;
+  return t < 0 || t > 1 || lx < 0 || lx > s.width ? null : { t, ct: lx / s.width };
+}
+
+/**
  * Height a shape would produce at a point, for previews ( the ground as it is now underneath ).
 **/
 export function shapeHeightAt( s: Shape, x: number, z: number ): number | null {
+  // ( a formation: the ground, inside its outline; it isn't worked out again for it; a paint stroke: inside it )
+  if ( s.kind === "formation" ) return s.points.length >= 3 && insideBy( s.points, x, z ) >= 0 ? terrain.heightAt( x, z ) : null;
+  if ( s.kind === "paint" ) return strokeAt( s, x, z ) ? terrain.heightAt( x, z ) : null;
   const r = shapeAt( s, x, z, ( gx, gz ) => terrain.heightAt( gx, gz ) );
   return r ? r.h : null;
 }

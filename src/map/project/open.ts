@@ -10,8 +10,9 @@ import { fenceOf, isRepeat, withFence } from "../../pieces/fence";
 import { PART_MARK, RAIL_MARK, recoverRail, withRail } from "../../pieces/rail";
 import type { NewMapOptions } from "../../terrain/generate";
 import { dropShapeEdit } from "../../terrain/shapes/edits";
-import { type Shape, resetShapes } from "../../terrain/shapes/shapes";
+import { type Shape, migrateFormation, resetShapes, unpackShape } from "../../terrain/shapes/shapes";
 import { type ChunkInit, terrain } from "../../terrain/terrain";
+import { TREES_COLLECTION, treesOf } from "../trees";
 import { loadPieceTextures, resetPieceTextures } from "../../texture/meshPaint";
 import { loadTrailData } from "../../trails/edits";
 import { history } from "../history";
@@ -53,6 +54,7 @@ async function applyProject( dir: string, p: Project, heights: Float32Array[] ) 
   meta.exported    = editor.exported;
   meta.sourceMapId = editor.sourceMapId;
   meta.realTerrain = editor.realTerrain;
+  meta.madeLand    = editor.madeLand;
   usedUids.clear();
   const inits: ChunkInit[] = p.chunks.map( ( c, i ) => ( {
     key:      c.key,
@@ -68,18 +70,27 @@ async function applyProject( dir: string, p: Project, heights: Float32Array[] ) 
     chunkExtras[key] = extras;
   }
   // uids are editor-only ( the map format has none ): they come back from the editor data, in the same order
-  const customObjects = ( ( p.customObjects ?? [] ) as Omit<CustomObjectEntry, "uid">[] ).map( ( o, i ) => ( { ...o, uid: uidAt( editor.customUids, i ) } ) );
+  const pieces = ( ( p.customObjects ?? [] ) as Omit<CustomObjectEntry, "uid">[] ).map( ( o, i ) => ( { ...o, uid: uidAt( editor.customUids, i ) } ) );
+  // the terrain's trees: features ( the game's own trees ) and pieces ( the map's ), packed back into their chunks when
+  // saved; put in a collection of their own the first time they're brought in
+  const trees = treesOf( p.chunks, chunkExtras as Record<string, { treePrototypes?: unknown[] }>, ( i ) => uidAt( editor.treeUids, i ) );
+  for ( const key of Object.keys( chunkExtras ) ) delete ( chunkExtras[key] as { treePrototypes?: unknown } ).treePrototypes;
+  const customObjects = [...pieces, ...trees.pieces];
+  const objects       = [...p.objects, ...trees.objects];
+  const firstTrees    = !editor.treeUids && trees.objects.length + trees.pieces.length > 0;
+  const collections   = [...( editor.collections ?? [] ), ...( firstTrees ? [{ id: TREES_COLLECTION, name: "Trees", parent: null }] : [] )];
+  const membership    = { ...editor.membership, ...( firstTrees ? Object.fromEntries( [...trees.objects, ...trees.pieces].map( ( t ) => [t.uid, TREES_COLLECTION] ) ) : {} ) };
   const locked        = editor.locked ?? customObjects.filter( isScenery ).map( ( o ) => o.uid );
   useEditor.setState( {
     projectDir:       dir,
     map:              p.map,
-    objects:          p.objects,
+    objects,
     spawns:           p.spawns,
     customObjects,
     locked:           Object.fromEntries( locked.map( ( u ) => [u, true as const] ) ),
     hiddenInView:     Object.fromEntries( ( editor.hidden ?? [] ).map( ( u ) => [u, true as const] ) ),
-    collections:      editor.collections ?? [],
-    membership:       editor.membership ?? {},
+    collections,
+    membership,
     labels:           editor.labels ?? {},
     activeCollection: null,
     library:          p.library ?? null,
@@ -90,10 +101,15 @@ async function applyProject( dir: string, p: Project, heights: Float32Array[] ) 
   resetPaint();
   await loadPieceTextures( dir, useEditor.getState().customObjects );
   terrain.setChunks( inits );
-  // shapes are already baked into the saved heights; edits from here on re-apply relative to that
+  // shapes are already baked into the saved heights; what each changed is read back, so an edit takes that out first
   resetShapes();
   dropShapeEdit();
-  useEditor.setState( { shapes: ( editor.shapes ?? [] ) as Shape[] } );
+  for ( const uid of editor.shapePatches ?? [] ) {
+    const bytes = await ipc.readBinary( joinPath( dir, "shapes", `${uid}.bin` ) ).catch( () => null );
+    if ( bytes ) unpackShape( uid, bytes );
+  }
+  // ( formations from before the studio had Map-Tools' settings: brought over )
+  useEditor.setState( { shapes: ( ( editor.shapes ?? [] ) as Shape[] ).map( ( s ) => ( s.kind === "formation" ? migrateFormation( s ) : s ) ) } );
   await loadTrailData( dir, editor.trails );
 
   resetHistoryAfterLoad();
@@ -210,6 +226,24 @@ export async function importMap( mapPath: string, dir: string ) {
     st.setBusy( null );
   }
   await openProject( dir );
+}
+
+/**
+ * A Unity scene made with Map-Tools opened as a new project ( its ramps and formations the studio's shapes ).
+**/
+export async function importUnityScene( scenePath: string, dir: string ) {
+  const st = useEditor.getState();
+  st.setBusy( "Importing Unity scene…" );
+  let notes: string[] = [];
+  try {
+    const r = await ipc.importUnity( scenePath, dir );
+    notes   = r.notes;
+    await ipc.saveProject( dir, { ...r.project, editor: { ...( r.project.editor as object | undefined ), sourceMapId: r.project.map.id } } );
+  } finally {
+    st.setBusy( null );
+  }
+  await openProject( dir );
+  if ( notes.length ) useEditor.getState().toast( notes.slice( 0, 4 ).join( " · " ) + ( notes.length > 4 ? ` · ${notes.length - 4} more` : "" ), "info" );
 }
 
 export async function newProject( dir: string, name: string, opts: NewMapOptions, _onProgress?: ( f: number ) => void ) {

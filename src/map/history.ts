@@ -22,6 +22,9 @@ class History {
   // work still under way that ends in a step of its own ( a sculpt stroke still being laid down ): finished before an
   // undo or redo, so the steps stay in order
   settle: () => void = () => {};
+  // work under way an undo or redo waits for rather than finishing it there and then ( a formation on the graphics
+  // card ): when it's done, or null when there's none
+  wait: () => Promise<void> | null = () => null;
 
   push( e: HistoryEntry ) {
     this.past.push( e );
@@ -74,6 +77,11 @@ class History {
   }
 
   undo() {
+    const w = this.wait();
+    if ( w ) {
+      void w.then( () => this.undo() );
+      return null;
+    }
     this.settle();
     const e = this.past.pop();
     if ( !e ) return null;
@@ -84,6 +92,11 @@ class History {
   }
 
   redo() {
+    const w = this.wait();
+    if ( w ) {
+      void w.then( () => this.redo() );
+      return null;
+    }
     this.settle();
     const e = this.future.pop();
     if ( !e ) return null;

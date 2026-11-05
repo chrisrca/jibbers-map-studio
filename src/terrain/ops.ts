@@ -21,7 +21,7 @@ function bounds() {
 
 function mirrorShape( s: Shape, axis: "x" | "z", sx: number, sz: number ): Shape {
   const m = ( [x, z]: [number, number] ): [number, number] => ( axis === "x" ? [sx - x, z] : [x, sz - z] );
-  if ( s.kind === "curve"  ) return { ...s, start:  m( s.start  ), end: m( s.end ) };
+  if ( s.kind === "curve" || s.kind === "paint" ) return { ...s, start: m( s.start ), end: m( s.end ) };
   if ( s.kind === "circle" ) return { ...s, center: m( s.center ), tiltDirection: axis === "x" ? -s.tiltDirection : 180 - s.tiltDirection };
   // ( its noise mirrored the same way: made again later, it's the mirror image of what was mirrored )
   if ( s.kind === "formation" ) {

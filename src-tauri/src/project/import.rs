@@ -5,6 +5,11 @@ use super::*;
 /// Converts a `.jbrmap` into a new project folder.
 pub fn import_jbrmap(map_path: &Path, dir: &Path) -> Result<Project> {
     let map = crate::jbrmap::load(map_path)?;
+    import_map(&map, serde_json::Value::Null, dir)
+}
+
+/// A map made a new project folder, with the editor's own data ( `editor`: shapes, trails ) beside it.
+pub fn import_map(map: &MapData, editor: serde_json::Value, dir: &Path) -> Result<Project> {
     std::fs::create_dir_all(dir.join("heights"))?;
     std::fs::create_dir_all(dir.join("masks"))?;
 
@@ -103,7 +108,7 @@ pub fn import_jbrmap(map_path: &Path, dir: &Path) -> Result<Project> {
             .collect(),
         custom_objects,
         library,
-        editor: serde_json::Value::Null,
+        editor,
     };
     save(dir, &p)?;
     Ok(p)

@@ -97,19 +97,29 @@ export interface StampGrid {
   margin?: number;
 }
 
-// A landform in an outline ( Map-Tools' Formation Builder, terrain/shapes/shapes/formation.ts ).
+// A landform in an outline ( Map-Tools' Formation Builder, terrain/shapes/shapes/formation.ts ), its settings as
+// Map-Tools has them.
 export interface FormationShape {
   uid:         string;
   kind:        "formation";
   name:        string;
   // the outline ( world XZ ), closed
   points:      [number, number][];
+  // fitted to its outline already ( after that only adding or taking out a point fits it again )
+  fitted?:     boolean;
+  // ( false: kept, but not laid on the ground )
+  enabled?:    boolean;
   // laid over the ground: added on top, only raising it, only carving it, or set ( from the ground round the outline )
   mode:        "add" | "raise" | "carve" | "set";
   style:       "smooth" | "ridged" | "billow";
   // the dome's height over the ground, and the whole formation moved up or down ( metres )
   height:      number;
   baseY:       number;
+  // metres in from the outline to the dome's full height, and over which it fades into the ground
+  peakWidth:   number;
+  edgeBlend:   number;
+  // the dome's cross-section, edge ( 0 ) to peak ( 1 )
+  profile:     Curve;
   // the noise: its biggest features' size and how tall they are ( metres ), its octaves, between them, and how much of
   // it is on the peak rather than all over ( 0..1 ); its pattern bent about ( warp ); its seed
   featureSize: number;
@@ -117,37 +127,71 @@ export interface FormationShape {
   detail:      number;
   lacunarity:  number;
   gain:        number;
-  onPeak:      number;
   warp:        number;
   seed:        number;
-  // metres in from the outline it blends into the ground over; metres in to the dome's full height ( 0: half the
-  // outline across )
-  edgeBlend:   number;
-  peakWidth:   number;
-  // rounding off ( metres ) and how many times
+  onPeak:      number;
+  // rounding off ( 0..1 ) and how many passes
   smooth:      number;
   smoothSteps: number;
   thermal:     { on: boolean; amount: number; iterations: number; repose: number };
+  // ( droplets: per height sample; lifetime: samples a droplet runs; radius: samples )
+  hydraulic:   { on: boolean; droplets: number; lifetime: number; inertia: number; capacity: number; erode: number; deposit: number; evaporate: number; radius: number };
+  // snow by height, slope and shape; rock painted where it can't hold ( rockFrom..rockFull degrees; the snow line's
+  // heights world Y, −1 off ); depth in metres, soften in passes
+  snow:        { on: boolean; rockFrom: number; rockFull: number; rock: number; crevices: number; lineLow: number; lineHigh: number; depth: number; addsHeight: number; soften: number };
   // ( mirrored with the map: the noise read from the other side of these lines, x = it − x, z = it − z )
   noiseMirror?: { x: number | null; z: number | null };
-  hydraulic:   { on: boolean; droplets: number; lifetime: number; inertia: number; capacity: number; erode: number; deposit: number; evaporate: number; radius: number };
+  // ( brought over from Map-Tools: its noise read from this corner, as Map-Tools reads it from its terrain's )
+  noiseOffset?: [number, number];
+  // ( 2: Map-Tools' settings; before, the studio's own )
+  v?:          2;
 }
 
-export type Shape = CurveShape | CircleShape | StampShape | FormationShape;
+// A stroke painted into the snow mask ( Map-Tools' paint insert ): from start to end, `width` metres across, how much
+// it paints along it ( repeated ) and across it ( 0..1 ), times `coverage`; snow ( or rock, erased ), a marking colour
+// ( MARKING_COLOURS ), or powder `depth` deep ( 0..1 ).
+export interface PaintShape {
+  uid:           string;
+  kind:          "paint";
+  name:          string;
+  start:         [number, number];
+  end:           [number, number];
+  width:         number;
+  along:         Curve;
+  repeats:       number;
+  repeatScaling: number;
+  cross:         Curve;
+  target:        "snow" | "marking" | "powder";
+  colour:        number;
+  depth:         number;
+  erase:         boolean;
+  coverage:      number;
+}
+
+export type Shape = CurveShape | CircleShape | StampShape | FormationShape | PaintShape;
 
 let counter = 0;
 
 const uid = () => `shape-${Date.now().toString( 36 )}-${( counter++ ).toString( 36 )}`;
 
+/**
+ * A new formation round `points`, as Map-Tools makes one ( its Basic preset; fitted once it has an outline ).
+**/
 export function newFormation( points: [number, number][] ): FormationShape {
   return {
     uid: uid(), kind: "formation", name: "Formation", points, mode: "add", style: "smooth",
-    height: 25, baseY: 0, featureSize: 60, roughness: 6, detail: 5, lacunarity: 2, gain: 0.5, onPeak: 0.5, warp: 0.3, seed: 1,
-    edgeBlend: 20, peakWidth: 0, smooth: 0, smoothSteps: 1,
-    thermal:   { on: false, amount: 0.5, iterations: 30, repose: 35 },
-    hydraulic: { on: false, droplets: 0.5, lifetime: 60, inertia: 0.3, capacity: 4, erode: 0.3, deposit: 0.3, evaporate: 0.02, radius: 2 },
+    height: 55, baseY: 0, peakWidth: 100, edgeBlend: 14, profile: easeInOut(),
+    featureSize: 60, roughness: 12, detail: 4, lacunarity: 2, gain: 0.5, warp: 0.25, seed: 0, onPeak: 0.4,
+    smooth: 0.2, smoothSteps: 2,
+    thermal:   { on: false, amount: 0.5, iterations: 50, repose: 36 },
+    hydraulic: { on: false, droplets: 0.5, lifetime: 250, inertia: 0.05, capacity: 4, erode: 0.3, deposit: 0.3, evaporate: 0.01, radius: 3 },
+    snow:      { on: false, rockFrom: 30, rockFull: 54, rock: 1, crevices: 0.5, lineLow: -1, lineHigh: -1, depth: 1.2, addsHeight: 0.4, soften: 2 },
+    v:         2,
   };
 }
+
+// Unity's AnimationCurve.EaseInOut( 0, 0, 1, 1 ): level at both ends.
+export const easeInOut = (): Curve => [{ t: 0, v: 0, flat: true }, { t: 1, v: 1, flat: true }];
 
 export function newCurve( start: [number, number], end: [number, number] ): CurveShape {
   return {

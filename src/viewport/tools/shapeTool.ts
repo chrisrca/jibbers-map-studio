@@ -11,7 +11,7 @@ import { toThree, toUnity } from "../../core/coords";
 import { PROFILES } from "../../core/curve";
 import { history } from "../../map/history";
 import { cancelShape, commitShape, deleteShape, liveShape } from "../../terrain/shapes/edits";
-import { captureStamp, groundWithout, newCircle, newCurve, newFormation, newStamp, shapeHeightAt, type CurveShape, type FormationShape, type Shape, type StampShape } from "../../terrain/shapes/shapes";
+import { captureStamp, fitFormation, groundWithout, newCircle, newCurve, newFormation, newStamp, shapeHeightAt, type CurveShape, type FormationShape, type Shape, type StampShape } from "../../terrain/shapes/shapes";
 import { useEditor } from "../../map/store";
 import { terrain } from "../../terrain/terrain";
 
@@ -282,7 +282,9 @@ export class ShapeTool {
       deleteShape( s.uid );
       return true;
     }
-    liveShape( { ...s, points: s.points.filter( ( _, i ) => i !== p.i ) }, "Delete point" );
+    // ( fitted to what's left, if it hadn't been yet: Map-Tools' RefitAfterAreaEdit )
+    const next = { ...s, points: s.points.filter( ( _, i ) => i !== p.i ) };
+    liveShape( !s.fitted && next.points.length >= 3 ? fitFormation( next ) : next, "Delete point" );
     commitShape();
     this.sync();
     return true;
@@ -374,7 +376,7 @@ export class ShapeTool {
 
   private handlePoints( s: Shape ): [Handle, [number, number]][] {
     if ( s.kind === "formation" ) return s.points.map( ( p, i ) => [i, p] );
-    if ( s.kind === "curve" ) return [["start", s.start], ["end", s.end]];
+    if ( s.kind === "curve" || s.kind === "paint" ) return [["start", s.start], ["end", s.end]];
     if ( s.kind === "stamp" ) {
       const a = ( s.rotation * Math.PI ) / 180, r = ( ( s.grid.h - 1 ) * s.grid.spacing ) / 2 + 1.5;
       return [["center", s.center], ["rotate", [s.center[0] + Math.sin( a ) * r, s.center[1] + Math.cos( a ) * r]]];
@@ -384,7 +386,7 @@ export class ShapeTool {
 
   private handleSize( s: Shape ) {
     return s.kind === "formation" ? Math.max( 0.5, ( Math.max( ...s.points.map( ( p ) => p[0] ) ) - Math.min( ...s.points.map( ( p ) => p[0] ) ) ) * 0.015 )
-      : s.kind === "curve" ? Math.max( 0.35, s.width * 0.06 )
+      : s.kind === "curve" || s.kind === "paint" ? Math.max( 0.35, s.width * 0.06 )
       : s.kind === "circle" ? Math.max( 0.35, s.radius * 0.05 )
       : Math.max( 0.35, s.grid.w * s.grid.spacing * 0.03 );
   }
@@ -430,7 +432,11 @@ export class ShapeTool {
       // near an outline: a point put in it there; the ground, with a formation picked: a point put into its side
       // nearest the click ( under three points, on after the picked one ); else a new formation begun
       const edge = this.edgeNear( at ), from = this.picked && this.formation( this.picked.uid );
-      const into = ( s: FormationShape, k: number, p: [number, number] ) => this.grabPoint( { ...s, points: [...s.points.slice( 0, k ), p, ...s.points.slice( k )] }, k, "Add point" );
+      // ( a point put in: the formation fitted to its outline again, as Map-Tools does while points are added )
+      const into = ( s: FormationShape, k: number, p: [number, number] ) => {
+        const next = { ...s, points: [...s.points.slice( 0, k ), p, ...s.points.slice( k )] };
+        this.grabPoint( next.points.length >= 3 ? fitFormation( next ) : next, k, "Add point" );
+      };
       if ( edge ) into( edge.s, edge.i + 1, edge.p );
       else if ( from ) into( from, from.points.length >= 3 ? nearestSide( from.points, at ) + 1 : this.picked!.i + 1, at );
       else this.grabPoint( newFormation( [at] ), 0, "Add formation" );
@@ -473,7 +479,7 @@ export class ShapeTool {
       const s = d.shape;
       let next: Shape;
       if ( s.kind === "formation" ) next = { ...s, points: s.points.map( ( p, i ) => ( i === d.handle ? at : p ) ) };
-      else if ( s.kind === "curve" ) next = d.handle === "start" ? { ...s, start: at } : { ...s, end: at };
+      else if ( s.kind === "curve" || s.kind === "paint" ) next = d.handle === "start" ? { ...s, start: at } : { ...s, end: at };
       else if ( d.handle === "center" ) next = { ...s, center:   at };
       else if ( s.kind   === "stamp"  ) next = { ...s, rotation: ( Math.atan2( at[0] - s.center[0], at[1] - s.center[1] ) * 180 ) / Math.PI };
       else next = { ...s, radius: Math.max( 1, Math.hypot( at[0] - s.center[0], at[1] - s.center[1] ) ) };

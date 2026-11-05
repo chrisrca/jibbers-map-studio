@@ -29,7 +29,7 @@ tauri-build = { version = "2", features = [] }
 anyhow = "1"
 base64 = "0.22"
 flate2 = "1"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tga", "bmp"] }
 gltf = { version = "1", features = ["KHR_texture_transform"] }
 tobj = "4"
 ureq = "2"
@@ -45,3 +45,4 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Wind
 discord-rich-presence = "1.1.0"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+texture2ddecoder = "0.1.2"

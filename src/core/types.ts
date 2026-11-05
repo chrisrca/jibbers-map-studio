@@ -87,13 +87,15 @@ export interface CustomObjectEntry {
   // a fence's colliders copied from the map's pieces it uses for posts or panels ( studio only, world space: kept
   // apart so a change of its model keeps them; pieces/fence.ts )
   kitColliders?:            CustomCollider[];
-  // a real-world map's surroundings: how its texture was last painted ( studio only; geo/scenery/inner.ts )
-  scenery?:                 { rockAngle: number };
+  // a map's surroundings: how its texture was last painted, and how far out they reach ( studio only;
+  // geo/scenery/inner.ts, geo/landGround.ts )
+  scenery?:                 { rockAngle: number; radius?: number };
   // the library asset it was placed from, and that file's date then ( studio only: overwriting the asset brings the
   // piece up to date, pieces/assetFiles.ts )
   source?:                  { id: string; stamp: number };
   // a piece modelled in the studio: its mesh and modifiers ( studio only; model/objects.ts )
   model?:                   ModelData;
+  tree?:                    TreeMark;
 }
 
 // A grind rail: a curve through control points in the piece's own coordinates ( Unity, before its scale ).
@@ -180,6 +182,14 @@ export interface ChunkEntry {
   repeatOffset?:     V3;
 }
 
+// A feature or piece that's a terrain tree ( studio only: saved back into its chunk's tree prototypes while it stands
+// as one, map/trees.ts ): its tint.
+export interface TreeMark {
+  color: [number, number, number, number];
+  // ( a piece tree: the prototype it came as, in its own space; this session only, map/trees.ts )
+  kind?: { parts: CustomPart[]; colliders: CustomCollider[]; lod_groups: unknown[] };
+}
+
 export interface ObjectEntry {
   uid:       string;
   id:        string;
@@ -188,6 +198,7 @@ export interface ObjectEntry {
   scale:     V3;
   params:    Record<string, ParamValue>;
   lift?:     LiftData;
+  tree?:     TreeMark;
   // a lift whose masts are spaced on the ground this many metres apart, again whenever its ends move ( none: where
   // they were put )
   liftAuto?: number;

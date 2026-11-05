@@ -6,6 +6,7 @@ mod gamelook;
 pub mod jbrmap;
 mod library;
 mod project;
+mod unity;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -50,6 +51,7 @@ pub fn run() {
             commands::projects::load_project,
             commands::projects::save_project,
             commands::projects::import_jbrmap,
+            commands::projects::import_unity,
             commands::projects::export_project,
             commands::game::play_in_game,
             commands::game::game_status,

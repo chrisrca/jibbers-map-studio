@@ -3,9 +3,13 @@
 import { MAP_ID_MAX, mapIdFrom } from "../../../map/mapId";
 import { useEditor } from "../../../map/store";
 import { mapClockHour } from "../../../viewport/render/gameSky";
-import { NumberField, Panel } from "../../widgets/controls";
+import { NumberField, Panel, Slider } from "../../widgets/controls";
 import { plainText } from "../../widgets/RichText";
 import { MapSizeEditor } from "../MapSize";
+import { useRef, useState } from "react";
+import { isScenery } from "../../../core/types";
+import { landOf } from "../../../geo/land";
+import { buildSurroundings, removeSurroundings } from "../../../geo/landGround";
 
 export function MapProperties() {
   const map    = useEditor( ( s ) => s.map    );
@@ -62,7 +66,58 @@ export function MapProperties() {
         <div style={{ gridColumn: "1 / -1" }}>
           <MapSizeEditor />
         </div>
+        <SurroundingsRows />
       </div>
     </Panel>
+  );
+}
+
+/**
+ * The land round the map as scenery ( geo/scenery ): on or off, and how far out it reaches ( built again as that
+ * changes, and whenever the map's ground does: Map Size ). The real land round a real mountain; round a made-up map,
+ * land made up to match it.
+**/
+function SurroundingsRows() {
+  const sc          = useEditor( ( s ) => s.customObjects.find( isScenery ) );
+  const [km, setKm] = useState( ( sc?.scenery?.radius ?? 8000 ) / 1000 );
+  const timer       = useRef<ReturnType<typeof setTimeout> | null>( null );
+  const land        = landOf();
+  if ( !land ) return null;
+  const build = async ( reach: number ) => {
+    const st = useEditor.getState();
+    try {
+      st.setBusy( "Building the surroundings…" );
+      await buildSurroundings( reach * 1000, ( stage, f ) => st.setBusy( `${stage} ${Math.round( f * 100 )}%` ) );
+    } catch ( e ) {
+      st.toast( `Couldn't build the surroundings: ${e instanceof Error ? e.message : e}`, "error" );
+    } finally {
+      st.setBusy( null );
+    }
+  };
+  return (
+    <>
+      <div className="section">Surroundings</div>
+      <label />
+      <label className="check"><input type="checkbox" checked={!!sc} onChange={( e ) => ( e.target.checked ? void build( km ) : removeSurroundings() )} /> Show surroundings</label>
+      { sc && (
+        <>
+          <label />
+          <Slider
+            label="Reach"
+            value={km}
+            min={1}
+            max={20}
+            step={1}
+            fmt={( v ) => `${v.toFixed( 0 )} km`}
+            onChange={( v ) => {
+              setKm( v );
+              // ( built again once it's let be a moment, not on every step of a drag )
+              if ( timer.current ) clearTimeout( timer.current );
+              timer.current = setTimeout( () => void build( v ), 600 );
+            }}
+          />
+        </>
+      ) }
+    </>
   );
 }
