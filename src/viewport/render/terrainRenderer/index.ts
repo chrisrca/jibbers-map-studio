@@ -50,10 +50,6 @@ export class TerrainRenderer {
   private projScreen = new THREE.Matrix4();
   // metres of triangle edge allowed per metre of distance; lower = more detail
   detail = 0.0025;
-  // repeated chunks' copies to show ( Preview Repeats ): each one's offsets from it ( Unity space ), by chunk
-  private repeats = new Map<string, [number, number, number][]>();
-  // each tile's ghost copies ( its own geometry and material, put where the copies are )
-  private ghosts  = new Map<Tile,   THREE.Mesh[]>();
 
   /**
    * The tiles' shader made ahead, off the page's thread ( a tile of flat ground, compiled and kept ): the first
@@ -121,47 +117,6 @@ export class TerrainRenderer {
     }
   }
 
-  /**
-   * The chunks whose copies are shown as ghosts ( Preview Repeats ), with their offsets; none to show none.
-  **/
-  setRepeats( list: { key: string; offsets: [number, number, number][] }[] ) {
-    this.repeats = new Map( list.map( ( r ) => [r.key, r.offsets] ) );
-    for ( const ms of this.ghosts.values() ) for ( const m of ms ) this.group.remove( m );
-    this.ghosts.clear();
-  }
-
-  /**
-   * A tile's ghosts where its chunk's copies are ( the ones in view shown ): how many are, and the nearest one's
-   * distance ( its detail goes by the nearest of it and its copies ).
-  **/
-  private showGhosts( t: Tile, cam: THREE.Vector3 ): { n: number; near: number } {
-    const offs = this.repeats.get( t.chunk.key );
-    if ( !offs ) return { n: 0, near: Infinity };
-    let ms = this.ghosts.get( t );
-    if ( !ms ) {
-      ms = offs.map( () => {
-        const m         = new THREE.Mesh( t.mesh.geometry, t.mesh.material );
-        m.castShadow    = t.mesh.castShadow;
-        m.receiveShadow = t.mesh.receiveShadow;
-        // ( not the map's ground: nothing picks it )
-        m.raycast       = () => {};
-        this.group.add( m );
-        return m;
-      } );
-      this.ghosts.set( t, ms );
-    }
-    let shown = 0, near = Infinity;
-    offs.forEach( ( [x, y, z], k ) => {
-      const m    = ms![k], box = t.box.clone().translate( new THREE.Vector3( x, y, -z ) );
-      m.material = t.mesh.material;
-      m.position.set( t.mesh.position.x + x, t.mesh.position.y + y, t.mesh.position.z - z );
-      m.quaternion.copy( t.mesh.quaternion );
-      m.scale.copy( t.mesh.scale );
-      m.visible = this.frustum.intersectsBox( box );
-      if ( m.visible ) { shown++; near = Math.min( near, box.distanceToPoint( cam ) ); }
-    } );
-    return { n: shown, near };
-  }
   stats = { tiles: 0, visible: 0, triangles: 0 };
 
   constructor( private terrain: Terrain, private loadMask: ( path: string ) => Promise<THREE.Texture | null> ) {
@@ -515,24 +470,13 @@ export class TerrainRenderer {
     this.frustum.setFromProjectionMatrix( this.projScreen );
     const cam   = camera.position;
     let visible = 0, tris = 0;
-    // ( ghosts of tiles that have gone, let go )
-    if ( this.ghosts.size ) {
-      const live = new Set( this.tiles.flat() );
-      for ( const [t, ms] of this.ghosts )
-        if ( !live.has( t ) ) {
-          for ( const m of ms ) this.group.remove( m );
-          this.ghosts.delete( t );
-        }
-    }
     for ( const row of this.tiles )
       for ( const t of row ) {
         const vis      = this.frustum.intersectsBox( t.box );
         t.mesh.visible = vis;
-        // ( its copies: shown wherever they're in view, the tile itself or not; its detail the nearest one's )
-        const g        = this.repeats.size ? this.showGhosts( t, cam ) : { n: 0, near: Infinity };
-        if ( !vis && !g.n ) continue;
-        if ( vis  ) visible++;
-        const d       = Math.max( 1, Math.min( vis ? t.box.distanceToPoint( cam ) : Infinity, g.near ) );
+        if ( !vis ) continue;
+        visible++;
+        const d       = Math.max( 1, t.box.distanceToPoint( cam ) );
         const desired = d * this.detail;
         const q       = t.chunk.tileQuads;
         let step      = 1;
@@ -541,16 +485,14 @@ export class TerrainRenderer {
           t.step          = step;
           t.mesh.geometry = this.geoms.get( q, step );
         }
-        for ( const m of this.ghosts.get( t ) ?? [] ) m.geometry = t.mesh.geometry;
         const n = q / step;
-        tris   += n * n * 2 * ( ( vis ? 1 : 0 ) + g.n );
+        tris   += n * n * 2;
       }
     this.stats.visible   = visible;
     this.stats.triangles = tris;
   }
 
   clear() {
-    this.setRepeats( [...this.repeats].map( ( [key, offsets] ) => ( { key, offsets } ) ) );
     for ( const row of this.tiles ) for ( const t of row ) {
       this.group.remove( t.mesh );
       t.dispose();

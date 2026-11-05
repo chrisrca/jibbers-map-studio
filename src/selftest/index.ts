@@ -57,6 +57,7 @@ import { mountainSelftest } from "./realmap/mountain";
 import { mountainStressSelftest } from "./realmap/mountainStress";
 import { landGrowSelftest } from "./terrain/landGrow";
 import { formationPortSelftest } from "./terrain/formationPort";
+import { farViewSelftest } from "./app/farView";
 import { unityImportSelftest } from "./app/unityImport";
 import { newMapLookSelftest } from "./look/newMapLook";
 import { newMapSelftest } from "./terrain/newMap";
@@ -81,7 +82,6 @@ import { realTrailsSelftest } from "./trails/realTrails";
 import { recoverSelftest } from "./pieces/recover";
 import { recycleSelftest } from "./app/recycle";
 import { refreshLookSelftest } from "./look/refreshLook";
-import { repeatsSelftest } from "./terrain/repeats";
 import { replaySelftest } from "./game/replay";
 import { resortSelftest } from "./terrain/resort";
 import { rocksSelftest } from "./realmap/rocks";
@@ -134,10 +134,10 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   landgrow:     landGrowSelftest,
   formation:    formationPortSelftest,
   unityimport:  unityImportSelftest,
+  farview:      farViewSelftest,
   newmap:       newMapSelftest,
   newmaplook:   newMapLookSelftest,
   rampdrag:     rampDragSelftest,
-  repeats:      repeatsSelftest,
   resort:       resortSelftest,
   spawn:        spawnSelftest,
   terrainlines: terrainLinesSelftest,

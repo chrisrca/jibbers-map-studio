@@ -1,6 +1,7 @@
 // Custom objects ( imported maps' own meshes, e.g. Melon's MLNZ pieces ) drawn with their real geometry, textures
 // and material settings. Assets come from the Rust-side cache ( src-tauri/src/project/assets.rs ).
 
+import { positionWorld, step, uniform } from "three/tsl";
 import * as THREE from "three/webgpu";
 import { toThree, unityEulerToQuat } from "../../../core/coords";
 import { type AssetIndex, ipc, joinPath } from "../../../core/ipc";
@@ -55,6 +56,12 @@ export class CustomObjectsRenderer {
   // `built` is the data the shown meshes are from ( the newest data may still be building )
   shown = new Map<string, { group: THREE.Group; data: CustomObjectEntry; build: number; built: CustomObjectEntry | null }>();
   private builds         = 0;
+  // ( pieces sharing a mesh and its materials, a map's trees above all: drawn instanced, one draw for every one of
+  // them, their own meshes hidden then but still picked; not the picked ones, outlined and moved as any piece is. By
+  // geometry and materials )
+  private batches        = new Map<string, { im: THREE.InstancedMesh; capacity: number }>();
+  private batchDue       = false;
+  private batchedFor     = "";
   // Resolves when the most recent sync has finished building.
   settled: Promise<void> = Promise.resolve();
   // pieces being built since none were ( counted for the loading veil ); `gen` drops builds of a project left behind
@@ -126,7 +133,13 @@ export class CustomObjectsRenderer {
       if ( !live.has( uid ) ) {
         this.group.remove( s.group );
         this.shown.delete( uid );
+        this.batchLater();
       }
+    }
+    const picked = selection.filter( ( s ) => s.kind === "custom" ).map( ( s ) => s.uid ).join( "," );
+    if ( picked !== this.batchedFor ) {
+      this.batchedFor = picked;
+      this.batchLater();
     }
     const pending: Promise<void>[] = [];
     const gen                      = this.wave.gen;
@@ -146,6 +159,7 @@ export class CustomObjectsRenderer {
         cur.data  = o;
         cur.built = o;
         cur.build = ++this.builds;
+        if ( !selection.some( ( s ) => s.uid === o.uid ) ) this.batchLater();
         redraw();
         continue;
       }
@@ -166,6 +180,8 @@ export class CustomObjectsRenderer {
             this.group.add( g );
             this.onBuilt?.( o.uid );
             this.updateSelected( this.selection ); // the selection now, not when this build started
+            // ( a picked piece is drawn on its own: built again as it's changed, nothing else to lay out )
+            if ( !this.selected.has( o.uid ) ) this.batchLater();
           } )
           .finally( () => {
             if ( gen !== this.wave.gen ) return;
@@ -192,6 +208,7 @@ export class CustomObjectsRenderer {
   setLook( look: { shading: Shading; xray: boolean; faces: boolean } | null ) {
     this.look = look;
     for ( const s of this.shown.values() ) this.applyLook( s.group );
+    this.batchLater();
   }
   private applyLook( g: THREE.Group ) {
     const l = this.look;
@@ -216,28 +233,107 @@ export class CustomObjectsRenderer {
   showOnly( uids: Set<string> | null ) {
     this.only = uids;
     for ( const [uid, s] of this.shown ) s.group.visible = !uids || uids.has( uid );
+    this.batchLater();
+  }
+
+  private batchLater() {
+    if ( this.batchDue ) return;
+    this.batchDue = true;
+    queueMicrotask( () => {
+      this.batchDue = false;
+      this.layoutBatches();
+    } );
+  }
+
+  /**
+   * Pieces' meshes drawn instanced where they're alike ( see `batches` ): one with none like it, picked, hidden, faint,
+   * its moving parts going, or in the Assets workspace's shading drawn on its own.
+  **/
+  private layoutBatches() {
+    const by = new Map<string, { geo: THREE.BufferGeometry; mat: THREE.Material | THREE.Material[]; cast: boolean; take: boolean; meshes: THREE.Mesh[] }>();
+    for ( const [uid, s] of this.shown ) {
+      const own = !s.built || !s.group.visible || this.look !== null || this.selected.has( uid ) || this.moving.has( uid );
+      for ( const m of s.group.children ) {
+        if ( !( m instanceof THREE.Mesh ) ) continue;
+        m.visible = true;
+        if ( own || ( m.userData as { solid?: unknown } ).solid ) continue;
+        const mats = Array.isArray( m.material ) ? m.material : [m.material];
+        const key  = `${m.geometry.uuid}|${mats.map( ( x ) => x.uuid ).join( "," )}|${m.castShadow}|${m.receiveShadow}`;
+        let g      = by.get( key );
+        if ( !g ) by.set( key, ( g = { geo: m.geometry, mat: m.material, cast: m.castShadow, take: m.receiveShadow, meshes: [] } ) );
+        g.meshes.push( m );
+      }
+    }
+    // ( a mesh with none like it stays its own )
+    for ( const [key, g] of by ) if ( g.meshes.length < 2 ) by.delete( key );
+    for ( const [key, b] of this.batches )
+      if ( !by.has( key ) ) {
+        this.group.remove( b.im );
+        b.im.dispose();
+        this.batches.delete( key );
+      }
+    const toGroup = this.group.matrixWorld.clone().invert(), at = new THREE.Matrix4();
+    for ( const [key, g] of by ) {
+      let b = this.batches.get( key );
+      if ( !b || g.meshes.length > b.capacity ) {
+        if ( b ) {
+          this.group.remove( b.im );
+          b.im.dispose();
+        }
+        const capacity   = Math.max( 4, 2 ** Math.ceil( Math.log2( g.meshes.length ) ) );
+        const im         = new THREE.InstancedMesh( g.geo, g.mat, capacity );
+        im.castShadow    = g.cast;
+        im.receiveShadow = g.take;
+        // ( picked by each tree's own meshes, not this )
+        im.raycast       = () => {};
+        this.group.add( im );
+        this.batches.set( key, ( b = { im, capacity } ) );
+      }
+      b.im.count = g.meshes.length;
+      g.meshes.forEach( ( m, i ) => {
+        m.visible = false;
+        m.updateWorldMatrix( true, false );
+        b.im.setMatrixAt( i, at.multiplyMatrices( toGroup, m.matrixWorld ) );
+      } );
+      b.im.instanceMatrix.needsUpdate = true;
+      b.im.computeBoundingSphere();
+    }
+    redraw();
   }
 
   objectGroup( uid: string ) {
     return this.shown.get( uid )?.group ?? null;
   }
 
+  // ( the square left out of a faint piece: Unity x from, z from, x to, z to )
+  private cut = uniform( new THREE.Vector4( 0, 0, 0, 0 ) );
+
   /**
-   * A piece drawn faint ( see-through ), or as it is again: the surroundings while a new chunk is previewed, so it shows.
+   * A piece drawn a little see-through, or as it is again: the surroundings while a new chunk is previewed, left out
+   * over the square `cut` ( Unity x, z from and to ), where the new ground goes, so they don't come up through it.
   **/
-  setFaint( uid: string, on: boolean ) {
+  setFaint( uid: string, on: boolean, cut: [number, number, number, number] | null = null ) {
+    this.cut.value.set( ...( cut ?? [0, 0, 0, 0] ) );
+    // ( three.js z is Unity's turned round )
+    const x = positionWorld.x, z = positionWorld.z.negate(), c = this.cut;
+    const outside = step( c.x, x ).mul( step( x, c.z ) ).mul( step( c.y, z ) ).mul( step( z, c.w ) ).lessThan( 0.5 );
     this.shown.get( uid )?.group.traverse( ( m ) => {
       if ( !( m instanceof THREE.Mesh ) ) return;
       const ud = m.userData as { solid?: THREE.Material | THREE.Material[] };
       if ( on && !ud.solid ) {
         ud.solid    = m.material;
-        const faint = ( x: THREE.Material ) => Object.assign( x.clone(), { transparent: true, opacity: 0.22, depthWrite: false } );
+        const faint = ( x: THREE.Material ) => {
+          const f = Object.assign( x.clone(), { transparent: true, opacity: 0.8 } );
+          if ( f instanceof THREE.NodeMaterial ) f.maskNode = outside;
+          return f;
+        };
         m.material  = Array.isArray( m.material ) ? m.material.map( faint ) : faint( m.material );
       } else if ( !on && ud.solid ) {
         m.material = ud.solid;
         delete ud.solid;
       }
     } );
+    this.batchLater();
     redraw();
   }
 
@@ -449,6 +545,7 @@ export class CustomObjectsRenderer {
       } ),
     };
     this.moving.set( uid, mv );
+    this.batchLater();
     return mv;
   }
 
@@ -463,12 +560,18 @@ export class CustomObjectsRenderer {
       mesh.geometry = shared;
     }
     this.moving.delete( uid );
+    this.batchLater();
   }
 
   clear() {
     for ( const uid of [...this.moving.keys()] ) this.restore( uid );
     for ( const s of this.shown.values() ) this.group.remove( s.group );
     this.shown.clear();
+    for ( const b of this.batches.values() ) {
+      this.group.remove( b.im );
+      b.im.dispose();
+    }
+    this.batches.clear();
     this.wave = { total: 0, done: 0, gen: this.wave.gen + 1 };
     for ( const c of this.guides.cache.values() ) if ( c.obj ) { this.guides.group.remove( c.obj ); disposeGuide( c.obj ); }
     this.guides.cache.clear();
@@ -480,6 +583,7 @@ export class CustomObjectsRenderer {
     this.geos.clear();
     this.materials.images.clear();
     this.materials.mats.clear();
+    this.materials.making.clear();
     this.materials.texs.clear();
   }
 

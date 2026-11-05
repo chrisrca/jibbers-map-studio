@@ -1,21 +1,18 @@
 // Map size editor: the map's ground seen from above, the squares round it greyed out over the land there ( geo/land.ts:
 // the real land, or one made up to match ). Hovered, a square shows + ( an empty one ) or − ( a chunk ). An empty one
 // clicked is previewed in the view ( the surroundings faint meanwhile ), its settings below, then added; a chunk
-// clicked is taken away, once asked. Either way the surroundings are built again to fit. Right-clicked, a chunk is
-// picked: its repeats ( terrain/repeats.ts ) set below, and the seam where its copies meet fixed.
+// clicked is taken away, once asked. Either way the surroundings are built again to fit.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ask } from "../../app/ask";
 import { isScenery } from "../../core/types";
 import { landOf, type Land, type MapBox } from "../../geo/land";
 import { addLandChunk, chunkDefaults, previewLandChunk, refitSurroundings, removeChunk, ringCells, type ChunkSettings } from "../../geo/landGround";
 import { useEditor } from "../../map/store";
 import { mapSize, showGroundPreview } from "../../terrain/mapSize";
-import { fixSeam, repeatOf, seamAxis, seamGap, setRepeat, useRepeatPreview, type Repeat } from "../../terrain/repeats";
-import { smoothSeam } from "../../terrain/seams";
 import { terrain, type TerrainChunk } from "../../terrain/terrain";
 import { getEngine } from "../Viewport";
-import { NumberField, Slider, Vec3Field } from "../widgets/controls";
+import { Slider } from "../widgets/controls";
 
 // Pixels a side of the little map, and of the pictures drawn into it.
 const W = 220, PX = 220;
@@ -86,7 +83,6 @@ async function refit() {
 
 export function MapSizeEditor() {
   const [layout, setLayout] = useState( terrain.layoutVersion );
-  const [picked, setPicked] = useState<string | null>( null );
   // the empty square being previewed, its settings, and the best data there is for it
   const [adding, setAdding] = useState<MapBox | null>( null );
   const [opts,   setOpts  ] = useState<ChunkSettings>( chunkDefaults( "made" ) );
@@ -129,7 +125,7 @@ export function MapSizeEditor() {
   useEffect( () => {
     if ( !adding ) return;
     const sc = useEditor.getState().customObjects.find( isScenery );
-    if ( sc ) getEngine()?.customR.setFaint( sc.uid, true );
+    if ( sc ) getEngine()?.customR.setFaint( sc.uid, true, adding );
     setBest( null );
     const ctl = new AbortController();
     land?.best( adding, ctl.signal ).then( ( b ) => !ctl.signal.aborted && setBest( b ) ).catch( () => {} );
@@ -150,7 +146,6 @@ export function MapSizeEditor() {
   const { width, depth } = mapSize();
 
   const pick = ( b: MapBox ) => {
-    setPicked( null );
     setOpts( chunkDefaults( kind ) );
     setAdding( b );
   };
@@ -173,7 +168,6 @@ export function MapSizeEditor() {
     if ( chunks.length < 2 ) return st.toast( "That's the only ground the map has", "info" );
     const a = await ask( { title: "Remove this chunk?", answers: [{ id: "remove", label: "Remove", primary: true }] } );
     if ( a?.id !== "remove" ) return;
-    setPicked( null );
     removeChunk( c.key );
     try {
       st.setBusy( "Rebuilding the surroundings…" );
@@ -203,17 +197,12 @@ export function MapSizeEditor() {
           return (
             <g
               key={c.key}
-              className={`cell chunk${picked === c.key ? " picked" : ""}${repeatOf( c.key ).repeats > 1 ? " repeats" : ""}`}
+              className="cell chunk"
               onClick={() => void remove( c )}
-              onContextMenu={( e ) => {
-                e.preventDefault();
-                setAdding( null );
-                setPicked( picked === c.key ? null : c.key );
-              }}
             >
               <rect x={r.x + 0.5} y={r.y + 0.5} width={r.w - 1} height={r.h - 1} />
               <text x={r.x + r.w / 2} y={r.y + r.h / 2}>−</text>
-              <title>{`Remove this chunk (right-click: its repeats and seams) · ${c.spacing.toFixed( 2 )} m between samples`}</title>
+              <title>{`Remove this chunk · ${c.spacing.toFixed( 2 )} m between samples`}</title>
             </g>
           );
         } ) }
@@ -249,96 +238,6 @@ export function MapSizeEditor() {
             <button className="btn primary" onClick={() => void add()}>Add</button>
           </div>
         </div>
-      ) }
-      {picked && chunks.find( ( c ) => c.key === picked ) && <ChunkRepeat key={picked} c={chunks.find( ( c ) => c.key === picked )!} />}
-    </div>
-  );
-}
-
-/**
- * The picked chunk's repeats: how many copies, how far on each one is ( quick ones: straight on from an edge ), the
- * copies shown in the view or not, and the seam where they meet fixed.
-**/
-function ChunkRepeat( { c }: { c: TerrainChunk } ) {
-  useEditor( ( s ) => s.chunkExtras );
-  const preview             = useRepeatPreview( ( s ) => s.on );
-  const [blend,  setBlend ] = useState( Math.min( 40, c.size[0] / 4 ) );
-  const [fixing, setFixing] = useState( false );
-  const r                   = repeatOf( c.key );
-  // ( a drag changes it as it goes; letting go is one undo step )
-  const start               = useRef<Repeat | null>( null );
-  const live                = ( p: Partial<Repeat> ) => {
-    start.current ??= repeatOf( c.key );
-    const st = useEditor.getState();
-    useEditor.setState( { chunkExtras: { ...st.chunkExtras, [c.key]: { ...st.chunkExtras[c.key], repeats: Math.max( 1, Math.round( p.repeats ?? r.repeats ) ), repeatOffset: p.offset ?? r.offset } } } );
-  };
-  const commit = () => {
-    const was     = start.current;
-    start.current = null;
-    if ( !was ) return;
-    const now = repeatOf( c.key );
-    const st  = useEditor.getState();
-    // ( put back as it was, then set as one step )
-    useEditor.setState( { chunkExtras: { ...st.chunkExtras, [c.key]: { ...st.chunkExtras[c.key], repeats: was.repeats, repeatOffset: was.offset } } } );
-    setRepeat( c.key, now );
-  };
-  const along = ( axis: 0 | 2, sign: 1 | -1 ) => setRepeat( c.key, { repeats: Math.max( 2, r.repeats ), offset: axis === 0 ? [sign * c.size[0], r.offset[1], 0] : [0, r.offset[1], sign * c.size[2]] } );
-  const s     = seamAxis( c, r.offset ), gap = seamGap( c.key );
-  const on    = ( axis: 0 | 2, sign: 1 | -1 ) => s?.axis === axis && s.dir === sign;
-  return (
-    <div className="props chunk-repeat">
-      <div className="section">Chunk</div>
-      <label>Chunk</label>
-      <span className="muted">{c.key}</span>
-      <label>Repeats</label>
-      <NumberField value={r.repeats} step={1} min={1} max={100} digits={0} onChange={( repeats ) => live( { repeats } )} onCommit={commit} />
-      <label>Along</label>
-      <div className="seg">
-        <button className={on( 0, 1 ) ? "on" : ""} onClick={() => along( 0, 1 )}>+X</button>
-        <button className={on( 0, -1 ) ? "on" : ""} onClick={() => along( 0, -1 )}>−X</button>
-        <button className={on( 2, 1 ) ? "on" : ""} onClick={() => along( 2, 1 )}>+Z</button>
-        <button className={on( 2, -1 ) ? "on" : ""} onClick={() => along( 2, -1 )}>−Z</button>
-      </div>
-      <Vec3Field label="Offset" value={r.offset} digits={2} trim unit="m" onChange={( offset ) => live( { offset } )} onCommit={commit} />
-      <label />
-      <label className="check">
-        <input type="checkbox" checked={preview} onChange={( e ) => useRepeatPreview.setState( { on: e.target.checked } )} /> Preview Repeats
-      </label>
-      { r.repeats > 1 && s && (
-        <>
-          <label>Seam</label>
-          <span className="muted">{gap !== null ? `${gap.toFixed( 2 )} m step` : ""}</span>
-          <label>Blend</label>
-          <NumberField value={blend} step={1} min={1} max={Math.round( c.size[0] / 2 )} digits={0} unit="m" onChange={setBlend} />
-          <label />
-          <button
-            className="btn"
-            disabled={fixing}
-            onClick={async () => {
-              setFixing( true );
-              try {
-                await fixSeam( c.key, blend );
-              } finally {
-                setFixing( false );
-              }
-            }}
-          >
-            Fix Seam
-          </button>
-        </>
-      ) }
-      { c.adjacent.length > 0 && (
-        <>
-          <div className="section">Seams</div>
-          <label>Blend</label>
-          <NumberField value={blend} step={1} min={1} max={Math.round( c.size[0] / 2 )} digits={0} unit="m" onChange={setBlend} />
-          <label>Smooth</label>
-          <div className="seg">
-            { ( [[0, "−X"], [1, "+X"], [2, "−Z"], [3, "+Z"]] as const ).filter( ( [side] ) => c.adjacent.some( ( n ) => n.side === side ) ).map( ( [side, label] ) => (
-              <button key={side} onClick={() => { if ( !smoothSeam( c.key, side, blend ) ) useEditor.getState().toast( "That chunk's samples don't line up with this one's", "info" ); }}>{label}</button>
-            ) ) }
-          </div>
-        </>
       ) }
     </div>
   );

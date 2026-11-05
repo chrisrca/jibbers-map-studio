@@ -15,7 +15,6 @@ export class StoreSync {
   onChange( s: EditorState, prev: EditorState ) {
     redraw();
     if ( s.objects       !== prev.objects       || s.spawns !== prev.spawns || s.selection !== prev.selection || s.chunkExtras !== prev.chunkExtras || s.hiddenInView !== prev.hiddenInView ) this.engine.syncObjects();
-    if ( s.chunkExtras   !== prev.chunkExtras   ) this.engine.syncRepeats();
     if ( s.objects       !== prev.objects       || s.customObjects !== prev.customObjects ) this.engine.lights.sync();
     if ( s.map           !== prev.map           || s.tool !== prev.tool ) this.engine.daylight.applyTime();
     // ( the game's look read again, with the asset list: its lights too )

@@ -243,7 +243,15 @@ export async function unityImportSelftest( dir: string ) {
       log( `Joyosa: dragging a tree: ${io.report().filter( ( r ) => r.startsWith( "drag" ) ).join( "; " )}` );
       io.stop();
       const moved = st().objects.find( ( o ) => o.uid === one.uid )!;
-      check( Math.hypot( moved.position[0] - one.position[0], moved.position[2] - one.position[2] ) > 1, "Joyosa: the tree dragged" );
+      // ( and drawn where it's gone: its look's instance moved with it )
+      const looks = eng.objectsR.looks as unknown as { slots: Map<string, { key: string; i: number }>; lookSets: Map<string, { meshes: THREE.InstancedMesh[] }> };
+      const slot  = looks.slots.get( one.uid ), im = slot && looks.lookSets.get( slot.key )?.meshes[0];
+      const drawn = new THREE.Vector3();
+      if ( im && slot ) drawn.setFromMatrixPosition( new THREE.Matrix4().fromArray( im.instanceMatrix.array as Float32Array, slot.i * 16 ) );
+      const off   = Math.hypot( drawn.x - moved.position[0], -drawn.z - moved.position[2] );
+      check( Math.hypot( moved.position[0] - one.position[0], moved.position[2] - one.position[2] ) > 1 && off < 3, `Joyosa: the tree dragged, drawn where it went ( ${off.toFixed( 2 )} m off )` );
+      log( "SNAP joyosa-dragged" );
+      await sleep( 1500 );
       const protos = currentProject()?.chunks.flatMap( ( c ) => ( ( c as { treePrototypes?: { object_id: string; instances: number[] }[] } ).treePrototypes ?? [] ).map( ( p ) => `${p.object_id} ${p.instances.length / 28}` ) );
       check( JSON.stringify( protos ) === JSON.stringify( ["tree_pine 1911"] ) || ( protos?.length === 1 && protos[0].endsWith( " 1911" ) ), `Joyosa: saved as the terrain's trees: ${protos?.join( ", " )}` );
       await saveProject();

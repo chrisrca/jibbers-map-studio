@@ -15,6 +15,9 @@ export class PieceMaterials {
 
   images = new Map<string, Promise<ImageBitmap | null>>();
   mats   = new Map<string, THREE.MeshStandardNodeMaterial>();
+  // ( each material as it's being made, by its key: pieces built at once, a map's trees, share the one made for the
+  // first, not one each )
+  making = new Map<string, Promise<THREE.MeshStandardNodeMaterial>>();
   // textures by image, colour space and placing: materials using the same picture share one copy on the GPU
   texs   = new Map<string, THREE.Texture>();
 
@@ -49,15 +52,22 @@ export class PieceMaterials {
   /**
    * The viewport material for a game material ( shared and cached; don't dispose it ).
   **/
-  async material( m: MaterialData ): Promise<THREE.MeshStandardNodeMaterial> {
+  material( m: MaterialData ): Promise<THREE.MeshStandardNodeMaterial> {
     const normalTex = ( m.normal_tex   as string | undefined ) ?? "", glowTex  = ( m.emission_tex  as string | undefined ) ?? "";
     const metalTex  = ( m.metallic_tex as string | undefined ) ?? "", roughTex = ( m.roughness_tex as string | undefined ) ?? "";
     const key       = JSON.stringify( [m.base_tex, normalTex, glowTex, metalTex, roughTex, m.render_mode, m.alpha_cutoff, m.tiling, m.offset, m.cull_mode, m.base_color, m.emission_color, m.metallic, m.smoothness, materialOverlay( m )] );
     const cached    = this.mats.get( key );
-    if ( cached ) return cached;
+    if ( cached ) return Promise.resolve( cached );
+    let made        = this.making.get( key );
+    if ( !made ) {
+      made = this.make( m, key, normalTex, glowTex, metalTex, roughTex ).finally( () => this.making.delete( key ) );
+      this.making.set( key, made );
+    }
+    return made;
+  }
+
+  private async make( m: MaterialData, key: string, normalTex: string, glowTex: string, metalTex: string, roughTex: string ): Promise<THREE.MeshStandardNodeMaterial> {
     const [bmp, normalBmp, glowBmp, metalBmp, roughBmp] = await Promise.all( [this.image( m.base_tex ), this.image( normalTex, true ), this.image( glowTex ), this.image( metalTex ), this.image( roughTex )] );
-    const again = this.mats.get( key ); // another part may have built it meanwhile
-    if ( again ) return again;
     // each texture read the way the game reads it: as colour ( sRGB ) or as plain values
     const linear = ( await this.renderer.index )?.linear ?? {};
     const srgb   = ( k: string, colour: boolean ) => ( k in linear ? !linear[k] : colour );

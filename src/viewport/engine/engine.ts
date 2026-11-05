@@ -9,7 +9,6 @@ import { ipc } from "../../core/ipc";
 import { useEditor, type Selection } from "../../map/store";
 import { onPaintChange } from "../../paint/ground";
 import { onGrowPreview } from "../../terrain/mapSize";
-import { repeatedChunks, useRepeatPreview } from "../../terrain/repeats";
 import { imprintOf, type StampGrid } from "../../terrain/shapes/shapes";
 import { terrain } from "../../terrain/terrain";
 import { CameraController } from "../cameraControls";
@@ -202,7 +201,6 @@ export class Engine {
     this.scene.add( this.shapeTool.group, this.growPreview.group, this.railTool.group, this.stage.group, this.emptyFloor.group );
     this.unsub.push( onGrowPreview( ( p ) => this.growPreview.show( p ) )                        );
     this.unsub.push( onPaintChange( ( key ) => ( this.terrainR.paintChanged( key ), redraw() ) ) );
-    this.unsub.push( useRepeatPreview.subscribe( () => this.syncRepeats() )                      );
     this.controls.onRiderExit = () => useEditor.setState( { cameraMode: "orbit" } );
 
     this.gizmo.wire();
@@ -559,14 +557,6 @@ export class Engine {
     const seen = <T extends { uid: string }>( list: T[] ) => ( Object.keys( s.hiddenInView ).length ? list.filter( ( x ) => !s.hiddenInView[x.uid] ) : list );
     this.objectsR?.sync( seen( s.objects ), seen( s.spawns ), s.selection );
     if ( !this.blGizmo?.dragging ) this.gizmo.sync();
-  }
-
-  /**
-   * Repeated chunks' copies in the view ( when Preview Repeats is on ).
-  **/
-  syncRepeats() {
-    this.terrainR?.setRepeats( useRepeatPreview.getState().on ? repeatedChunks() : [] );
-    redraw();
   }
 
   rideInfo() {

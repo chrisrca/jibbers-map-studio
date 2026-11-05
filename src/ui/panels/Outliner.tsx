@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { customName } from "../../core/types";
+import { type CustomObjectEntry, customName } from "../../core/types";
 import { BlIcon } from "../blender/BlIcon";
 import { useEditor, workspaceOf, type Collection, type Selection } from "../../map/store";
 import { TREES_COLLECTION } from "../../map/trees";
@@ -23,6 +23,16 @@ const pretty = ( id: string ) => id.replace( /_/g, " " ).replace( /\b\w/g, ( c )
 const collator = new Intl.Collator( undefined, { numeric: true, sensitivity: "base" } );
 const byName   = ( a: { name: string }, b: { name: string } ) => collator.compare( a.name, b.name );
 
+// ( a piece's row: its uid, name and kind; worked out once a piece, not for every piece each time one changes )
+const rows  = new WeakMap<CustomObjectEntry, string>();
+const rowOf = ( o: CustomObjectEntry ) => {
+  let r = rows.get( o );
+  if ( r === undefined ) rows.set( o, ( r = `${o.uid}
+${customName( o )}
+${o.model?.curve && !o.model.mesh.f.length ? "curve" : "mesh"}` ) );
+  return r;
+};
+
 /**
  * Everything in the map as Outliner items, named as shown.
 **/
@@ -34,7 +44,7 @@ function useItems(): Item[] {
     return `${o.uid}\n${o.id}\n${c?.type === "String" ? c.value : ""}`;
   } ) ) );
   const spawns  = useEditor( ( s ) => s.spawns        );
-  const custom  = useEditor( useShallow( ( s ) => s.customObjects.map( ( o ) => `${o.uid}\n${customName( o )}\n${o.model?.curve && !o.model.mesh.f.length ? "curve" : "mesh"}` ) ) );
+  const custom  = useEditor( useShallow( ( s ) => s.customObjects.map( rowOf ) ) );
   const shapes  = useEditor( ( s ) => s.shapes        );
   const labels  = useEditor( ( s ) => s.labels        );
   return useMemo( () => [

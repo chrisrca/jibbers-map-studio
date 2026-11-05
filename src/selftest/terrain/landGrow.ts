@@ -41,11 +41,15 @@ export async function landGrowSelftest( dir: string ) {
       const sc = st().customObjects.find( isScenery ), g = sc && eng.customR.objectGroup( sc.uid );
       let faint = !sc;
       g?.traverse( ( m ) => {
-        const mat = ( m as { material?: { opacity?: number } | { opacity?: number }[] } ).material;
-        for ( const x of Array.isArray( mat ) ? mat : mat ? [mat] : [] ) if ( ( x.opacity ?? 1 ) < 0.5 ) faint = true;
+        // ( a little see-through, and left out over the new square )
+        const mat = ( m as { material?: { opacity?: number; maskNode?: unknown } | { opacity?: number; maskNode?: unknown }[] } ).material;
+        for ( const x of Array.isArray( mat ) ? mat : mat ? [mat] : [] ) if ( ( x.opacity ?? 1 ) < 1 && x.maskNode ) faint = true;
       } );
       if ( sc ) {
-        eng.nav.lookAtUnity( [-2500, 2200, -2500], [0, 0, 0] );
+        const at = eng.growPreview.group.children[0] as unknown as { geometry: { boundingSphere: { center: { x: number; y: number; z: number } } | null; computeBoundingSphere(): void } };
+        at.geometry.computeBoundingSphere();
+        const c = at.geometry.boundingSphere!.center;
+        eng.nav.lookAtUnity( [c.x - 900, c.y + 700, -c.z - 900], [c.x, c.y, -c.z] );
         log( "SNAP previewing" );
         await sleep( 2500 );
       }
@@ -154,6 +158,8 @@ export async function landGrowSelftest( dir: string ) {
     const d4 = drawn();
     check( terrain.indexOf( gone ) < 0 && d4.inside === 0, `a chunk taken away (asked first): ${terrain.chunks.length} left; the surroundings built again, ${d4.inside} vertices inside the ground` );
     }
+
+    if ( only === "made" ) return void log( fails.length ? `SELFTEST FAILED: ${fails.join( "; " )}` : "SELFTEST OK" );
 
     // ---- a real mountain ( Crotched, one small chunk at a low resolution ), a square added from real elevation
     const { bestLevels }                  = await import( "../../geo/elevation/sources" );
