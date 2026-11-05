@@ -403,11 +403,13 @@ export class GizmoControl {
       : () => delta;
     // ( scale is kept positive: dragged through zero it comes out mirrored, which the game can't load )
     const xf = ( pos: V3, rot: V3, scl: V3 ) => applyToTRS( delta, pos, rot, scl );
+    // ( a list with nothing of it moving left as it is: what watches it isn't made again every frame of a drag )
+    const any = ( list: { uid: string }[] ) => list.some( ( o ) => ids.has( o.uid ) );
     useEditor.setState( {
       // ( a jib's rail colliders made again as it goes: at its size, not stretched with it )
-      customObjects: start.customObjects.map( ( o ) => ( ids.has( o.uid ) ? withRailAgain( transformCustom( o, own( o ) ) ) : o ) ),
-      objects:       start.objects.map( ( o ) => ( ids.has( o.uid ) ? { ...o, ...xf( o.position, o.rotation, o.scale ) } : o ) ),
-      spawns: start.spawns.map( ( s ) => {
+      customObjects: any( start.customObjects ) ? start.customObjects.map( ( o ) => ( ids.has( o.uid ) ? withRailAgain( transformCustom( o, own( o ) ) ) : o ) ) : start.customObjects,
+      objects:       any( start.objects ) ? start.objects.map( ( o ) => ( ids.has( o.uid ) ? { ...o, ...xf( o.position, o.rotation, o.scale ) } : o ) ) : start.objects,
+      spawns: !any( start.spawns ) ? start.spawns : start.spawns.map( ( s ) => {
         if ( !ids.has( s.uid ) ) return s;
         const r   = xf( s.position, s.rotation, [1, 1, 1] );
         // rotate the velocity with the spawn

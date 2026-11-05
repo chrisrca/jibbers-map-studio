@@ -2,8 +2,13 @@
 // keys with automatic smooth tangents, evaluated as a monotone cubic so profiles never overshoot their keys.
 
 export interface CurveKey {
-  t: number;
-  v: number;
+  t:     number;
+  v:     number;
+  // ( level here: Unity's flat tangent, as AnimationCurve.EaseInOut's ends have )
+  flat?: boolean;
+  // ( slopes given, coming in and going out, as a Unity curve's keys have them: a curve brought over from Map-Tools )
+  ti?:   number;
+  to?:   number;
 }
 export type Curve = CurveKey[];
 
@@ -23,7 +28,7 @@ export function evalCurve( c: Curve, t: number ): number {
   const h = b.t - a.t;
   if ( h <= 1e-9 ) return b.v;
   const s  = ( t - a.t ) / h;
-  const ma = slope( c, i ) * h, mb = slope( c, i + 1 ) * h;
+  const ma = ( a.to ?? slope( c, i ) ) * h, mb = ( b.ti ?? slope( c, i + 1 ) ) * h;
   const s2 = s * s, s3 = s2 * s;
   return ( 2 * s3 - 3 * s2 + 1 ) * a.v + ( s3 - 2 * s2 + s ) * ma + ( -2 * s3 + 3 * s2 ) * b.v + ( s3 - s2 ) * mb;
 }
@@ -33,7 +38,7 @@ export function evalCurve( c: Curve, t: number ): number {
 **/
 function slope( c: Curve, i: number ): number {
   const d = ( k: number ) => ( c[k + 1].v - c[k].v ) / Math.max( 1e-9, c[k + 1].t - c[k].t );
-  if ( c.length < 2 ) return 0;
+  if ( c.length < 2 || c[i].flat ) return 0;
   if ( i === 0 ) return d( 0 );
   if ( i === c.length - 1 ) return d( i - 1 );
   const d0 = d( i - 1 ), d1 = d( i );

@@ -15,7 +15,6 @@ import { LiftsDrawn } from "./lifts";
 import { LooksDrawn } from "./looksDrawn";
 import { simulateRide } from "./ride";
 import { SpawnsDrawn } from "./spawns";
-import { TreesDrawn } from "./trees";
 
 export { PlaceholderLibrary } from "./library";
 export { simulateRide } from "./ride";
@@ -46,13 +45,14 @@ export interface TreeGroup {
   size:     [number, number, number];
   id:        string;
   instances: ArrayLike<number>;
+  // ( each instance's tree, to pick it by )
+  uids?:     string[];
 }
 
 export class ObjectsRenderer {
   // its parts, each in a file of its own beside this one
   readonly lifts  = new LiftsDrawn( this );  // the lifts
   readonly spawns = new SpawnsDrawn( this ); // the spawns
-  readonly trees  = new TreesDrawn( this );  // the game's trees
   readonly looks  = new LooksDrawn( this );  // the game's look on its objects
 
   readonly group                = new THREE.Group();

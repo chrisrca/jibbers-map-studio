@@ -40,7 +40,7 @@ export function CurveEditor( { value, onChange, onCommit, min = 0, max = 1, labe
       // ends stay at the ends; inner points stay between their neighbours
       const lo    = index === 0 ? 0 : keys[index - 1].t + 0.01;
       const hi    = index === last ? 1 : keys[index + 1].t - 0.01;
-      keys[index] = { t: index === 0 ? 0 : index === last ? 1 : Math.min( hi, Math.max( lo, p.t ) ), v: p.v };
+      keys[index] = { ...keys[index], t: index === 0 ? 0 : index === last ? 1 : Math.min( hi, Math.max( lo, p.t ) ), v: p.v };
       value       = keys;
       onChange( keys );
     };

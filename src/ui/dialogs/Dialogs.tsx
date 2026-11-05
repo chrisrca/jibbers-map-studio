@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState } from "react";
 import { ipc, joinPath, type MapListing } from "../../core/ipc";
 import { getVersion } from "@tauri-apps/api/app";
-import { defaultProjectsDir, forgetRecent, importMap, keepMapChanges, lastSession, newUntitled, openProject, projectForMap, recentProjects, recoverLastSession, untitledDir } from "../../map/project";
+import { defaultProjectsDir, forgetRecent, importMap, importUnityScene, keepMapChanges, lastSession, newUntitled, openProject, projectForMap, recentProjects, recoverLastSession, untitledDir } from "../../map/project";
 import { useEditor } from "../../map/store";
 import { plainText, RichText } from "../widgets/RichText";
 import { PopupMenu, type MenuItem } from "../widgets/widgets";
@@ -19,12 +19,13 @@ export async function pickAndOpenProject() {
 export async function pickAndImportMap( path?: string, name?: string ) {
   const file =
     path ??
-    ( await open( { title: "Import a Jibbers map", filters: [{ name: "Jibbers map", extensions: ["jbrmap"] }] } ) );
+    ( await open( { title: "Import a Jibbers map", filters: [{ name: "Jibbers maps and Unity scenes", extensions: ["jbrmap", "unity"] }] } ) );
   if ( typeof file !== "string" ) return;
-  const label = name || file.split( /[\\/]/ ).pop()!.replace( /\.jbrmap$/, "" );
+  const unity = /\.unity$/i.test( file );
+  const label = name || file.split( /[\\/]/ ).pop()!.replace( /\.(jbrmap|unity)$/i, "" );
   if ( !( await keepMapChanges() ) ) return;
   const dir = await untitledDir( label );
-  await importMap( file, dir ).catch( ( e ) => useEditor.getState().toast( `Import failed: ${e}`, "error" ) );
+  await ( unity ? importUnityScene( file, dir ) : importMap( file, dir ) ).catch( ( e ) => useEditor.getState().toast( `Import failed: ${e}`, "error" ) );
 }
 
 /**

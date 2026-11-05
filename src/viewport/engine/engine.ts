@@ -4,6 +4,7 @@
 import { useMotionPreview } from "../../pieces/motion";
 import * as THREE from "three/webgpu";
 import { toUnity, type V3 } from "../../core/coords";
+import { setComputeDevice } from "../../core/gpu";
 import { ipc } from "../../core/ipc";
 import { useEditor, type Selection } from "../../map/store";
 import { onPaintChange } from "../../paint/ground";
@@ -36,7 +37,6 @@ import { ViewportInput } from "./input";
 import { ViewportKeys } from "./keys";
 import { LoadingVeil } from "./loadingVeil";
 import { MapLights } from "./mapLights";
-import { MapTrees } from "./mapTrees";
 import { ViewportMenus } from "./menus";
 import { Modelling } from "./modelling";
 import { Pictures } from "./pictures";
@@ -75,7 +75,6 @@ export class Engine {
   readonly daylight    = new Daylight( this );      // the sun, sky and reflections for the map's time of day
   readonly lights      = new MapLights( this );     // the map's lights, from its features and pieces
   readonly veil        = new LoadingVeil( this );   // the loading veil while a map's pieces are built
-  readonly trees       = new MapTrees( this );      // the trees that came with the map
   readonly ground      = new GroundLook( this );    // the ground's textures and overlays
   readonly growPreview = new GrowPreviewMeshes();   // new ground being previewed ( Map Size )
   readonly pictures    = new Pictures( this );      // previews for the asset browser, captures for the self-tests
@@ -145,6 +144,8 @@ export class Engine {
     this.terrainR                      = new TerrainRenderer( terrain, ( p ) => this.ground.loadMask( p ) );
     const backend                      = ( this.renderer as unknown as { backend: { device?: GpuAccess["device"]; get( o: object ): { texture?: unknown } } } ).backend;
     if ( backend.device ) this.terrainR.gpu = { device: backend.device, textureOf: ( t ) => backend.get( t ).texture };
+    // ( formations are worked out on it too )
+    setComputeDevice( ( backend.device ?? null ) as GPUDevice | null );
     this.terrainR.prepare              = ( o ) => this.renderer.compileAsync( o, this.camera, this.scene );
     this.terrainR.initTarget           = ( rt ) => this.renderer.initRenderTarget( rt );
     this.modelEd = new ModelEditor( {
@@ -557,7 +558,6 @@ export class Engine {
     // ( what's hidden in the view isn't drawn: it comes back as it was when shown )
     const seen = <T extends { uid: string }>( list: T[] ) => ( Object.keys( s.hiddenInView ).length ? list.filter( ( x ) => !s.hiddenInView[x.uid] ) : list );
     this.objectsR?.sync( seen( s.objects ), seen( s.spawns ), s.selection );
-    this.trees.sync();
     if ( !this.blGizmo?.dragging ) this.gizmo.sync();
   }
 

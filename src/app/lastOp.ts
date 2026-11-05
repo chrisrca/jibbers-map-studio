@@ -42,7 +42,7 @@ export function doOp( label: string, fields: OpField[], values: Record<string, n
 **/
 export function redoOp( key: string, value: number ) {
   const op = useLastOp.getState().op;
-  if ( !op || history.top !== op.entry ) return;
+  if ( !op || history.top !== op.entry || history.wait() ) return;
   history.undo();
   useEditor.setState( { selection: op.sel } );
   doOp( op.label, op.fields, { ...op.values, [key]: value }, op.run );

@@ -6,7 +6,7 @@ import { history } from "../../map/history";
 import { useEditor } from "../../map/store";
 import { ensureLayer, PaintStroke } from "../../paint/ground";
 import { BrushStroke } from "../../sculpt/stroke/stroke";
-import { settleShapes } from "../../terrain/shapes/shapes";
+import { settleShapes, shapesBusy, whenShapesSettled } from "../../terrain/shapes/shapes";
 import { terrain } from "../../terrain/terrain";
 import { brushLook, snowLook } from "../render/terrainRenderer";
 import { ScatterStroke, scatterTemplates } from "../tools/scatter";
@@ -85,6 +85,7 @@ export class ViewportInput {
       this.engine.meshPainter.settle();
       settleShapes();
     };
+    history.wait                = () => ( shapesBusy() ? new Promise<void>( ( r ) => whenShapesSettled( r ) ) : null );
     dom.addEventListener( "pointerdown",  this.onDown                              );
     dom.addEventListener( "pointermove",  this.onMove                              );
     dom.addEventListener( "pointerenter", () => ( this.engine.mouseInside = true ) );
@@ -102,6 +103,7 @@ export class ViewportInput {
   detach() {
     this.settleStrokes();
     history.settle = () => {};
+    history.wait   = () => null;
     window.removeEventListener( "pointerup", this.onUp       );
     window.removeEventListener( "keydown",   this.mods, true );
     window.removeEventListener( "keyup",     this.mods, true );

@@ -68,6 +68,10 @@ $latestFile = Join-Path $nsis "latest.json"
 if ($DryRun) { "Dry run: nothing published"; return }
 $upload = Join-Path $nsis $asset
 if ($upload -ne $exe.FullName) { Copy-Item $exe.FullName $upload -Force; Copy-Item "$($exe.FullName).sig" "$upload.sig" -Force }
-gh release create "v$Version" $upload "$upload.sig" $latestFile --repo $repo --title "Jibbers Map Studio $Version" --notes $(if ($Notes) { $Notes } else { "Jibbers Map Studio $Version" })
+# (the notes go to gh in a file: on the command line Windows PowerShell splits text with quote marks in it, and gh took
+# the rest for files to upload)
+$notesFile = Join-Path $nsis "notes.md"
+[IO.File]::WriteAllText($notesFile, $(if ($Notes) { $Notes } else { "Jibbers Map Studio $Version" }), $utf8)
+gh release create "v$Version" $upload "$upload.sig" $latestFile --repo $repo --title "Jibbers Map Studio $Version" --notes-file $notesFile
 if ($LASTEXITCODE -ne 0) { throw "gh release failed" }
 "Published v$Version"

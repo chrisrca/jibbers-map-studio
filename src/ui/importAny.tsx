@@ -1,6 +1,7 @@
 // The Import… command, for every kind of file ( files dropped on the window: fileDrop.tsx ):
 //  - .jbrmap maps: opened as a project, or ( with a project open ) your choice of that or adding the map's pieces and
 //    materials to your asset library;
+//  - Unity scenes made with Map-Tools ( .unity ): opened as a project;
 //  - 3D models ( .glb/.gltf/.obj ): added to My imports as meshes;
 //  - images ( .png/.jpg ): added to My imports as materials.
 
@@ -17,6 +18,8 @@ const ext  = ( p: string ) => p.split( "."     ).pop()?.toLowerCase() ?? "";
 const base = ( p: string ) => p.split( /[\\/]/ ).pop()!.replace( /\.jbrmap$/i, "" );
 
 async function importAny( paths: string[] ) {
+  const scene = paths.find( ( p ) => ext( p ) === "unity" );
+  if ( scene ) return pickAndImportMap( scene, scene.split( /[\\/]/ ).pop()!.replace( /\.unity$/i, "" ) );
   const maps   = paths.filter( ( p ) => ext( p ) === "jbrmap" );
   const others = paths.filter( ( p ) => ext( p ) !== "jbrmap" );
   const known  = others.filter( ( p ) => MODEL_EXTENSIONS.includes( ext( p ) ) || IMAGE_EXTENSIONS.includes( ext( p ) ) );
@@ -37,8 +40,9 @@ export async function pickAndImportAny() {
     title:       "Import",
     defaultPath: ( await ipc.appInfo().catch( () => null ) )?.mapsDir,
     filters:     [
-      { name: "Maps, models and images", extensions: ["jbrmap", ...MODEL_EXTENSIONS, ...IMAGE_EXTENSIONS] },
+      { name: "Maps, models and images", extensions: ["jbrmap", "unity", ...MODEL_EXTENSIONS, ...IMAGE_EXTENSIONS] },
       { name: "Jibbers maps",            extensions: ["jbrmap"] },
+      { name: "Unity scenes",            extensions: ["unity"] },
       { name: "3D models",               extensions: MODEL_EXTENSIONS },
       { name: "Images (materials)",      extensions: IMAGE_EXTENSIONS },
     ],

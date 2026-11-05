@@ -16,6 +16,7 @@ import type { BakeImage } from "../../../texture/bake";
 import { onPieceTexture } from "../../../texture/meshPaint";
 import { disposeGuide } from "../../tools/grindGuide";
 import { withLamps } from "../lamps";
+import { redraw } from "../../redraw";
 import { type GpuAccess } from "../terrainRenderer";
 import { buildGeometry, worldSurface } from "./geometry";
 import { GrindGuides } from "./guides";
@@ -26,6 +27,18 @@ import { hidden, lookMaterial, wireLines } from "./shading";
 export { buildGeometry } from "./geometry";
 
 export type MaterialData = CustomMaterial;
+
+/**
+ * Whether piece `b` is `a` only moved, turned or sized: its parts the same but for where they are ( a part's settings
+ * carried over as they are, as a move does ).
+**/
+function onlyPlaced( a: CustomObjectEntry, b: CustomObjectEntry ): boolean {
+  if ( a.model !== b.model || a.parts.length !== b.parts.length ) return false;
+  return a.parts.every( ( p, i ) => {
+    const q = b.parts[i], keys = Object.keys( p );
+    return keys.length === Object.keys( q ).length && keys.every( ( k ) => k.startsWith( "local_" ) || p[k] === q[k] );
+  } );
+}
 
 export class CustomObjectsRenderer {
   // its parts, each in a file of its own beside this one
@@ -120,6 +133,22 @@ export class CustomObjectsRenderer {
     for ( const o of objects ) {
       const cur = this.shown.get( o.uid );
       if ( cur && cur.data === o ) continue;
+      // ( only moved, turned or sized, as on the gizmo: its meshes put where its parts now are, not built again )
+      if ( cur?.built && cur.data === cur.built && onlyPlaced( cur.built, o ) ) {
+        for ( const m of cur.group.children ) {
+          const p = o.parts[( m.userData as { partIndex?: number } ).partIndex ?? -1];
+          if ( !p ) continue;
+          m.position.copy( toThree( arr3( p.local_position ) ) );
+          m.quaternion.copy( unityEulerToQuat( arr3( p.local_rotation ) ) );
+          m.scale.set( p.local_scale.x, p.local_scale.y, p.local_scale.z );
+        }
+        cur.group.updateMatrixWorld( true );
+        cur.data  = o;
+        cur.built = o;
+        cur.build = ++this.builds;
+        redraw();
+        continue;
+      }
       const build = ++this.builds;
       if ( cur ) { cur.data = o; cur.build = build; }
       else this.shown.set( o.uid, { group: new THREE.Group(), data: o, build, built: null } );
@@ -191,6 +220,25 @@ export class CustomObjectsRenderer {
 
   objectGroup( uid: string ) {
     return this.shown.get( uid )?.group ?? null;
+  }
+
+  /**
+   * A piece drawn faint ( see-through ), or as it is again: the surroundings while a new chunk is previewed, so it shows.
+  **/
+  setFaint( uid: string, on: boolean ) {
+    this.shown.get( uid )?.group.traverse( ( m ) => {
+      if ( !( m instanceof THREE.Mesh ) ) return;
+      const ud = m.userData as { solid?: THREE.Material | THREE.Material[] };
+      if ( on && !ud.solid ) {
+        ud.solid    = m.material;
+        const faint = ( x: THREE.Material ) => Object.assign( x.clone(), { transparent: true, opacity: 0.22, depthWrite: false } );
+        m.material  = Array.isArray( m.material ) ? m.material.map( faint ) : faint( m.material );
+      } else if ( !on && ud.solid ) {
+        m.material = ud.solid;
+        delete ud.solid;
+      }
+    } );
+    redraw();
   }
 
   get partCount() {

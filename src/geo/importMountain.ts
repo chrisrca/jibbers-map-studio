@@ -13,6 +13,7 @@ import { LocalProjection, type LonLat } from "./proj";
 import { mapIdFrom } from "../map/mapId";
 import { spreadHue } from "../paint/ground";
 import { buildScenery } from "./scenery/scenery";
+import { realLand } from "./land";
 
 export const CHUNK = 1000; // metres per chunk side
 
@@ -204,14 +205,13 @@ export async function importMountain( o: ImportOptions ): Promise<ImportResult> 
   // the land around it, as scenery the rider can't reach ( replaces the game's own background mountains )
   let scenery: unknown = null;
   if ( o.surroundings ) {
-    scenery = await buildScenery( {
+    const land = realLand( proj, lo );
+    scenery    = await buildScenery( {
       dir:        o.dir,
-      proj,
-      halfX:      ( area.chunksX * CHUNK ) / 2,
-      halfZ:      ( area.chunksZ * CHUNK ) / 2,
+      cells:      chunks.map( ( c ) => [c.position[0], c.position[2], c.position[0] + c.size[0], c.position[2] + c.size[2]] ),
       radius:     o.surroundings,
-      seaLevel:   lo,
-      edge:       main,
+      edge:       ( x, z ) => height( proj.inverse( x, z ) ) - lo,
+      far:        ( box, step, signal ) => land.coarse( box, step, signal ),
       onProgress: say,
       signal:     o.signal,
     } );

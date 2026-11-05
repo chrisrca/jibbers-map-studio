@@ -52,7 +52,8 @@ pub fn add(project_dir: &Path, name: &str, strips: &[String], texture: &str) -> 
         // shadow casting off: kilometres of far terrain would cost the game more than they add
         parts.push(Part { mesh: key, materials: vec![material.clone()], shadow_casting_mode: 0, ..Part::default() });
     }
-    crate::library::userassets::merge_into_project(project_dir, meshes, textures)?;
+    // (replacing what's there: surroundings built again keep their names, and kept, the old ones went on showing)
+    crate::library::userassets::merge(project_dir, meshes, textures, true)?;
     for rel in strips.iter().chain(std::iter::once(&texture.to_string())) {
         std::fs::remove_file(project_dir.join(rel)).ok();
     }

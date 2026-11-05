@@ -44,6 +44,13 @@ export function applyGrow( side: Side, res: number, p: GrowParams ) {
   growMap( side, res, p, an );
 }
 
+/**
+ * A new chunk shown ( not yet added ) while its settings are adjusted ( Map Size's ); null: none.
+**/
+export function showGroundPreview( chunks: ChunkInit[] | null ) {
+  previewListeners.forEach( ( l ) => l( chunks && { side: "north", chunks } ) );
+}
+
 export function cancelGrow() {
   preview = null;
   previewListeners.forEach( ( l ) => l( null ) );

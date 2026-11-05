@@ -55,6 +55,9 @@ import { modelSelftest } from "./model/model";
 import { mountainLagSelftest } from "./realmap/mountainLag";
 import { mountainSelftest } from "./realmap/mountain";
 import { mountainStressSelftest } from "./realmap/mountainStress";
+import { landGrowSelftest } from "./terrain/landGrow";
+import { formationPortSelftest } from "./terrain/formationPort";
+import { unityImportSelftest } from "./app/unityImport";
 import { newMapLookSelftest } from "./look/newMapLook";
 import { newMapSelftest } from "./terrain/newMap";
 import { nightSelftest } from "./look/night";
@@ -128,6 +131,9 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   brush:        brushSelftest,
   brushdrag:    brushDragSelftest,
   brushstress:  brushStressSelftest,
+  landgrow:     landGrowSelftest,
+  formation:    formationPortSelftest,
+  unityimport:  unityImportSelftest,
   newmap:       newMapSelftest,
   newmaplook:   newMapLookSelftest,
   rampdrag:     rampDragSelftest,

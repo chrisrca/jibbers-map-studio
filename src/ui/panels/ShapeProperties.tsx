@@ -2,11 +2,16 @@
 // or curve point is let go.
 
 import { CROSS_SECTIONS, PROFILES, RADIALS, type Curve } from "../../core/curve";
-import { commitShape, deleteShape, liveShape } from "../../terrain/shapes/edits";
-import { groundWithout, kickerHeight, lipAngleFor, type CircleShape, type CurveShape, type EdgeMode, type FormationShape, type Shape, type StampShape } from "../../terrain/shapes/shapes";
+import { useState } from "react";
+import { ask } from "../../app/ask";
+import { bakeShape, commitShape, deleteShape, liveErosion, liveShape, setLiveErosion, simulateShape } from "../../terrain/shapes/edits";
+import { applyPreset, fitFormation, FORMATION_PRESETS, groundWithout, kickerHeight, lipAngleFor, simulates, type CircleShape, type CurveShape, type EdgeMode, type FormationShape, type PaintShape, type Shape, type StampShape } from "../../terrain/shapes/shapes";
+import { MARKING_COLOURS } from "../../paint/settings";
+import { deletePreset, savedPresets, savePreset, withSettings } from "../../terrain/shapes/shapes/presets";
 import { terrain } from "../../terrain/terrain";
 import { NumberField, Panel } from "../widgets/controls";
 import { CurveEditor } from "../widgets/CurveEditor";
+import { Dropdown } from "../widgets/widgets";
 
 const ground = ( p: [number, number] ) => {
   const h = terrain.heightAt( p[0], p[1] );
@@ -56,83 +61,139 @@ export function ShapeProperties( { s }: { s: Shape } ) {
   if ( s.kind === "curve" ) return <CurveProps s={s} />;
   if ( s.kind === "stamp" ) return <StampProps s={s} />;
   if ( s.kind === "formation" ) return <FormationProps s={s} />;
+  if ( s.kind === "paint" ) return <PaintProps s={s} />;
   return <CircleProps s={s} />;
 }
 
 // A formation's ways of meeting the ground and its noise's.
 const BLENDS: [FormationShape["mode"], string, string][] = [
-  ["add",   "Add",   "On top of the ground"],
-  ["raise", "Raise", "Keeps whichever is higher: the formation grows out of the ground"],
-  ["carve", "Carve", "Keeps whichever is lower: the formation digs into it"],
-  ["set",   "Set",   "The formation's height, from the ground round its outline"],
+  ["add",   "Add",   "Offset on top of the ground"],
+  ["raise", "Raise", "Keeps whichever is higher"],
+  ["carve", "Carve", "Keeps whichever is lower ( use a negative height )"],
+  ["set",   "Set",   "Replaces the ground"],
 ];
-const STYLES: [FormationShape["style"], string][] = [["smooth", "Smooth"], ["ridged", "Ridged"], ["billow", "Billow"]];
+const STYLES: [FormationShape["style"], string, string][] = [["smooth", "Smooth", "Rolling hills"], ["ridged", "Ridged", "Sharp crests"], ["billow", "Billow", "Lumpy blobs"]];
 
 function FormationProps( { s }: { s: FormationShape } ) {
+  const [live, setLive]   = useState( liveErosion );
+  const [saved, setSaved] = useState( savedPresets );
+  const [pick, setPick]   = useState( "" );
   const set  = ( p: Partial<FormationShape> ) => liveShape( { ...s, ...p } );
+  const once = ( next: FormationShape, label: string ) => { liveShape( next, label ); commitShape(); };
   const th   = ( p: Partial<FormationShape["thermal"]> ) => set( { thermal: { ...s.thermal, ...p } } );
   const hy   = ( p: Partial<FormationShape["hydraulic"]> ) => set( { hydraulic: { ...s.hydraulic, ...p } } );
-  const num  = ( label: string, value: number, onChange: ( v: number ) => void, step: number, min: number, max: number, unit?: string, digits = 2 ) => (
-    <Field label={label}><Num value={value} step={step} min={min} max={max} unit={unit} digits={digits} onChange={onChange} /></Field>
+  const sn   = ( p: Partial<FormationShape["snow"]> ) => set( { snow: { ...s.snow, ...p } } );
+  const num  = ( label: string, value: number, onChange: ( v: number ) => void, step: number, min: number, max: number, unit?: string, digits = 2, tip?: string ) => (
+    <Field label={label} tip={tip}><Num value={value} step={step} min={min} max={max} unit={unit} digits={digits} onChange={onChange} /></Field>
   );
+  const int  = ( label: string, value: number, onChange: ( v: number ) => void, min: number, max: number, tip?: string ) => num( label, value, ( v ) => onChange( Math.round( v ) ), 1, min, max, undefined, 0, tip );
   const on   = ( value: boolean, onChange: ( v: boolean ) => void, label: string ) => (
     <>
       <label />
       <label style={{ color: "var(--text)" }}><input type="checkbox" checked={value} onChange={( e ) => { onChange( e.target.checked ); commitShape(); }} /> {label}</label>
     </>
   );
+  const chosen = saved.find( ( p ) => p.name === pick );
   return (
-    <Panel icon="shapeCurve" title={`Shape · ${s.name}`}>
+    <Panel icon="mountain" title={`Shape · ${s.name}`}>
       <div className="props">
         <div className="section">Formation</div>
+        {on( s.enabled !== false, ( enabled ) => set( { enabled } ), "On" )}
         <Field label="Name">
-          <input className="txt" key={s.uid} defaultValue={s.name} onBlur={( e ) => { set( { name: e.target.value } ); commitShape(); }} />
+          <input className="txt" key={s.uid + s.name} defaultValue={s.name} onBlur={( e ) => { if ( e.target.value !== s.name ) once( { ...s, name: e.target.value }, "Rename formation" ); }} />
         </Field>
+        <div className="seg" style={{ gridColumn: "1 / -1" }}>{FORMATION_PRESETS.map( ( p ) => <button key={p.name} title={`${p.name}, fitted to the outline`} onClick={() => once( applyPreset( s, p.name ), `${p.name} preset` )}>{p.name}</button> )}</div>
+        <Field label="Saved">
+          <Dropdown value={pick} options={[{ value: "", label: saved.length ? "Choose…" : "None" }, ...saved.map( ( p ) => ( { value: p.name, label: p.name } ) )]} onChange={setPick} />
+        </Field>
+        <Field label="">
+          <div style={{ display: "flex", gap: 4 }}>
+            <button className="btn small" disabled={!chosen} title="Load its settings ( keeps the outline )" onClick={() => chosen && once( withSettings( s, chosen.settings ), "Load preset" )}>Load</button>
+            <button className="btn small" title="Save these settings under the formation's name" onClick={() => { savePreset( s ); setSaved( savedPresets() ); setPick( s.name.trim() || "Formation" ); }}>Save</button>
+            <button className="btn small" disabled={!chosen} onClick={() => { deletePreset( pick ); setSaved( savedPresets() ); setPick( "" ); }}>Delete</button>
+          </div>
+        </Field>
+        <Field label="Outline">
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span>{s.points.length} point{s.points.length === 1 ? "" : "s"}</span>
+            <button className="btn small" disabled={s.points.length < 3} title="Height, feature size, peak width and edge blend scaled to the outline" onClick={() => once( fitFormation( s ), "Fit formation" )}>Fit to outline</button>
+          </div>
+        </Field>
+        <div className="section">Shape</div>
         <Field label="Mode">
-          <div className="seg">{BLENDS.map( ( [id, label, tip] ) => <button key={id} title={tip} className={s.mode === id ? "on" : ""} onClick={() => { set( { mode: id } ); commitShape(); }}>{label}</button> )}</div>
+          <div className="seg">{BLENDS.map( ( [id, label, tip] ) => <button key={id} title={tip} className={s.mode === id ? "on" : ""} onClick={() => once( { ...s, mode: id }, "Edit shape" )}>{label}</button> )}</div>
         </Field>
+        {num( "Base Y",       s.baseY,       ( baseY ) => set( { baseY } ),             0.5,  -500, 500,  "m", 2, "Moves the whole formation up or down" )}
         <Field label="Style">
-          <div className="seg">{STYLES.map( ( [id, label] ) => <button key={id} className={s.style === id ? "on" : ""} onClick={() => { set( { style: id } ); commitShape(); }}>{label}</button> )}</div>
+          <div className="seg">{STYLES.map( ( [id, label, tip] ) => <button key={id} title={tip} className={s.style === id ? "on" : ""} onClick={() => once( { ...s, style: id }, "Edit shape" )}>{label}</button> )}</div>
         </Field>
-        {num( "Height",       s.height,      ( height ) => set( { height } ),           0.5, -500, 1000, "m" )}
-        {num( "Base Y",       s.baseY,       ( baseY ) => set( { baseY } ),             0.5, -500, 500,  "m" )}
-        {num( "Feature size", s.featureSize, ( featureSize ) => set( { featureSize } ), 1,   2,    2000, "m" )}
-        {num( "Roughness",    s.roughness,   ( roughness ) => set( { roughness } ),     0.5, 0,    500,  "m" )}
-        {num( "Detail",       s.detail,      ( detail ) => set( { detail: Math.round( detail ) } ), 1, 1, 8, undefined, 0 )}
-        {num( "Edge blend",   s.edgeBlend,   ( edgeBlend ) => set( { edgeBlend } ),     1,   0,    500,  "m" )}
-        {num( "Smoothing",    s.smooth,      ( smooth ) => set( { smooth } ),           0.25, 0,   50,   "m" )}
+        {num( "Height",       s.height,      ( height ) => set( { height } ),           0.5,  -1000, 1000, "m", 2, "Peak height above the ground" )}
+        {num( "Feature size", s.featureSize, ( featureSize ) => set( { featureSize } ), 1,    1,    4000, "m", 2, "Size of the largest noise features" )}
+        {num( "Roughness",    s.roughness,   ( roughness ) => set( { roughness } ),     0.5,  0,    1000, "m", 2, "Noise added on top of the dome" )}
+        {int( "Detail",       s.detail,      ( detail ) => set( { detail } ),           1,    9,    "Noise octaves ( limited by the ground's resolution )" )}
+        {num( "Edge blend",   s.edgeBlend,   ( edgeBlend ) => set( { edgeBlend } ),     0.5,  0,    1000, "m", 2, "Fade into the ground at the outline" )}
+        {num( "Smoothing",    s.smooth,      ( smooth ) => set( { smooth } ),           0.05, 0,    1,    undefined, 2, "Rounds off hard edges" )}
+        {int( "Smooth steps", s.smoothSteps, ( smoothSteps ) => set( { smoothSteps } ), 0,    64 )}
         <div className="section">Advanced</div>
-        {num( "Peak width",   s.peakWidth,   ( peakWidth ) => set( { peakWidth } ),     1,    0,    2000, "m" )}
-        {num( "On peak",      s.onPeak,      ( onPeak ) => set( { onPeak } ),           0.05, 0,    1                )}
-        {num( "Warp",         s.warp,        ( warp ) => set( { warp } ),               0.05, 0,    3                )}
-        {num( "Lacunarity",   s.lacunarity,  ( lacunarity ) => set( { lacunarity } ),   0.1,  1.2,  4                )}
-        {num( "Gain",         s.gain,        ( gain ) => set( { gain } ),               0.05, 0.1,  0.9              )}
-        {num( "Smooth steps", s.smoothSteps, ( smoothSteps ) => set( { smoothSteps: Math.round( smoothSteps ) } ), 1, 1, 10, undefined, 0 )}
-        {num( "Seed",         s.seed,        ( seed ) => set( { seed: Math.round( seed ) } ), 1, 0, 99999, undefined, 0 )}
+        <Field label="Profile" tip="Cross-section, edge to peak">
+          <CurveEditor value={s.profile} min={0} max={1} label={["edge", "peak"]} onChange={( profile ) => set( { profile } )} onCommit={commitShape} />
+        </Field>
+        {num( "Peak width",   s.peakWidth,   ( peakWidth ) => set( { peakWidth } ),     1,    0,    4000, "m", 2, "From the outline to full height" )}
+        {num( "Lacunarity",   s.lacunarity,  ( lacunarity ) => set( { lacunarity } ),   0.1,  1.2,  4,    undefined, 2, "Frequency step between octaves" )}
+        {num( "Gain",         s.gain,        ( gain ) => set( { gain } ),               0.05, 0.1,  0.9,  undefined, 2, "Amplitude step between octaves" )}
+        {num( "Warp",         s.warp,        ( warp ) => set( { warp } ),               0.05, 0,    2,    undefined, 2, "Distorts the noise" )}
+        {num( "On peak",      s.onPeak,      ( onPeak ) => set( { onPeak } ),           0.05, 0,    1,    undefined, 2, "Noise towards the peak ( 1 ) or all over ( 0 )" )}
+        {int( "Seed",         s.seed,        ( seed ) => set( { seed } ),               0,    99999 )}
         <div className="section">Thermal erosion</div>
         {on( s.thermal.on, ( v ) => th( { on: v } ), "On" )}
         { s.thermal.on && (
           <>
-            {num( "Amount",      s.thermal.amount,     ( amount ) => th( { amount } ),         0.05, 0,  1                 )}
-            {num( "Steps",       s.thermal.iterations, ( iterations ) => th( { iterations: Math.round( iterations ) } ), 1, 1, 300, undefined, 0 )}
-            {num( "Slope angle", s.thermal.repose,     ( repose ) => th( { repose } ),         1,    5,  80, "°", 0       )}
+            {num( "Amount",      s.thermal.amount,     ( amount ) => th( { amount } ),         0.05, 0, 1  )}
+            {int( "Iterations",  s.thermal.iterations, ( iterations ) => th( { iterations } ), 1,    512 )}
+            {num( "Slope angle", s.thermal.repose,     ( repose ) => th( { repose } ),         1,    5, 80, "°", 0, "Angle of repose" )}
           </>
         ) }
         <div className="section">Hydraulic erosion</div>
         {on( s.hydraulic.on, ( v ) => hy( { on: v } ), "On" )}
         { s.hydraulic.on && (
           <>
-            {num( "Droplets",  s.hydraulic.droplets,  ( droplets ) => hy( { droplets } ),   0.05,  0,    5                 )}
-            {num( "Lifetime",  s.hydraulic.lifetime,  ( lifetime ) => hy( { lifetime: Math.round( lifetime ) } ), 1, 1, 500, undefined, 0 )}
-            {num( "Inertia",   s.hydraulic.inertia,   ( inertia ) => hy( { inertia } ),     0.05,  0,    0.95              )}
-            {num( "Capacity",  s.hydraulic.capacity,  ( capacity ) => hy( { capacity } ),   0.5,   0.1,  50                )}
-            {num( "Erode",     s.hydraulic.erode,     ( erode ) => hy( { erode } ),         0.05,  0,    1                 )}
-            {num( "Deposit",   s.hydraulic.deposit,   ( deposit ) => hy( { deposit } ),     0.05,  0,    1                 )}
-            {num( "Evaporate", s.hydraulic.evaporate, ( evaporate ) => hy( { evaporate } ), 0.005, 0,    0.5, undefined, 3 )}
-            {num( "Radius",    s.hydraulic.radius,    ( radius ) => hy( { radius: Math.round( radius ) } ), 1, 1, 8, undefined, 0 )}
+            {num( "Droplets",  s.hydraulic.droplets,  ( droplets ) => hy( { droplets } ),   0.05,  0.02, 4, undefined, 2, "Per height sample" )}
+            {int( "Lifetime",  s.hydraulic.lifetime,  ( lifetime ) => hy( { lifetime } ),   8,     4000, "Height samples a droplet travels" )}
+            {num( "Inertia",   s.hydraulic.inertia,   ( inertia ) => hy( { inertia } ),     0.05,  0,    1 )}
+            {num( "Capacity",  s.hydraulic.capacity,  ( capacity ) => hy( { capacity } ),   0.5,   0.01, 50 )}
+            {num( "Erode",     s.hydraulic.erode,     ( erode ) => hy( { erode } ),         0.05,  0,    1 )}
+            {num( "Deposit",   s.hydraulic.deposit,   ( deposit ) => hy( { deposit } ),     0.05,  0,    1 )}
+            {num( "Evaporate", s.hydraulic.evaporate, ( evaporate ) => hy( { evaporate } ), 0.005, 0,    1, undefined, 3 )}
+            {int( "Radius",    s.hydraulic.radius,    ( radius ) => hy( { radius } ),       1,     4,    "Height samples" )}
           </>
         ) }
-        <Field label=""><button className="btn small" onClick={() => deleteShape( s.uid )}>Delete shape</button></Field>
+        <div className="section">Snowfall</div>
+        {on( s.snow.on, ( v ) => sn( { on: v } ), "On" )}
+        { s.snow.on && (
+          <>
+            {num( "Rock starts",  s.snow.rockFrom,   ( rockFrom ) => sn( { rockFrom } ),     1,    0,  90, "°", 0 )}
+            {num( "Full rock",    s.snow.rockFull,   ( rockFull ) => sn( { rockFull } ),     1,    0,  90, "°", 0 )}
+            {num( "Rock amount",  s.snow.rock,       ( rock ) => sn( { rock } ),             0.05, 0,  1 )}
+            {num( "Crevices",     s.snow.crevices,   ( crevices ) => sn( { crevices } ),     0.05, 0,  1, undefined, 2, "Hollows hold snow, crests shed it" )}
+            {num( "Snow line lo", s.snow.lineLow,    ( lineLow ) => sn( { lineLow } ),       1,    -1, 10000, "m", 1, "World height below which no snow lies ( −1 off )" )}
+            {num( "Snow line hi", s.snow.lineHigh,   ( lineHigh ) => sn( { lineHigh } ),     1,    -1, 10000, "m", 1, "World height above which snow fully lies ( −1 off )" )}
+            {num( "Snow depth",   s.snow.depth,      ( depth ) => sn( { depth } ),           0.1,  0,  50, "m" )}
+            {num( "Adds height",  s.snow.addsHeight, ( addsHeight ) => sn( { addsHeight } ), 0.05, 0,  1, undefined, 2, "How much the snow raises the ground" )}
+            {int( "Soften",       s.snow.soften,     ( soften ) => sn( { soften } ),         0,    64, "Blur passes on the snow's edge" )}
+          </>
+        ) }
+        <div className="section">Simulation</div>
+        <label />
+        <label style={{ color: "var(--text)" }} title="Erosion and snow worked out after every edit">
+          <input type="checkbox" checked={live} onChange={( e ) => { setLiveErosion( e.target.checked ); setLive( e.target.checked ); }} /> Live erosion
+        </label>
+        { !live && <Field label=""><button className="btn small" disabled={!simulates( s )} onClick={() => simulateShape( s )}>Simulate</button></Field> }
+        <Field label="">
+          <div style={{ display: "flex", gap: 4 }}>
+            <button className="btn small" title="Keeps its ground, takes the formation off the list" disabled={s.enabled === false} onClick={() => void ask( { title: `Bake ${s.name} into the terrain?`, answers: [{ id: "bake", label: "Bake", primary: true }] } ).then( ( a ) => a?.id === "bake" && bakeShape( s.uid ) )}>Bake into terrain</button>
+            <button className="btn small" onClick={() => deleteShape( s.uid )}>Delete shape</button>
+          </div>
+        </Field>
       </div>
     </Panel>
   );
@@ -253,6 +314,47 @@ function CurveProps( { s }: { s: CurveShape } ) {
               </button>
             ) ) }
           </div>
+        </Field>
+        <Field label=""><button className="btn small" onClick={() => deleteShape( s.uid )}>Delete shape</button></Field>
+      </div>
+    </Panel>
+  );
+}
+
+const TARGETS: [PaintShape["target"], string][] = [["snow", "Snow"], ["marking", "Marking"], ["powder", "Powder"]];
+
+function PaintProps( { s }: { s: PaintShape } ) {
+  const set  = ( p: Partial<PaintShape> ) => liveShape( { ...s, ...p } );
+  const once = ( p: Partial<PaintShape> ) => { set( p ); commitShape(); };
+  return (
+    <Panel icon="shapeCurve" title={`Shape · ${s.name}`}>
+      <div className="props">
+        <div className="section">Paint</div>
+        <Field label="Name">
+          <input className="txt" key={s.uid + s.name} defaultValue={s.name} onBlur={( e ) => { if ( e.target.value !== s.name ) once( { name: e.target.value } ); }} />
+        </Field>
+        <Field label="Paints">
+          <div className="seg">{TARGETS.map( ( [id, label] ) => <button key={id} className={s.target === id ? "on" : ""} onClick={() => once( { target: id } )}>{label}</button> )}</div>
+        </Field>
+        <label />
+        <label style={{ color: "var(--text)" }}><input type="checkbox" checked={s.erase} onChange={( e ) => once( { erase: e.target.checked } )} /> {s.target === "snow" ? "Rock" : "Erase"}</label>
+        { s.target === "marking" && !s.erase && (
+          <Field label="Colour">
+            <Dropdown value={s.colour} options={MARKING_COLOURS.map( ( c, i ) => ( { value: i, label: c.name } ) )} onChange={( colour ) => once( { colour } )} />
+          </Field>
+        ) }
+        { s.target === "powder" && !s.erase && <Field label="Depth"><Num value={s.depth} step={0.05} min={0} max={1} onChange={( depth ) => set( { depth } )} /></Field> }
+        <Field label="Width"><Num value={s.width} step={0.5} min={0.5} max={500} unit="m" onChange={( width ) => set( { width } )} /></Field>
+        <Field label="Coverage"><Num value={s.coverage} step={0.05} min={0} max={1} onChange={( coverage ) => set( { coverage } )} /></Field>
+        <div className="section">Along</div>
+        <Field label="">
+          <CurveEditor value={s.along} min={0} max={1} label={["start", "end"]} onChange={( along ) => set( { along } )} onCommit={commitShape} />
+        </Field>
+        <Field label="Repeats"><Num value={s.repeats} step={1} min={1} max={50} digits={0} onChange={( repeats ) => set( { repeats: Math.round( repeats ) } )} /></Field>
+        <Field label="Repeat scale"><Num value={s.repeatScaling} step={0.05} min={0.1} max={10} onChange={( repeatScaling ) => set( { repeatScaling } )} /></Field>
+        <div className="section">Across</div>
+        <Field label="">
+          <CurveEditor value={s.cross} min={0} max={1} label={["left", "right"]} onChange={( cross ) => set( { cross } )} onCommit={commitShape} />
         </Field>
         <Field label=""><button className="btn small" onClick={() => deleteShape( s.uid )}>Delete shape</button></Field>
       </div>

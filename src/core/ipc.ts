@@ -206,6 +206,8 @@ export const ipc = {
   loadProject:  ( dir: string ) => invoke<Project>( "load_project", { dir } ),
   saveProject:  ( dir: string, project: Project ) => invoke<void>( "save_project", { dir, project } ),
   importJbrmap: ( mapPath: string, projectDir: string ) => invoke<Project>( "import_jbrmap", { mapPath, projectDir } ),
+  // a Unity scene made with Map-Tools: the project, and what was kept as it is or left out
+  importUnity:  ( scenePath: string, projectDir: string ) => invoke<{ project: Project; notes: string[] }>( "import_unity", { scenePath, projectDir } ),
   exportProject: ( projectDir: string, outPath?: string ) =>
     invoke<ExportResult>( "export_project", { projectDir, outPath: outPath ?? null } ),
   generateProject: ( dir: string, name: string, id: string, options: GenOptions ) =>
