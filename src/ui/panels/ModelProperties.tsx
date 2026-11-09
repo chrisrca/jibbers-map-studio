@@ -1,7 +1,7 @@
 // Properties of a modelled piece: Blender's modifier stack, and its mesh ( smoothing, colliders, size ).
 
 import type { CustomObjectEntry } from "../../core/types";
-import { evaluate, MODIFIERS, type ModelData, type Modifier } from "../../model/build";
+import { applyModifier, evaluate, MODIFIERS, type ModelData, type Modifier } from "../../model/build";
 import { builtOf, lodPreview, withModel } from "../../model/objects";
 import { archPoints, type ArchShape } from "../../model/curve";
 import { useEffect, useState } from "react";
@@ -110,6 +110,7 @@ export function modelRows( { o, set, commit, only }: { o: CustomObjectEntry & { 
             <span className="ttl">{MODIFIERS.find( ( d ) => d.type === m.type )!.label}</span>
             <button className="btn ghost small" title="Move up" onClick={() => move( i, -1 )}><Icon name="chevronUp" size={12} /></button>
             <button className="btn ghost small" title="Move down" onClick={() => move( i, 1 )}><Icon name="chevronDown" size={12} /></button>
+            <button className="btn ghost small" title="Apply" disabled={!!model.curve} onClick={() => { set( ( x ) => ( x.model ? withModel( x, applyModifier( x.model, i ) ) : x ) ); commit(); }}><Icon name="check" size={12} /></button>
             <button className="btn ghost small" title="Remove" onClick={() => { put( { modifiers: model.modifiers.filter( ( _, k ) => k !== i ) } ); commit(); }}><Icon name="close" size={12} /></button>
           </div>
           <div className="props">

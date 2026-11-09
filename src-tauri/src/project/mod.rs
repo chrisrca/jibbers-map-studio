@@ -17,6 +17,8 @@ pub mod models;
 pub mod scenery;
 mod import;
 mod export;
+pub mod glb;
+mod hue;
 mod motion;
 pub(crate) use import::*;
 pub(crate) use export::*;

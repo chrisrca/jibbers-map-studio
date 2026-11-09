@@ -125,6 +125,16 @@ export function runs( f: number[], a: number, b: number ) {
 /**
  * Drops vertices no face or loose edge uses, faces with fewer than 3 distinct corners, repeated corners.
 **/
+/**
+ * A face turned to face the other way: its corners round the other way, its first kept first ( so a face that isn't
+ * flat is cut along the same diagonal: the same shape, mirrored ); and its corners' UVs with them.
+**/
+export const turnBack   = ( f: number[] ): number[] => [f[0], ...f.slice( 1 ).reverse()];
+export const turnBackUv = ( uv: number[] ): number[] => {
+  const n = uv.length / 2;
+  return Array.from( { length: n }, ( _, k ) => [uv[( ( n - k ) % n ) * 2], uv[( ( n - k ) % n ) * 2 + 1]] ).flat();
+};
+
 export function compact( g: Mesh ): { mesh: Mesh; map: Int32Array } {
   const f: number[][] = [], m: number[] = [], s: boolean[] = [], u: number[][] = [];
   g.f.forEach( ( face, fi ) => {
@@ -299,10 +309,19 @@ function rawPrimitive( id: PrimitiveId, opts: PrimitiveOpts ): Mesh {
       return fromCCW( v, f.map( ( x ) => [...x].reverse() ) );
     }
     case "icosphere": {
-      const t     = ( 1 + Math.sqrt( 5 ) ) / 2;
-      let v: V3[] = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]];
-      let f       = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
-      v           = v.map( ( p ) => mul( norm( p ), r ) );
+      // ( Blender's: a corner at each pole, a ring of five a little below and above, turned a tenth apart; its faces
+      // the triangles of neighbours, facing out once it's made )
+      const y     = 1 / Math.sqrt( 5 ), w = 2 / Math.sqrt( 5 );
+      let v: V3[] = [[0, -1, 0], [0, 1, 0]];
+      for ( let k = 0; k < 5; k++ ) {
+        const lo = ( ( -36 + 72 * k ) * Math.PI ) / 180, hi = ( 72 * k * Math.PI ) / 180;
+        v.push( [Math.cos( lo ) * w, -y, Math.sin( lo ) * w], [Math.cos( hi ) * w, y, Math.sin( hi ) * w] );
+      }
+      const side  = Math.hypot( ...sub( v[2], v[3] ) );
+      const near  = ( a: number, b: number ) => Math.abs( Math.hypot( ...sub( v[a], v[b] ) ) - side ) < 1e-6;
+      let f: number[][] = [];
+      for ( let a = 0; a < 12; a++ ) for ( let b = a + 1; b < 12; b++ ) for ( let c = b + 1; c < 12; c++ ) if ( near( a, b ) && near( b, c ) && near( a, c ) ) f.push( [a, b, c] );
+      v           = v.map( ( p ) => mul( p, r ) );
       // one subdivision ( Blender's default is 2: close enough for a feature )
       for ( let k = 0; k < Math.min( 6, Math.round( opts.rings ?? 2 ) ) - 1; k++ ) {
         const mid = new Map<string, number>();
@@ -320,7 +339,9 @@ function rawPrimitive( id: PrimitiveId, opts: PrimitiveOpts ): Mesh {
       return fromCCW( v, f );
     }
     case "torus": {
-      const R = r * 0.75, rr = r * 0.25, minor = Math.max( 3, Math.round( opts.minor ?? 12 ) ), v: V3[] = [], f: number[][] = [];
+      // ( Blender's: a ring 1 m round, its tube 0.25 m, 48 segments round by 12 )
+      const R = r, rr = r * 0.25, minor = Math.max( 3, Math.round( opts.minor ?? 12 ) ), v: V3[] = [], f: number[][] = [];
+      const seg = Math.max( 3, Math.round( opts.segments ?? 48 ) );
       for ( let i = 0; i < seg; i++ )
         for ( let j = 0; j < minor; j++ ) {
           const a = ( i / seg ) * Math.PI * 2, b = ( j / minor ) * Math.PI * 2, d = R + Math.cos( b ) * rr;

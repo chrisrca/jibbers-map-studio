@@ -112,6 +112,9 @@ export function spin( g0: Mesh, sel: Sel, centre: V3, axis: V3, angle: number, s
     return add( centre, add( add( mul( v, c ), mul( kv, s ) ), mul( k, kd * ( 1 - c ) ) ) );
   };
   const start = [...sel.v].map( ( v ) => g0.v[v] );
+  // ( edges along a face: the sweep faces as that face does, as Blender's; a loose profile's turned to face out )
+  const info  = edgesOf( g0 );
+  const loose = [...sel.e].every( ( k ) => !info.get( k )?.faces.length );
   let g       = g0, cur = sel;
   const made  = new Set<number>();
   for ( let i = 0; i < n; i++ ) {
@@ -126,9 +129,9 @@ export function spin( g0: Mesh, sel: Sel, centre: V3, axis: V3, angle: number, s
     const near = ( p: V3 ) => start.some( ( q ) => len( sub( p, q ) ) < 1e-5 );
     const ring = g.v.map( ( _, i ) => i ).filter( ( i ) => near( g.v[i] ) );
     const r    = merge( g, ring, "distance", 1e-5 );
-    return { mesh: recalcOutside( r.mesh ), sel: r.sel };
+    return { mesh: loose ? recalcOutside( r.mesh ) : r.mesh, sel: r.sel };
   }
-  return { mesh: made.size ? recalcOutside( g, made ) : g, sel: cur };
+  return { mesh: made.size && loose ? recalcOutside( g, made ) : g, sel: cur };
 }
 
 /**

@@ -1,5 +1,6 @@
 // The ground beneath the trails, remembered block by block where they've reached ( so it can always be put back ).
 
+import { shapesLift } from "../../terrain/shapes/shapes";
 import { TILE, terrain } from "../../terrain/terrain";
 
 // samples per side of a remembered block of ground: the view's tiles' ( terrain/terrain.ts TILE ), so a block changed is
@@ -15,17 +16,19 @@ export const unsaved = new Set<string>();
 export const baseKey = ( chunk: string, bi: number, bj: number ) => `${chunk}:${bi}:${bj}`;
 
 /**
- * Remembers a block's ground as it is now ( when the trails first reach it ).
+ * Remembers a block's ground as it is now ( when the trails first reach it ), without the shapes on it: the trails are
+ * the ground's base, the shapes built on them ( terrain/shapes/shapes/apply.ts ).
 **/
 export function snapshotBlock( ci: number, bi: number, bj: number ) {
   const c = terrain.chunks[ci], key = baseKey( c.key, bi, bj );
   if ( bases.has( key ) ) return;
-  const i0  = bi * BT, j0 = bj * BT, w = Math.min( BT, c.res - i0 ), h = Math.min( BT, c.res - j0 );
-  const a   = new Float32Array( BT * BT ), y0 = c.position[1];
-  let first = NaN, same = true;
+  const i0   = bi * BT, j0 = bj * BT, w = Math.min( BT, c.res - i0 ), h = Math.min( BT, c.res - j0 );
+  const a    = new Float32Array( BT * BT ), y0 = c.position[1];
+  const lift = shapesLift( c.key );
+  let first  = NaN, same = true;
   for ( let j = 0; j < h; j++ )
     for ( let i = 0; i < w; i++ ) {
-      const v       = y0 + c.heights[( j0 + j ) * c.res + i0 + i];
+      const v       = y0 + c.heights[( j0 + j ) * c.res + i0 + i] - lift( i0 + i, j0 + j );
       a[j * BT + i] = v;
       if ( Number.isNaN( first ) ) first = v;
       else if ( v !== first ) same = false;

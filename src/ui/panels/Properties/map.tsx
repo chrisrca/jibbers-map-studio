@@ -7,9 +7,12 @@ import { NumberField, Panel, Slider } from "../../widgets/controls";
 import { plainText } from "../../widgets/RichText";
 import { MapSizeEditor } from "../MapSize";
 import { useRef, useState } from "react";
-import { isScenery } from "../../../core/types";
+import { isScenery, SCENERY_ROCK_ANGLE } from "../../../core/types";
 import { landOf } from "../../../geo/land";
-import { buildSurroundings, removeSurroundings } from "../../../geo/landGround";
+import { buildSurroundings, chunkCells, removeSurroundings, surroundingsLook, type SurroundingsLook } from "../../../geo/landGround";
+import { SCENERY_MAX_VERTICES, surroundingsPlan } from "../../../geo/scenery/scenery";
+import { terrain } from "../../../terrain/terrain";
+import { CurveEditor } from "../../widgets/CurveEditor";
 
 export function MapProperties() {
   const map    = useEditor( ( s ) => s.map    );
@@ -73,49 +76,64 @@ export function MapProperties() {
 }
 
 /**
- * The land round the map as scenery ( geo/scenery ): on or off, and how far out it reaches ( built again as that
- * changes, and whenever the map's ground does: Map Size ). The real land round a real mountain; round a made-up map,
- * land made up to match it.
+ * The land round the map as scenery ( geo/scenery ): on or off, how far out it reaches and how far its far edge drops
+ * away ( built again as any changes, and whenever the map's ground does: Map Size ). The
+ * real land round a real mountain; round a made-up map, land made up to match it.
 **/
 function SurroundingsRows() {
-  const sc          = useEditor( ( s ) => s.customObjects.find( isScenery ) );
-  const [km, setKm] = useState( ( sc?.scenery?.radius ?? 8000 ) / 1000 );
-  const timer       = useRef<ReturnType<typeof setTimeout> | null>( null );
-  const land        = landOf();
+  const sc                = useEditor( ( s ) => s.customObjects.find( isScenery ) );
+  const [look,  setLook ] = useState( surroundingsLook );
+  // ( the look as it is now, for what's let go: a curve's drag ends with the handlers it began with, which saw the look
+  // from before it, and built that, putting the curve back )
+  const latest            = useRef( look );
+  latest.current          = look;
+  const [angle, setAngle] = useState( () => sc?.scenery?.rockAngle ?? SCENERY_ROCK_ANGLE );
+  const timer             = useRef<ReturnType<typeof setTimeout> | null>( null );
+  const land              = landOf();
   if ( !land ) return null;
-  const build = async ( reach: number ) => {
+  const build = async ( change: Partial<SurroundingsLook>, rocks = angle ) => {
     const st = useEditor.getState();
     try {
       st.setBusy( "Building the surroundings…" );
-      await buildSurroundings( reach * 1000, ( stage, f ) => st.setBusy( `${stage} ${Math.round( f * 100 )}%` ) );
+      await buildSurroundings( change, ( stage, f ) => st.setBusy( stage, f ), undefined, rocks );
     } catch ( e ) {
       st.toast( `Couldn't build the surroundings: ${e instanceof Error ? e.message : e}`, "error" );
     } finally {
       st.setBusy( null );
     }
   };
+  // ( built again once it's let be a moment, not on every step of a drag; a button's pick at once )
+  const change = ( p: Partial<SurroundingsLook>, now = false, rocks = angle ) => {
+    const next = { ...latest.current, ...p };
+    latest.current = next;
+    setLook( next );
+    if ( timer.current ) clearTimeout( timer.current );
+    timer.current = setTimeout( () => void build( next, rocks ), now ? 0 : 600 );
+  };
+  // what the detail comes to: the spacing close in and furthest out, vertices, the textures' size
+  const plan  = surroundingsPlan( chunkCells(), look.radius, look.detail );
+  const own   = terrain.chunks[0]?.spacing ?? 1;
+  const metre = ( m: number ) => ( m < 10 ? `${m} m` : `${Math.round( m )} m` );
+  const cost  = `${metre( plan.rings[0]?.step ?? 0 )} close in, ${metre( plan.rings[plan.rings.length - 1]?.step ?? 0 )} far out · ${( plan.vertices / 1e6 ).toFixed( 2 )} M vertices · ~${Math.round( plan.bytes / 1e6 )} MB`;
   return (
     <>
       <div className="section">Surroundings</div>
       <label />
-      <label className="check"><input type="checkbox" checked={!!sc} onChange={( e ) => ( e.target.checked ? void build( km ) : removeSurroundings() )} /> Show surroundings</label>
+      <label className="check"><input type="checkbox" checked={!!sc} onChange={( e ) => ( e.target.checked ? void build( look ) : removeSurroundings() )} /> Show surroundings</label>
       { sc && (
         <>
           <label />
-          <Slider
-            label="Reach"
-            value={km}
-            min={1}
-            max={20}
-            step={1}
-            fmt={( v ) => `${v.toFixed( 0 )} km`}
-            onChange={( v ) => {
-              setKm( v );
-              // ( built again once it's let be a moment, not on every step of a drag )
-              if ( timer.current ) clearTimeout( timer.current );
-              timer.current = setTimeout( () => void build( v ), 600 );
-            }}
-          />
+          <Slider label="Distance" value={look.radius / 1000} min={1} max={20} step={1} fmt={( v ) => `${v.toFixed( 0 )} km`} onChange={( v ) => change( { radius: v * 1000 } )} />
+          <label />
+          <Slider label="Rocks from" value={angle} min={5} max={60} step={1} fmt={( v ) => `${Math.round( v )}°`} onChange={( v ) => { setAngle( v ); change( {}, false, v ); }} />
+          <label title={`Vertex spacing from the map's edge out: top ${metre( 1 )}, bottom 200 m ( the map's own: ${own.toFixed( 2 )} m )`}>Detail</label>
+          <div>
+            <CurveEditor value={look.detail} min={0} max={1} label={["map edge", "far edge"]} onChange={( detail ) => { latest.current = { ...latest.current, detail }; setLook( latest.current ); }} onCommit={() => change( {} )} />
+          </div>
+          <label />
+          <span className={plan.vertices > SCENERY_MAX_VERTICES ? "note warn" : "muted"}>
+            {cost}{plan.vertices > SCENERY_MAX_VERTICES ? ` · over ${SCENERY_MAX_VERTICES / 1e6} M, too much for the game` : ""}
+          </span>
         </>
       ) }
     </>

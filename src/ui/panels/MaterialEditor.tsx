@@ -5,7 +5,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { ipc } from "../../core/ipc";
 import { materialOverlay, withOverlay } from "../../core/overlay";
-import type { CustomMaterial, CustomObjectEntry, RGBA } from "../../core/types";
+import { adjustOf, type CustomMaterial, type CustomObjectEntry, type PieceAdjust, type RGBA } from "../../core/types";
 import type { ModelData } from "../../model/build";
 import { editTexture, PAINT_SIZE, pieceTexture, resizeTexture } from "../../texture/meshPaint";
 import { weatherRows, type WeatherSettings } from "../blender/WeatherPanels";
@@ -22,7 +22,15 @@ type Slot = "base_tex" | "normal_tex" | "metallic_tex" | "roughness_tex" | "emis
 /**
  * The piece's distinct materials, in the order its parts use them.
 **/
-const slotsOf = ( o: CustomObjectEntry ) => [...new Set( o.parts.flatMap( ( p ) => p.materials.map( ( m ) => JSON.stringify( m ) ) ) )];
+const slotsOf = ( o: CustomObjectEntry ) => [...new Set( o.parts.flatMap( ( p ) => p.materials.map( keyOf ) ) )];
+
+// ( each material's text kept with it: a piece dragged about is drawn again every step, its materials the same ones )
+const keys  = new WeakMap<CustomMaterial, string>();
+const keyOf = ( m: CustomMaterial ) => {
+  let k = keys.get( m );
+  if ( k === undefined ) keys.set( m, ( k = JSON.stringify( m ) ) );
+  return k;
+};
 
 const hex     = ( c:   RGBA   ) => `#${[c.r, c.g, c.b].map( ( v ) => Math.round( Math.min( 1, Math.max( 0, v ) ) * 255 ).toString( 16 ).padStart( 2, "0" ) ).join( "" )}`;
 const texName = ( key: string ) => key.split( "/" ).pop()?.replace( /-[0-9a-f]{8}$/, "" ) || key;
@@ -31,6 +39,53 @@ const texName = ( key: string ) => key.split( "/" ).pop()?.replace( /-[0-9a-f]{8
  * The rows of a piece's Material section ( called as a function, so the Properties editor folds them as a section of
  * their own ).
 **/
+// The adjustments under the Hue, as Photoshop names them
+const ADJUSTS: [keyof PieceAdjust, string][] = [["saturation", "Saturation"], ["lightness", "Lightness"], ["brightness", "Brightness"], ["contrast", "Contrast"]];
+
+/**
+ * A piece's paint adjusted, in its Colour's picker: Hue ( round the colour wheel, as the game turns its own features' ),
+ * Saturation, Lightness, Brightness and Contrast, as Photoshop has them. The whole piece, every slot; baked into
+ * copies of its textures for the game ( project/hue.rs ).
+**/
+export function AdjustRows( { o, set, commit }: { o: CustomObjectEntry; set: ( f: ( x: CustomObjectEntry ) => CustomObjectEntry ) => void; commit: () => void } ) {
+  const a   = o.adjust ?? {};
+  const deg = ( ( o.hue ?? 0 ) * 360 ) % 360;
+  const put = ( k: keyof PieceAdjust, v: number ) =>
+    set( ( x ) => {
+      const { adjust: _a, ...y } = x;
+      const next: PieceAdjust    = { ...x.adjust, [k]: v };
+      for ( const key of Object.keys( next ) as ( keyof PieceAdjust )[] ) if ( Math.abs( next[key] ?? 0 ) < 1e-4 ) delete next[key];
+      return Object.keys( next ).length ? { ...y, adjust: next } : y;
+    } );
+  return (
+    <div className="cpick-adjust">
+      <div className="cpick-adjust-head">
+        <span>Adjust</span>
+        { adjustOf( o ) && (
+          <button className="btn small" onClick={() => { set( ( x ) => { const { hue: _h, adjust: _a, ...y } = x; return y; } ); commit(); }}>Reset</button>
+        ) }
+      </div>
+      <NumSlider
+        label="Hue"
+        value={deg > 180 ? deg - 360 : deg}
+        min={-180}
+        max={180}
+        step={1}
+        fmt={( v ) => `${Math.round( v )}°`}
+        onChange={( v ) => set( ( x ) => {
+          const { hue: _h, ...y } = x;
+          const t                 = ( ( Math.round( v ) % 360 ) + 360 ) % 360;
+          return t ? { ...y, hue: t / 360 } : y;
+        } )}
+        onCommit={commit}
+      />
+      { ADJUSTS.map( ( [k, label] ) => (
+        <NumSlider key={k} label={label} value={( a[k] ?? 0 ) * 100} min={-100} max={100} step={1} fmt={( v ) => `${Math.round( v )}`} onChange={( v ) => put( k, Math.round( v ) / 100 )} onCommit={commit} />
+      ) ) }
+    </div>
+  );
+}
+
 export function materialRows( { o, set, commit, slot, setSlot, weather }: {
   o:       CustomObjectEntry;
   weather: WeatherSettings;
@@ -47,7 +102,7 @@ export function materialRows( { o, set, commit, slot, setSlot, weather }: {
   const update = ( f: ( m: CustomMaterial ) => CustomMaterial ) =>
     set( ( x ) => {
       const k = slotsOf( x )[i];
-      return { ...x, parts: x.parts.map( ( p ) => ( { ...p, materials: p.materials.map( ( mm ) => ( JSON.stringify( mm ) === k ? f( mm ) : mm ) ) } ) ) };
+      return { ...x, parts: x.parts.map( ( p ) => ( { ...p, materials: p.materials.map( ( mm ) => ( keyOf( mm ) === k ? f( mm ) : mm ) ) } ) ) };
     } );
   const field = <K extends keyof CustomMaterial>( k: K, v: CustomMaterial[K] ) => update( ( mm ) => ( { ...mm, [k]: v } ) );
 
@@ -79,11 +134,14 @@ export function materialRows( { o, set, commit, slot, setSlot, weather }: {
       </>
     );
   };
+  // ( the base colour's picker with the piece's paint adjustments under it )
   const colour = ( k: "base_color" | "emission_color", label: string ) => (
     <>
       <label>{label}</label>
       <div>
-        <ColourChip value={[m[k].r, m[k].g, m[k].b]} onChange={( [r, g, b] ) => { field( k, { r, g, b, a: m[k].a } ); commit(); }} />
+        <ColourChip value={[m[k].r, m[k].g, m[k].b]} onChange={( [r, g, b] ) => { field( k, { r, g, b, a: m[k].a } ); commit(); }}>
+          {k === "base_color" && <AdjustRows o={o} set={set} commit={commit} />}
+        </ColourChip>
       </div>
     </>
   );

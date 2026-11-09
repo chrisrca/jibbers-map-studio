@@ -31,8 +31,25 @@ export interface DemSource {
   fetch( level: number, box: [number, number, number, number], onProgress?: ( f: number ) => void, signal?: AbortSignal, spacing?: number ): Promise<Sampler>;
 }
 
+/**
+ * fetch, tried again up to twice ( a second, then two, apart ) when the request doesn't get through ( "TypeError:
+ * Failed to fetch": an import stopped on one and worked when tried again ) or the server's busy ( 429, 5xx ).
+**/
+export async function fetchRetry( url: string, init: RequestInit = {} ): Promise<Response> {
+  for ( let attempt = 0; ; attempt++ ) {
+    if ( attempt ) await new Promise( ( r ) => setTimeout( r, 1000 * attempt ) );
+    try {
+      const r = await fetch( url, init );
+      if ( attempt < 2 && ( r.status === 429 || r.status >= 500 ) ) continue;
+      return r;
+    } catch ( e ) {
+      if ( init.signal?.aborted || attempt >= 2 || !( e instanceof TypeError ) ) throw e;
+    }
+  }
+}
+
 async function getJson( url: string, signal?: AbortSignal ) {
-  const r = await fetch( url, { signal } );
+  const r = await fetchRetry( url, { signal } );
   if ( !r.ok ) throw new Error( `${new URL( url ).host} answered ${r.status}` );
   return r.json();
 }
@@ -134,8 +151,9 @@ export async function mercatorGrid(
     const bx0                   = x0 + ( tx - 0.5 ) * px, bx1 = bx0 + w * px;
     const by1                   = y1 - ( ty - 0.5 ) * px, by0 = by1 - h * px;
     let buf: ArrayBuffer | null = null, err = "";
-    for ( let attempt = 0; attempt < 3 && !buf; attempt++ ) {
-      if ( attempt ) await new Promise( ( r ) => setTimeout( r, 1500 * attempt ) );
+    // ( six tries, 2, 4, 8, 16 and 20 s apart: USGS answers "502" in spells that pass within the minute )
+    for ( let attempt = 0; attempt < 6 && !buf; attempt++ ) {
+      if ( attempt ) await new Promise( ( r ) => setTimeout( r, Math.min( 20000, 1000 * 2 ** attempt ) ) );
       try {
         const limit = AbortSignal.timeout( 90000 ); // a stuck request would otherwise hang the import
         const b     = await piece( [bx0, by0, bx1, by1], w, h, signal ? AbortSignal.any( [signal, limit] ) : limit );
@@ -147,7 +165,7 @@ export async function mercatorGrid(
       }
     }
     if ( !buf ) {
-      if ( depth >= 2 || ( w < 128 && h < 128 ) ) throw new Error( err );
+      if ( depth >= 2 || ( w < 128 && h < 128 ) ) throw new Error( `${what} didn't answer ( ${err} ). Try again in a moment.` );
       const hw = Math.ceil( w / 2 ), hh = Math.ceil( h / 2 );
       await one( tx, ty, hw, hh, depth + 1 );
       if ( w > hw ) await one( tx + hw, ty, w - hw, hh, depth + 1 );
@@ -188,17 +206,26 @@ export async function arcgisPiece( service: string, b: [number, number, number, 
     interpolation: "RSP_BilinearInterpolation",
     f:             "image",
   } );
-  const url = `${service}/exportImage?${q}`;
-  if ( viaStudio ) {
+  const url    = `${service}/exportImage?${q}`;
+  const studio = async () => {
     const { httpFetch } = await import( "./remote" );
     const r             = await httpFetch( url );
     if ( signal.aborted ) throw new DOMException( "cancelled", "AbortError" );
     if ( r.status !== 200 ) throw new Error( `${new URL( service ).host} answered ${r.status}` );
     return r.body;
+  };
+  if ( viaStudio ) return studio();
+  try {
+    const r = await fetch( url, { signal } );
+    if ( !r.ok ) throw new Error( `${new URL( service ).host} answered ${r.status}` );
+    return await r.arrayBuffer();
+  } catch ( e ) {
+    // ( a request the page couldn't make at all, "TypeError: Failed to fetch": often the service's own error page,
+    // without the headers a page may read it by ( USGS, when it's busy ). Asked again by the studio itself, which
+    // isn't held to them: the real answer, or the data )
+    if ( !( e instanceof TypeError ) || signal.aborted ) throw e;
+    return studio();
   }
-  const r = await fetch( url, { signal } );
-  if ( !r.ok ) throw new Error( `${new URL( service ).host} answered ${r.status}` );
-  return r.arrayBuffer();
 }
 
 export const usgs3dep: DemSource = {
@@ -239,7 +266,7 @@ export const terrarium: DemSource = {
     for ( let ty = ty0; ty <= ty1; ty++ ) for ( let tx = tx0; tx <= tx1; tx++ ) jobs.push( [tx, ty] );
     let done = 0;
     await pool( jobs, 6, async ( [tx, ty] ) => {
-      const r = await fetch( `${TERRARIUM}/${z}/${( ( tx % n ) + n ) % n}/${ty}.png`, { signal } );
+      const r = await fetchRetry( `${TERRARIUM}/${z}/${( ( tx % n ) + n ) % n}/${ty}.png`, { signal } );
       if ( !r.ok ) throw new Error( `terrain tiles answered ${r.status}` );
       const px = await decodePng( await r.blob() );
       const ox = ( tx - tx0 ) * TILE, oy = ( ty - ty0 ) * TILE;

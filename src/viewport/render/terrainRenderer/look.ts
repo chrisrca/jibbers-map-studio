@@ -57,6 +57,11 @@ export const snowLook = {
   gripBlockedColor: uniform( new THREE.Color( 0.08, 0.08, 0.1  ) ),
   // 1 once the game's snow and rock textures are in ( TerrainRenderer.useGameSnow )
   gameSnow:       uniform( 0 ),
+  // their tiling: times a world metre ( the game's _WorldScale × _SnowTexTiling, × _RockTexTiling ), and how strongly
+  // the snow's bumps tilt the ground ( _SnowNormalStrength; 0 without its normal map )
+  snowScale:      uniform( 0.03 ),
+  rockScale:      uniform( 0.15 ),
+  snowBumps:      uniform( 0 ),
   // powder ( the mask's alpha ), as the game lays it: its colour, full at `thirdDepth` ( m ), its edge sharpened
   thirdColor:     uniform( new THREE.Color( 1, 1, 1 ) ),
   thirdDepth:     uniform( 0.1 ),
@@ -70,8 +75,8 @@ export const snowLook = {
 export const powderOf = ( a: N ) =>
   tclamp( min( a.div( max( snowLook.thirdDepth, 0.01 ) ), 1 ).sub( 0.5 ).div( max( snowLook.thirdSharpness, 0.001 ) ).add( 0.5 ), 0, 1 );
 
-// The game's snow and rock textures ( white till they're read )
-export const gameTex = { snow: null as THREE.Texture | null, rock: null as THREE.Texture | null };
+// The game's snow and rock textures, and the snow's normal map ( white, and none, till they're read )
+export const gameTex = { snow: null as THREE.Texture | null, rock: null as THREE.Texture | null, snowNormal: null as THREE.Texture | null };
 
 const plainWhite = () => {
   const t       = new THREE.DataTexture( new Uint8Array( [255, 255, 255, 255] ), 1, 1 );

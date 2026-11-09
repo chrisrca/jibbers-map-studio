@@ -225,12 +225,12 @@ export function Vec3Field( { value, onChange, onCommit, step = 0.1, digits = 2, 
 /**
  * `log`: the track is logarithmic, so small values get as much room as big ones ( brush sizes ).
 **/
-export function Slider( { label, value, min, max, step, onChange, fmt, log, width = 150 }: {
-  label: string; value: number; min: number; max: number; step: number; onChange: ( v: number ) => void; fmt?: ( v: number ) => string; log?: boolean; width?: number;
+export function Slider( { label, value, min, max, step, onChange, fmt, log, width = 150, title }: {
+  label: string; value: number; min: number; max: number; step: number; onChange: ( v: number ) => void; fmt?: ( v: number ) => string; log?: boolean; width?: number; title?: string;
 } ) {
   return (
     <div className="group" style={{ width }}>
-      <NumSlider label={label} value={value} min={min} max={max} step={step} onChange={onChange} fmt={fmt} log={log} />
+      <NumSlider label={label} value={value} min={min} max={max} step={step} onChange={onChange} fmt={fmt} log={log} title={title} />
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { cancelShape, commitShape, deleteShape, liveShape } from "../../terrain/
 import { captureStamp, fitFormation, groundWithout, newCircle, newCurve, newFormation, newStamp, shapeHeightAt, type CurveShape, type FormationShape, type Shape, type StampShape } from "../../terrain/shapes/shapes";
 import { useEditor } from "../../map/store";
 import { terrain } from "../../terrain/terrain";
+import { redraw } from "../redraw";
 
 // ( a number: a formation's outline point )
 type Handle = "start" | "end" | "center" | "radius" | "rotate" | number;
@@ -135,6 +136,14 @@ export class ShapeTool {
   gizmoCancel() {
     this.moving = null;
     cancelShape();
+  }
+
+  /**
+   * Whether a handle of a picked shape is under the mouse ( any of them: Design's Select Box hands a press on one to
+   * the tool ).
+  **/
+  handleUnder( x: number, y: number ) {
+    return this.handles.visible && this.raycast( x, y ).intersectObjects( this.handles.children, false ).length > 0;
   }
 
   /**
@@ -263,7 +272,11 @@ export class ShapeTool {
   hover( hit: THREE.Vector3 | null ) {
     const u = this.forming() && !this.drag && hit ? toUnity( hit ) : null;
     const e = u ? this.edgeNear( [u[0], u[2]] ) : null;
-    if ( !e ) return void ( this.ghost.visible = false );
+    if ( !e ) {
+      if ( this.ghost.visible ) redraw();
+      return void ( this.ghost.visible = false );
+    }
+    redraw();
     const size         = this.handleSize( e.s );
     this.ghost.visible = true;
     this.ghost.position.copy( toThree( [e.p[0], ground( e.p[0], e.p[1] ) + size, e.p[1]] ) );
@@ -344,6 +357,8 @@ export class ShapeTool {
     const mat  = this.lineMat( color );
     // ( a formation: closed round from three points; its line so far before that )
     if ( s.kind === "formation" ) return s.points.length > 1 ? this.polyline( s.points.length > 2 ? [...s.points, s.points[0]] : s.points, mat ) : undefined;
+    // ( a ski line: drawn and edited by its own tool, viewport/tools/skiLineTool.ts )
+    if ( s.kind === "skiline" ) return undefined;
     const line = ( pts: [number, number][] ) => {
       const v       = pts.map( ( [x, z] ) => toThree( [x, ground( x, z ) + 0.08, z] ) );
       const l       = new THREE.Line( new THREE.BufferGeometry().setFromPoints( v ), mat );
@@ -376,6 +391,7 @@ export class ShapeTool {
 
   private handlePoints( s: Shape ): [Handle, [number, number]][] {
     if ( s.kind === "formation" ) return s.points.map( ( p, i ) => [i, p] );
+    if ( s.kind === "skiline" ) return [];
     if ( s.kind === "curve" || s.kind === "paint" ) return [["start", s.start], ["end", s.end]];
     if ( s.kind === "stamp" ) {
       const a = ( s.rotation * Math.PI ) / 180, r = ( ( s.grid.h - 1 ) * s.grid.spacing ) / 2 + 1.5;
@@ -388,7 +404,8 @@ export class ShapeTool {
     return s.kind === "formation" ? Math.max( 0.5, ( Math.max( ...s.points.map( ( p ) => p[0] ) ) - Math.min( ...s.points.map( ( p ) => p[0] ) ) ) * 0.015 )
       : s.kind === "curve" || s.kind === "paint" ? Math.max( 0.35, s.width * 0.06 )
       : s.kind === "circle" ? Math.max( 0.35, s.radius * 0.05 )
-      : Math.max( 0.35, s.grid.w * s.grid.spacing * 0.03 );
+      : s.kind === "stamp" ? Math.max( 0.35, s.grid.w * s.grid.spacing * 0.03 )
+      : 0.5;
   }
 
   private addHandle( h: Handle, [x, z]: [number, number], s: Shape ) {
@@ -423,7 +440,7 @@ export class ShapeTool {
         return true;
       }
     }
-    if ( st.tool !== "shape" ) return false;
+    if ( st.tool !== "shape" || st.shapeKind === "skiline" ) return false;
     const p = this.pickTerrain( x, y );
     if ( !p ) return false;
     const u                    = toUnity( p );
@@ -478,6 +495,7 @@ export class ShapeTool {
     if ( d.kind === "handle" ) {
       const s = d.shape;
       let next: Shape;
+      if ( s.kind === "skiline" ) return true;
       if ( s.kind === "formation" ) next = { ...s, points: s.points.map( ( p, i ) => ( i === d.handle ? at : p ) ) };
       else if ( s.kind === "curve" || s.kind === "paint" ) next = d.handle === "start" ? { ...s, start: at } : { ...s, end: at };
       else if ( d.handle === "center" ) next = { ...s, center:   at };

@@ -28,6 +28,17 @@ function mirrorShape( s: Shape, axis: "x" | "z", sx: number, sz: number ): Shape
     const was = s.noiseMirror ?? { x: null, z: null };
     return { ...s, points: s.points.map( m ), noiseMirror: axis === "x" ? { ...was, x: was.x === null ? sx : null } : { ...was, z: was.z === null ? sz : null } };
   }
+  // ( a ski line's left and right swapped with it: its cross-section turned round, its rolls and features' offsets the
+  // other way, its stripes along it on the other side )
+  if ( s.kind === "skiline" ) {
+    const turned = s.cross.map( ( c ) => ( { ...c, t: 1 - c.t, ti: c.to === undefined ? undefined : -c.to, to: c.ti === undefined ? undefined : -c.ti } ) ).reverse();
+    return {
+      ...s,
+      cross:    turned,
+      nodes:    s.nodes.map( ( n ) => { const [x, z] = m( [n.p[0], n.p[2]] ); return { ...n, p: [x, n.p[1], z] as [number, number, number], roll: -n.roll }; } ),
+      features: s.features.map( ( f ) => ( { ...f, lateral: -f.lateral, stripes: f.stripes.map( ( st ) => ( st.across ? st : { ...st, position: 1 - st.position } ) ) } ) ),
+    };
+  }
   return { ...s, center: m( s.center ), rotation: -s.rotation, mirrorX: axis === "x" ? !s.mirrorX : s.mirrorX, mirrorZ: axis === "z" ? !s.mirrorZ : s.mirrorZ };
 }
 

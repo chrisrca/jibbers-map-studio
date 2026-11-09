@@ -124,10 +124,53 @@ export async function landGrowSelftest( dir: string ) {
     check( !!show, "the Map tab has the surroundings to switch on" );
     show?.click();
     await waitFor( () => ( st().customObjects.some( isScenery ) && !st().busy ? true : null ), "the surroundings", 300000 );
-    await sleep( 3000 );
+    await waitFor( () => ( drawn().all > 1000 ? true : null ), "the surroundings drawn", 60000 ).catch( () => null );
+    await sleep( 1000 );
     const sc = st().customObjects.find( isScenery )!;
     const d1 = drawn();
     check( !!sc && !!st().locked[sc.uid] && sc.parts.length >= 2 && d1.all > 1000 && d1.inside === 0, `surroundings built round the L: ${sc?.parts.length} parts, locked ${!!st().locked[sc?.uid]}; drawn ${d1.all} vertices, ${d1.inside} of them inside the ground` );
+    // ( two rings: a fine one close by with a texture of its own, a coarse one beyond; no detail or texture to pick )
+    // ( rings: each with a texture of its own, finer close in; the detail curve, the rocks' angle and what it comes to in
+    // the Map tab; no old detail / texture picks )
+    const ringOf    = ( m: string ) => /\/(ring\d+|strip)-\d+$/.exec( m )?.[1] ?? null;
+    const ringNames = [...new Set( sc.parts.map( ( p ) => ringOf( p.mesh ) ).filter( ( r ): r is string => !!r ) )];
+    const texOf     = ( r: string ) => new Set( sc.parts.filter( ( p ) => ringOf( p.mesh ) === r ).flatMap( ( p ) => p.materials.map( ( m ) => m.base_tex ) ) );
+    const ownTex    = ringNames.every( ( r ) => texOf( r ).size === 1 ) && new Set( ringNames.map( ( r ) => [...texOf( r )][0] ) ).size === ringNames.length;
+    const picks     = [...document.querySelectorAll<HTMLButtonElement>( ".seg button" )].filter( ( b ) => ["High", "4K"].includes( b.textContent ?? "" ) ).length;
+    const curve     = !!document.querySelector( ".props .curve-editor" ), rocks = [...document.querySelectorAll( ".props .bslider, .props .slider" )].some( ( e ) => e.textContent?.includes( "Rocks from" ) );
+    check( ringNames.length >= 2 && ownTex && picks === 0 && curve && rocks, `rings: ${ringNames.join( ", " )}, each its own texture ${ownTex}; the Map tab's detail curve ${curve}, rocks' angle ${rocks}; old picks shown: ${picks}` );
+    // ( the Map Size map: the surroundings' rings outlined, zoomed out with the wheel to all of them )
+    const mini      = document.querySelector<SVGSVGElement>( ".mapsize-map" );
+    const outlines  = document.querySelectorAll( ".mapsize-map rect.surround" ).length;
+    const before    = mini?.querySelector( "g.cell.chunk rect" )?.getAttribute( "width" );
+    if ( mini ) {
+      const r = mini.getBoundingClientRect();
+      for ( let k = 0; k < 6; k++ ) mini.dispatchEvent( new WheelEvent( "wheel", { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, deltaY: 100, bubbles: true } ) );
+    }
+    await sleep( 800 );
+    const after     = mini?.querySelector( "g.cell.chunk rect" )?.getAttribute( "width" );
+    check( outlines === ringNames.length && !!before && !!after && Number( after ) < Number( before ), `Map Size: ${outlines} rings outlined; zoomed out, a chunk ${before} px → ${after} px` );
+    log( "SNAP mapsize-zoomed" );
+    await sleep( 1500 );
+    mini?.dispatchEvent( new MouseEvent( "dblclick", { bubbles: true } ) );
+    await sleep( 300 );
+    // ( the detail curve's first point dragged down, as a person drags it: kept, and the surroundings built again to it,
+    // coarser close in )
+    const key0 = document.querySelector<SVGCircleElement>( ".props .curve-editor circle.key" );
+    const was  = st().customObjects.find( isScenery )!.scenery?.detail;
+    if ( key0 ) {
+      const r = key0.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+      key0.dispatchEvent( new PointerEvent( "pointerdown", { clientX: x, clientY: y, button: 0, buttons: 1, pointerId: 91, bubbles: true } ) );
+      for ( let k = 1; k <= 10; k++ ) window.dispatchEvent( new PointerEvent( "pointermove", { clientX: x, clientY: y + k * 3, buttons: 1, pointerId: 91, bubbles: true } ) );
+      window.dispatchEvent( new PointerEvent( "pointerup", { clientX: x, clientY: y + 30, button: 0, buttons: 0, pointerId: 91, bubbles: true } ) );
+    }
+    await waitFor( () => ( st().busy ? true : null ), "the surroundings building to the curve", 5000 ).catch( () => null );
+    await waitFor( () => ( !st().busy ? true : null ), "the surroundings built to the curve", 300000 );
+    await sleep( 2000 );
+    const now  = st().customObjects.find( isScenery )!.scenery?.detail;
+    const v0   = ( c: unknown ) => ( Array.isArray( c ) ? ( c as { v: number }[] )[0]?.v : undefined );
+    const kept = ( document.querySelector( ".props .curve-editor circle.key" )?.getAttribute( "cy" ) ?? "" ) === ( key0?.getAttribute( "cy" ) ?? "x" );
+    check( !!key0 && v0( now ) !== undefined && v0( was ) !== undefined && v0( now )! < v0( was )! - 0.05, `the detail curve dragged: its first point ${v0( was )?.toFixed( 2 )} → ${v0( now )?.toFixed( 2 )}, built and kept ( the editor shows it: ${kept} )` );
     eng.nav.lookAtUnity( [-2500, 2200, -2500], [500, 0, 500] );
     log( "SNAP made-map" );
     await sleep( 3000 );
@@ -190,7 +233,8 @@ export async function landGrowSelftest( dir: string ) {
     const realReach = [...document.querySelectorAll<HTMLLabelElement>( "label.check" )].find( ( l ) => l.textContent?.includes( "Show surroundings" ) )?.querySelector( "input" );
     realReach?.click();
     await waitFor( () => ( st().customObjects.some( isScenery ) && !st().busy ? true : null ), "the real surroundings", 400000 );
-    await sleep( 3000 );
+    await waitFor( () => ( drawn().all > 1000 ? true : null ), "the real surroundings drawn", 60000 ).catch( () => null );
+    await sleep( 1000 );
     const d3 = drawn();
     check( !!realReach && d3.all > 1000 && d3.inside === 0, `real map: surroundings from the real land round it, drawn ${d3.all} vertices, ${d3.inside} of them inside the ground` );
     eng.nav.lookAtUnity( [added.position[0] - 2500, hi + 1500, added.position[2] - 2500], [added.position[0], lo, added.position[2]] );

@@ -36,7 +36,9 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
   showPaths:        false,
   shapeKind:        "curve",
   gizmoMode:        "translate",
-  scatter:          { picks: [], radius: 8, spacing: 4, scaleJitter: 0.15, followSlope: 0.5, tilt: 4 },
+  scatter:          { picks: [], radius: 8, spacing: 4, scaleJitter: 0.15, followSlope: 0.5, tilt: 4, instanced: true },
+  colliderBrush:    { radius: 0.15, shape: "Box", surface: "Jib" },
+  colliderPick:     null,
   terrainView:      { slope: false, slopeMin: 10, slopeMax: 45, slopeStep: 0, slopeOpacity: 0.85, hillshade: 0, exaggeration: 2, sunDir: 315, sunHeight: 35, contours: 0, contourOpacity: 0.5, relief: 0.75 },
   library:          null,
   objects:          [],
@@ -64,6 +66,8 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
   materialMode:            "object",
   modelTool:               "select",
   selectOp:                "set",
+  designPick:              null,
+  cursorDown:              false,
   hiddenInView:            {},
   cursor3d:                [0, 0, 0],
   view3d:                  { shading: "solid", xray: false, gizmos: true, orientation: "global", overlays: { grid: true, faceOrientation: false, stats: false } },
@@ -77,6 +81,7 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
   libraryDir:      "",
   toasts:          [],
   busy:            null,
+  busyProgress: null,
   mountainImport:  false,
   splash:          false,
   mapImportChoice: null,
@@ -86,7 +91,8 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
   gameCopy:        "none",
   gameLaunch:      null,
 
-  setTool:      ( tool      ) => set( { tool      } ),
+  // ( Paint mode opened from another: its first tool, Snow / Rock, as the other modes open on theirs )
+  setTool:      ( tool      ) => set( ( s ) => ( tool === "paint" && s.tool !== "paint" ? { tool, paint: { ...s.paint, tool: "snow" } } : { tool } ) ),
   setCenterTab: ( centerTab ) => set( { centerTab } ),
   setSculpt: ( p ) =>
     set( ( s ) => {
@@ -118,7 +124,7 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
     set( ( s ) => ( { toasts: [...s.toasts, { id, text, kind }] } ) );
     setTimeout( () => set( ( s ) => ( { toasts: s.toasts.filter( ( t ) => t.id !== id ) } ) ), kind === "error" ? 8000 : 3500 );
   },
-  setBusy:   ( busy ) => set( { busy } ),
+  setBusy:   ( busy, progress = null ) => set( { busy, busyProgress: busy ? progress : null } ),
   markDirty: () => set( { dirty: true } ),
 
   commit( label, next ) {
@@ -311,6 +317,12 @@ export const useEditor = create<EditorState>( ( set, get ) => ( {
     }
     const gone = new Set( on ? uids : [] );
     set( { hiddenInView, selection: get().selection.filter( ( s ) => !gone.has( s.uid ) ) } );
+  },
+  revealHidden() {
+    const s     = get(), uids = Object.keys( s.hiddenInView );
+    const kinds = new Map<string, Selection["kind"]>( [...s.customObjects.map( ( o ) => [o.uid, "custom"] as const ), ...s.objects.map( ( o ) => [o.uid, "object"] as const ), ...s.spawns.map( ( o ) => [o.uid, "spawn"] as const )] );
+    const shown = uids.flatMap( ( uid ) => ( kinds.has( uid ) ? [{ kind: kinds.get( uid )!, uid }] : [] ) );
+    set( { hiddenInView: {}, selection: [...s.selection.filter( ( x ) => !s.hiddenInView[x.uid] ), ...shown] } );
   },
 } ) );
 

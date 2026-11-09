@@ -30,31 +30,47 @@ pub(crate) fn read_strip(bytes: &[u8]) -> Result<MeshData> {
     })
 }
 
+/// A ring of a map's scenery inside its outermost: its name, its meshes and its own texture (files relative to the
+/// project).
+#[derive(serde::Deserialize)]
+pub struct Ring {
+    pub name: String,
+    pub strips: Vec<String>,
+    pub texture: String,
+}
+
 /// Adds the strips (files relative to the project) and the texture (a PNG, likewise) to the project's library
-/// under `Scenery/<name>/…` and returns the object that shows them. The files are removed afterwards.
-pub fn add(project_dir: &Path, name: &str, strips: &[String], texture: &str) -> Result<CustomObject> {
+/// under `Scenery/<name>/…` (`strip-<n>`, `albedo`: the outermost ring), and each ring inside it (`<ring>-<n>`,
+/// `<ring>-albedo`), and returns the object that shows them. The files are removed afterwards.
+pub fn add(project_dir: &Path, name: &str, strips: &[String], texture: &str, rings: &[Ring]) -> Result<CustomObject> {
     let prefix = format!("Scenery/{name}");
     let mut meshes = IndexMap::new();
-    let tex_key = format!("{prefix}/albedo");
-    let png = std::fs::read(project_dir.join(texture)).with_context(|| format!("read {texture}"))?;
-    let img = image::load_from_memory(&png).context("scenery texture")?;
     let mut textures = IndexMap::new();
-    textures.insert(
-        tex_key.clone(),
-        TextureData { format: 4, width: img.width() as i32, height: img.height() as i32, encoding: "png".into(), linear: false, mipmaps: true, compression: 1, data: Some(png) },
-    );
-    let material = Material { base_tex: tex_key, smoothness: 0.08, ..Material::default() };
     let mut parts = vec![];
-    for (k, rel) in strips.iter().enumerate() {
-        let bytes = std::fs::read(project_dir.join(rel)).with_context(|| format!("read {rel}"))?;
-        let key = format!("{prefix}/strip-{k}");
-        meshes.insert(key.clone(), read_strip(&bytes)?);
-        // shadow casting off: kilometres of far terrain would cost the game more than they add
-        parts.push(Part { mesh: key, materials: vec![material.clone()], shadow_casting_mode: 0, ..Part::default() });
+    let mut files = vec![];
+    let all = std::iter::once(("strip".to_string(), "albedo".to_string(), strips, texture)).chain(rings.iter().map(|r| (r.name.clone(), format!("{}-albedo", r.name), &r.strips[..], r.texture.as_str())));
+    for (mesh_name, tex_name, strips, texture) in all {
+        let tex_key = format!("{prefix}/{tex_name}");
+        let png = std::fs::read(project_dir.join(texture)).with_context(|| format!("read {texture}"))?;
+        let img = image::load_from_memory(&png).context("scenery texture")?;
+        textures.insert(
+            tex_key.clone(),
+            TextureData { format: 4, width: img.width() as i32, height: img.height() as i32, encoding: "png".into(), linear: false, mipmaps: true, compression: 1, data: Some(png) },
+        );
+        let material = Material { base_tex: tex_key, smoothness: 0.08, ..Material::default() };
+        for (k, rel) in strips.iter().enumerate() {
+            let bytes = std::fs::read(project_dir.join(rel)).with_context(|| format!("read {rel}"))?;
+            let key = format!("{prefix}/{mesh_name}-{k}");
+            meshes.insert(key.clone(), read_strip(&bytes)?);
+            // shadow casting off: kilometres of far terrain would cost the game more than they add
+            parts.push(Part { mesh: key, materials: vec![material.clone()], shadow_casting_mode: 0, ..Part::default() });
+            files.push(rel.clone());
+        }
+        files.push(texture.to_string());
     }
     // (replacing what's there: surroundings built again keep their names, and kept, the old ones went on showing)
     crate::library::userassets::merge(project_dir, meshes, textures, true)?;
-    for rel in strips.iter().chain(std::iter::once(&texture.to_string())) {
+    for rel in files {
         std::fs::remove_file(project_dir.join(rel)).ok();
     }
     Ok(CustomObject {
@@ -72,6 +88,7 @@ pub fn add(project_dir: &Path, name: &str, strips: &[String], texture: &str) -> 
 /// any earlier one. Returns the mesh's key and the snow colour of the scenery's texture (sRGB, its brightest tenth:
 /// rock left out), for tinting it to match the game's terrain.
 pub fn set_inner(project_dir: &Path, prefix: &str, file: &str) -> Result<(String, [u8; 3])> {
+    let _one = crate::library::userassets::WRITING.lock().unwrap_or_else(|e| e.into_inner());
     let lib_path = project_dir.join(crate::library::userassets::PROJECT_LIBRARY);
     let mut lib = crate::jbrmap::load(&lib_path).context("the map's library")?;
     // the strips' extent in x and z: what their texture covers
@@ -122,8 +139,9 @@ pub fn set_inner(project_dir: &Path, prefix: &str, file: &str) -> Result<(String
 }
 
 /// Snow and rock (sRGB), as geo/scenery/scenery.ts paints them: matched to the game's terrain in its lighting.
-const SNOW: f32 = 250.0;
-const ROCK: [f32; 3] = [178.0, 176.0, 172.0];
+// (as geo/scenery/scenery.ts paints them: the game's terrain snow and rock as they come out)
+const SNOW: f32 = 216.0;
+const ROCK: [f32; 3] = [160.0, 158.0, 155.0];
 /// Degrees of slope over which snow turns to rock, from the rock angle up.
 const ROCK_BLEND: f32 = 14.0;
 
@@ -155,6 +173,7 @@ pub fn albedo_key(prefix: &str, rock_angle: f32) -> String {
 /// of the surface drawn there. Kept under a key of its own (`albedo_key`), so the painting it replaces stays for
 /// undo; returns that key. Texels no mesh covers stay snow.
 pub fn repaint(project_dir: &Path, prefix: &str, rock_angle: f32) -> Result<String> {
+    let _one = crate::library::userassets::WRITING.lock().unwrap_or_else(|e| e.into_inner());
     let lib_path = project_dir.join(crate::library::userassets::PROJECT_LIBRARY);
     let mut lib = crate::jbrmap::load(&lib_path).context("the map's library")?;
     let key = albedo_key(prefix, rock_angle);
@@ -175,7 +194,8 @@ pub fn repaint(project_dir: &Path, prefix: &str, rock_angle: f32) -> Result<Stri
     // each texel's slope (degrees); NaN where nothing is drawn. Row 0 is the north edge (v = 1), as Unity reads images.
     let t = size as f32;
     let mut slope = vec![f32::NAN; size * size];
-    let mut parts: Vec<&String> = lib.mesh_library.keys().filter(|k| k.starts_with(&format!("{prefix}/"))).collect();
+    // (the outermost ring's and the stand-in's: the rings inside have textures of their own, painted when they're built)
+    let mut parts: Vec<&String> = lib.mesh_library.keys().filter(|k| k.starts_with(&format!("{prefix}/strip-")) || **k == format!("{prefix}/inner")).collect();
     // the strips last: where the stand-in and the strips' collar overlap, the collar is what shows
     parts.sort_by_key(|k| !k.ends_with("/inner"));
     for k in parts {
@@ -334,9 +354,9 @@ mod tests {
             (img.get_pixel(8, 32)[0], img.get_pixel(56, 32)[0])
         };
         let (west, east) = shade(20.);
-        assert!(west < 195 && east > 240, "rock from 20 degrees: {west} {east}");
+        assert!(west < 185 && east > 210, "rock from 20 degrees: {west} {east}");
         let (west, east) = shade(50.);
-        assert!(west > 240 && east > 240, "rock from 50 degrees: {west} {east}");
+        assert!(west > 210 && east > 210, "rock from 50 degrees: {west} {east}");
         // both paintings kept (undo goes back to the first); the unused one left out of a map
         let lib = crate::jbrmap::load(dir.join(crate::library::userassets::PROJECT_LIBRARY)).unwrap();
         let used = std::collections::HashSet::from([albedo_key("Scenery/S", 50.)]);

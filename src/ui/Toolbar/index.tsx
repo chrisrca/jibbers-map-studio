@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useEditor } from "../../map/store";
 import { AssetsHeader, AssetsToolSettings, useAssetMode } from "../blender/AssetsUI";
 import { Icon } from "../widgets/icons";
-import { DesignHeader, PaintHeader, ScatterHeader, SelectHeader } from "./modeHeaders";
+import { ColliderHeader, DesignHeader, PaintHeader, PickHeader, ScatterHeader, SelectHeader } from "./modeHeaders";
 import { BrushHeader, ShapeHeader, TrailHeader } from "./terrainHeaders";
 import { TexturePaintSettings } from "./texturePaint";
 
@@ -32,19 +32,25 @@ export function ToolHeader() {
     <>
       <DesignHeader />
       <div className="tool-settings">
-        {s.tool === "select" && <SelectHeader />}
-        {s.tool === "sculpt" && <BrushHeader />}
-        {s.tool === "trail" && <TrailHeader />}
-        {s.tool === "paint" && <PaintHeader />}
-        { s.tool === "place" && (
+        {s.designPick && <PickHeader />}
+        { !s.designPick && (
           <>
-            <span className="tool-name"><Icon name="place" size={14} /> Place</span>
-            <span className="muted">{s.assetLibrary.find( ( e ) => e.id === s.placeEntry )?.name ?? ""}</span>
+            {s.tool === "select" && <SelectHeader />}
+            {s.tool === "sculpt" && <BrushHeader />}
+            {s.tool === "trail" && <TrailHeader />}
+            {s.tool === "paint" && <PaintHeader />}
+            { s.tool === "place" && (
+              <>
+                <span className="tool-name"><Icon name="place" size={14} /> Place</span>
+                <span className="muted">{s.assetLibrary.find( ( e ) => e.id === s.placeEntry )?.name ?? ""}</span>
+              </>
+            ) }
+            {s.tool === "shape" && <ShapeHeader />}
+            {s.tool === "spawn" && <span className="tool-name"><Icon name="spawn" size={14} /> Add Spawn</span>}
+            {s.tool === "scatter" && <ScatterHeader />}
+            {s.tool === "collider" && <ColliderHeader />}
           </>
         ) }
-        {s.tool === "shape" && <ShapeHeader />}
-        {s.tool === "spawn" && <span className="tool-name"><Icon name="spawn" size={14} /> Add Spawn</span>}
-        {s.tool === "scatter" && <ScatterHeader />}
       </div>
     </>
   );

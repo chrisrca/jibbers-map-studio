@@ -212,6 +212,9 @@ export async function importMountain( o: ImportOptions ): Promise<ImportResult> 
       radius:     o.surroundings,
       edge:       ( x, z ) => height( proj.inverse( x, z ) ) - lo,
       far:        ( box, step, signal ) => land.coarse( box, step, signal ),
+      // ( close by, the best there is: lidar where it's been flown )
+      near:       async ( box, step, signal ) => ( await land.fine( box, step, undefined, signal ) ).heights,
+      downloading: `Downloading ${o.level.source.name} ${o.level.label}…`,
       onProgress: say,
       signal:     o.signal,
     } );

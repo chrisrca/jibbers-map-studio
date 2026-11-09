@@ -1,6 +1,6 @@
 // Faces' settings ( flip, shade smooth ) and Duplicate ( Shift+D ).
 
-import { type Mesh, type V3, cloneMesh, ek, ekv } from "../mesh";
+import { type Mesh, type V3, cloneMesh, ek, ekv, turnBack, turnBackUv } from "../mesh";
 import { type OpResult, type Sel, selFromFaces } from "./selection";
 
 /**
@@ -8,7 +8,11 @@ import { type OpResult, type Sel, selFromFaces } from "./selection";
 **/
 export function flip( g0: Mesh, faces: Set<number> ): Mesh {
   const g = cloneMesh( g0 );
-  for ( const fi of faces ) g.f[fi].reverse();
+  for ( const fi of faces ) {
+    g.f[fi] = turnBack( g.f[fi] );
+    // ( its UVs turned with it )
+    if ( g.u?.[fi]?.length === g.f[fi].length * 2 ) g.u[fi] = turnBackUv( g.u[fi] );
+  }
   return g;
 }
 

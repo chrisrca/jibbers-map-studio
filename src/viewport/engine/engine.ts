@@ -15,7 +15,7 @@ import { CameraController } from "../cameraControls";
 import { CurveEditor } from "../edit/curve/curveEditor";
 import { MeshPainter } from "../edit/meshPainter";
 import { ModelEditor } from "../edit/model/modelEditor";
-import { redraw, takeRedraw } from "../redraw";
+import { contentChanged, contentEdits, redraw, sceneEdits, takeRedraw } from "../redraw";
 import { CustomObjectsRenderer } from "../render/customRenderer";
 import { ObjectsRenderer, PlaceholderLibrary } from "../render/objectsRenderer";
 import { SceneLights } from "../render/sceneLights";
@@ -23,9 +23,12 @@ import { Stage } from "../render/stage";
 import { TerrainRenderer, type GpuAccess } from "../render/terrainRenderer";
 import { BlGizmo } from "../tools/gizmo/blGizmo";
 import { LiftTool } from "../tools/liftTool";
+import { ColliderTool } from "../tools/colliderTool";
+import { BrushLabel } from "../render/brushLabel";
 import { FenceTool } from "../tools/fenceTool";
 import { RailTool } from "../tools/railTool";
 import { ShapeTool } from "../tools/shapeTool";
+import { SkiLineTool } from "../tools/skiLineTool";
 import { TrailTool } from "../tools/trail/trailTool";
 import { CameraMoves } from "./cameraMoves";
 import { Daylight } from "./daylight";
@@ -101,11 +104,14 @@ export class Engine {
   // Blender's gizmo: Move / Rotate / Scale on the selection, and on what the tools pick
   blGizmo!:   BlGizmo;
   shapeTool!: ShapeTool;
+  skiLineTool!: SkiLineTool;
   trailTool!: TrailTool;
   liftTool!:  LiftTool;
   fenceTool!: FenceTool;
   // a piece's grind rail being edited ( Properties › Rail › Edit points )
   readonly railTool                 = new RailTool();
+  readonly colliderTool             = new ColliderTool( this );
+  readonly brushLabel               = new BrushLabel();
   // the mouse
   mouse                             = new THREE.Vector2();
   mouseInside                       = false;
@@ -115,7 +121,10 @@ export class Engine {
   private framedDir: string | null  = null;
   private clock                     = new THREE.Timer();
   private unsub: ( () => void )[]   = [];
-  onStats?: ( s: { fps: number; tiles: number; visible: number; triangles: number; cursor: V3 | null; slope: number | null } ) => void;
+  onStats?: ( s: { fps: number; tiles: number; visible: number; triangles: number } ) => void;
+  // the ground under the mouse and its slope, each frame it's moved ( the status bar's readout )
+  onCursor?: ( at: V3 | null, slope: number | null ) => void;
+  private cursorShown: THREE.Vector3 | null | undefined;
   private frames = 0;
   // the moving parts' preview was on last frame ( put back at rest once it's off )
   private motionOn = false;
@@ -152,6 +161,7 @@ export class Engine {
       host:   this.host,
       ray:    ( x, y ) => this.ray( x, y ),
       menu:   ( x, y, title, items ) => window.dispatchEvent( new CustomEvent( "viewport-menu", { detail: { x, y, title, items } } ) ),
+      mouse:  () => this.mouse,
       // other pieces first ( nearest ), else the ground
       surfaceAt: ( x, y, skip ) => {
         const hits = this.ray( x, y ).intersectObjects( [...this.objectsR.pickables(), ...this.customR.pickables()], false );
@@ -168,6 +178,7 @@ export class Engine {
         host:   this.host,
         ray:    ( x, y ) => this.ray( x, y ),
         menu:   ( x, y, title, items ) => window.dispatchEvent( new CustomEvent( "viewport-menu", { detail: { x, y, title, items } } ) ),
+        mouse:  () => this.mouse,
       },
       ( x, y ) => this.pickTerrain( x, y ),
     );
@@ -182,12 +193,15 @@ export class Engine {
     this.controls  = new CameraController( this.camera, dom, terrain, ( x, y ) => this.pickTerrain( x, y ) );
     this.shapeTool = new ShapeTool( ( x, y ) => this.ray( x, y ), ( x, y ) => this.pickTerrain( x, y ) );
     this.shapeTool.onPicked = () => this.gizmo.sync();
-    this.trailTool = new TrailTool( ( x, y ) => this.ray( x, y ), ( x, y ) => this.pickTerrain( x, y ), () => this.camera, () => this.host.clientHeight );
+    this.skiLineTool          = new SkiLineTool( ( x, y ) => this.ray( x, y ), ( x, y ) => this.pickTerrain( x, y ) );
+    this.skiLineTool.onPicked = () => this.gizmo.sync();
+    this.trailTool = new TrailTool( ( x, y ) => this.ray( x, y ), ( x, y ) => this.pickTerrain( x, y ), () => this.camera, () => this.viewH );
     this.scene.add( this.trailTool.group );
-    this.liftTool = new LiftTool( ( x, y ) => this.ray( x, y ), () => this.camera, () => this.host.clientHeight, ( o ) => !!this.lib.info( o.id )?.lift, ( o ) => !!this.lib.info( o.id )?.lift?.mast, ( uid ) => this.objectsR.liftPieceMeshes( uid ) );
+    this.liftTool = new LiftTool( ( x, y ) => this.ray( x, y ), () => this.camera, () => this.viewH, ( o ) => !!this.lib.info( o.id )?.lift, ( o ) => !!this.lib.info( o.id )?.lift?.mast, ( uid ) => this.objectsR.liftPieceMeshes( uid ) );
     this.scene.add( this.liftTool.group );
-    this.fenceTool = new FenceTool( ( x, y ) => this.ray( x, y ), () => this.camera, () => this.host.clientHeight );
+    this.fenceTool = new FenceTool( ( x, y ) => this.ray( x, y ), () => this.camera, () => this.viewH );
     this.scene.add( this.fenceTool.group );
+    this.scene.add( this.colliderTool.group, this.brushLabel.sprite );
     // ( the gizmo and the selection box go to the lift's piece picked )
     this.liftTool.onPicked       = () => this.syncObjects();
     this.fenceTool.onPicked      = () => this.syncObjects();
@@ -198,7 +212,7 @@ export class Engine {
     this.customR.guides.busy     = ( uid ) => this.fenceTool.busyWith === uid;
     this.fenceTool.onIdle        = () => this.customR.guides.update();
     this.objectsR.liftPicked     = ( uid ) => this.liftTool.pickedOf( uid );
-    this.scene.add( this.shapeTool.group, this.growPreview.group, this.railTool.group, this.stage.group, this.emptyFloor.group );
+    this.scene.add( this.shapeTool.group, this.skiLineTool.group, this.growPreview.group, this.railTool.group, this.stage.group, this.emptyFloor.group );
     this.unsub.push( onGrowPreview( ( p ) => this.growPreview.show( p ) )                        );
     this.unsub.push( onPaintChange( ( key ) => ( this.terrainR.paintChanged( key ), redraw() ) ) );
     this.controls.onRiderExit = () => useEditor.setState( { cameraMode: "orbit" } );
@@ -207,12 +221,24 @@ export class Engine {
 
     this.input.attach();
     window.addEventListener( "keydown", this.keys.onKey, true );
-    // ( the mouse and keys change what's shown: hover highlights, the brush ring, a tool's preview… )
-    const input = ["pointerdown", "pointermove", "pointerup", "pointerleave", "wheel", "keydown", "keyup"] as const;
+    // ( the mouse and keys change what's shown: hover highlights, the brush ring, a tool's preview… A move of the mouse
+    // alone draws only where something follows it: a busy map drawn on every move held the view to half its rate )
+    const input = ["pointerdown", "pointerup", "pointerleave", "wheel", "keydown", "keyup"] as const;
     for ( const t of input ) window.addEventListener( t, redraw, true );
-    this.unsub.push( () => input.forEach( ( t ) => window.removeEventListener( t, redraw, true ) ) );
+    const moved = ( e: PointerEvent ) => ( e.buttons || this.followsMouse() ) && redraw();
+    window.addEventListener( "pointermove", moved, true );
+    this.unsub.push( () => {
+      input.forEach( ( t ) => window.removeEventListener( t, redraw, true ) );
+      window.removeEventListener( "pointermove", moved, true );
+    } );
 
-    const ro = new ResizeObserver( () => ( this.needsResize = true ) );
+    const ro = new ResizeObserver( () => {
+      this.needsResize = true;
+      this.rect        = null;
+    } );
+    const relaid = () => ( this.rect = null );
+    window.addEventListener( "resize", relaid );
+    this.unsub.push( () => window.removeEventListener( "resize", relaid ) );
     ro.observe( this.host );
     this.unsub.push( () => ro.disconnect() );
     this.resize();
@@ -274,6 +300,16 @@ export class Engine {
 
   // ---------------------------------------------------------------- frame loop
 
+  /**
+   * Whether something drawn follows the mouse as it moves, nothing pressed: a brush's ring, a piece or spawn being
+   * placed, an editor's highlights ( Edit Mode, a rail's points… ), the camera flown. Elsewhere ( Select, Trails, Shapes )
+   * what lights up under the mouse asks to be drawn itself ( the gizmo's handles, a trail's ghost point, a formation's ).
+  **/
+  private followsMouse() {
+    const st = useEditor.getState();
+    return !!this.editing || !!this.input.sizeDrag || this.controls.flying || this.controls.riderMode || !["select", "trail", "shape"].includes( st.tool ) || st.designPick === "cursor";
+  }
+
   // Skips rendering while something covers the viewport ( the Game tab, the real-mountain import ), by what covers it.
   private pauses = new Set<string>();
 
@@ -297,13 +333,20 @@ export class Engine {
    * Whether this frame needs drawing: something asked ( an edit, the mouse, a key, something loaded… ), the camera
    * moved, a stroke or drag is under way, or it's been a second ( anything that changed without asking ).
   **/
+  // whether what's drawn may have changed since the last frame, not just the view of it ( needsDrawing )
+  private changed   = true;
+  private editsSeen = -1;
   private needsDrawing() {
     const e       = this.camera.matrixWorld.elements, p = this.camera.projectionMatrix.elements, c = this.renderer.domElement;
     const view    = `${e.join( "," )}|${p[0]},${p[5]},${p[10]}|${c.width}x${c.height}`;
     const moved   = view !== this.lastView;
     this.lastView = view;
     const busy    = this.veil.loading || this.input.sculpting || !!this.input.paintStroke || !!this.input.scatterStroke || this.blGizmo.dragging || !!this.input.sizeDrag || this.meshPainter.busy;
-    return takeRedraw() || moved || busy || performance.now() - this.lastDrawn > 1000;
+    // ( more than the view of it may have changed: an edit, something put in or taken out, or a drag or brush at work )
+    const edits     = contentEdits + sceneEdits;
+    this.changed    = edits !== this.editsSeen || !!busy || !!this.modelEd?.modal || !!this.curveEd?.modal;
+    this.editsSeen  = edits;
+    return takeRedraw() || this.changed || moved || performance.now() - this.lastDrawn > 1000;
   }
 
   // the scene's lighting as shaders are made for it ( three's key for it, and its renderer's context )
@@ -333,12 +376,12 @@ export class Engine {
       this.resize();
     }
     this.input.workStrokes();
-    if ( terrain.flush() ) redraw(); // sculpt dabs since the last frame → one upload per changed tile
+    if ( terrain.flush() ) contentChanged(); // sculpt dabs since the last frame → one upload per changed tile
     this.input.updateBrushLook();
     this.clock.update();
     const dt = Math.min( 0.1, this.clock.getDelta() );
     this.controls.tick( dt );
-    if ( !this.stage.shown ) this.terrainR.update( this.camera );
+    if ( !this.stage.shown ) this.terrainR.update( this.camera, this.renderer.domElement.height );
     else this.stage.follow( this.camera );
     const empty = !this.stage.shown && terrain.chunks.length === 0;
     if ( empty !== this.emptyFloor.shown ) {
@@ -354,13 +397,13 @@ export class Engine {
     // ( the map's lights, once it's dark: the nearest few )
     if ( this.sceneLights.update( this.camera, this.daylight.night ) ) redraw();
     // ( the lifts' chairs going round )
-    if ( this.objectsR.animate( this.camera ) ) redraw();
+    if ( this.objectsR.animate( this.camera ) ) contentChanged();
     // ( pieces' moving parts, while the preview's on: the time on while it plays, shown again when it's moved )
     const mp = useMotionPreview.getState();
     if ( mp.on && mp.playing ) useMotionPreview.setState( { t: mp.t + dt } );
     if ( mp.on || this.motionOn ) {
       this.motionOn = mp.on;
-      if ( this.customR.animate( mp.on ? useMotionPreview.getState().t : null ) ) redraw();
+      if ( this.customR.animate( mp.on ? useMotionPreview.getState().t : null ) ) contentChanged();
     }
     this.customR.paint.update();
     if ( this.input.stroke ) this.input.stroke.hold( dt * 1000, this.input.strokePressure );
@@ -368,6 +411,9 @@ export class Engine {
     // drawn when something may have changed ( viewport/redraw.ts ); a still view isn't drawn again
     if ( this.needsDrawing() ) {
       this.lastDrawn = performance.now();
+      this.customR.updateMatrices();
+      // ( the sun's shadows about what the view looks at, the ground near it casting them )
+      this.terrainR.shadowsAbout( this.controls.target, this.daylight.followShadow( this.camera, this.controls.target, this.changed ) * 1.5 );
       // ( what's selected is outlined, as Blender does; not in Texture Paint, as in Blender: the piece painted is drawn
       // plain, the outline's passes a good share of a frame while painting it )
       const st      = useEditor.getState();
@@ -378,16 +424,14 @@ export class Engine {
       this.watchLights();
     }
 
+    if ( this.cursorWorld !== this.cursorShown ) {
+      const c          = ( this.cursorShown = this.cursorWorld );
+      this.onCursor?.( c ? toUnity( c ) : null, c ? terrain.slopeAt( c.x, -c.z ) : null );
+    }
     this.frames++;
     this.fpsT += dt;
     if ( this.fpsT > 0.5 ) {
-      const c = this.cursorWorld;
-      this.onStats?.( {
-        fps: this.frames / this.fpsT,
-        ...this.terrainR.stats,
-        cursor: c ? toUnity( c ) : null,
-        slope:  c ? terrain.slopeAt( c.x, -c.z ) : null,
-      } );
+      this.onStats?.( { fps: this.frames / this.fpsT, ...this.terrainR.stats } );
       this.frames = 0;
       this.fpsT   = 0;
     }
@@ -399,8 +443,19 @@ export class Engine {
   // before that frame renders.
   private needsResize = true;
 
+  // The view's size ( CSS pixels ) as last laid out: read when it's resized, not on every frame or mouse move ( each read
+  // after the status bar's changed made the page lay itself out again, there and then )
+  private size = { w: 0, h: 0 };
+  get viewW() {
+    return this.size.w || this.host.clientWidth;
+  }
+  get viewH() {
+    return this.size.h || this.host.clientHeight;
+  }
+
   private resize() {
     const w = this.host.clientWidth, h = this.host.clientHeight;
+    this.size = { w, h };
     if ( !w || !h ) return;
     const dpr = this.renderer.getPixelRatio();
     const c   = this.renderer.domElement;
@@ -412,14 +467,17 @@ export class Engine {
   // ---------------------------------------------------------------- picking
 
   ray( x: number, y: number ) {
-    const ndc = new THREE.Vector2( ( x / this.host.clientWidth ) * 2 - 1, -( y / this.host.clientHeight ) * 2 + 1 );
+    const ndc = new THREE.Vector2( ( x / this.viewW ) * 2 - 1, -( y / this.viewH ) * 2 + 1 );
     const rc  = new THREE.Raycaster();
     rc.setFromCamera( ndc, this.camera );
     return rc;
   }
 
+  // ( where the view is on the page: read again once it's resized or the window is, not on every mouse move )
+  private rect: DOMRect | null = null;
+
   local( e: { clientX: number; clientY: number } ) {
-    const r = this.host.getBoundingClientRect();
+    const r = ( this.rect ??= this.host.getBoundingClientRect() );
     return new THREE.Vector2( e.clientX - r.left, e.clientY - r.top );
   }
 
@@ -435,7 +493,10 @@ export class Engine {
    * thin things ( a fence's bars, a rail seen from afar ) don't have to be hit exactly.
   **/
   pickObject( x: number, y: number ): Selection | null {
-    const pickables = [...this.objectsR.pickables(), ...this.customR.pickables()];
+    // ( a locked piece can't be picked: left out, not tried triangle by triangle on every click, a map's surroundings
+    // half a million vertices of them )
+    const locked    = useEditor.getState().locked;
+    const pickables = [...this.objectsR.pickables(), ...this.customR.pickables( ( uid ) => !locked[uid] )];
     const at        = ( px: number, py: number ): Selection | null => {
       const hits = this.ray( px, py ).intersectObjects( pickables, false );
       if ( !hits.length ) return null;
@@ -486,7 +547,7 @@ export class Engine {
   **/
   screenOf( v: THREE.Vector3 ): [number, number, boolean] {
     const p = v.clone().project( this.camera );
-    return [( p.x * 0.5 + 0.5 ) * this.host.clientWidth, ( -p.y * 0.5 + 0.5 ) * this.host.clientHeight, p.z < 1];
+    return [( p.x * 0.5 + 0.5 ) * this.viewW, ( -p.y * 0.5 + 0.5 ) * this.viewH, p.z < 1];
   }
 
   /**
@@ -567,6 +628,7 @@ export class Engine {
     this.renderer.setAnimationLoop( null );
     this.unsub.forEach( ( u ) => u() );
     this.input.detach();
+    this.brushLabel.dispose();
     window.removeEventListener( "keydown", this.keys.onKey, true );
     this.terrainR?.dispose();
     this.customR.clear();

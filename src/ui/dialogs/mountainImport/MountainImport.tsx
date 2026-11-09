@@ -15,7 +15,7 @@ import { MAP_STYLE, trailFeature } from "../../../geo/mapLayers";
 import { LocalProjection } from "../../../geo/proj";
 import { skiAreas, type SkiArea } from "../../../geo/skimap/skiareas";
 import { skiMap } from "../../../geo/skimap/skimap";
-import { keepMapChanges, openProject, realTerrainOf, untitledDir } from "../../../map/project";
+import { keepMapChanges, openProject, untitledDir } from "../../../map/project";
 import { useEditor } from "../../../map/store";
 import { groundRes } from "../../../terrain/generate";
 import { getEngine } from "../../Viewport";
@@ -323,14 +323,8 @@ export function MountainImportDialog( { onClose }: { onClose: () => void } ) {
         signal:     abort.current.signal,
         onProgress: ( stage, f ) => setProgress( { stage, f } ),
       } );
+      // ( the runs come painted on the snow; laying them as trails is the Terrain menu's Trails from Runs )
       await openProject( dir );
-      // the runs as trails, ready to work over ( one undo step: Ctrl+Z leaves the mountain as it came )
-      if ( trails && r.trails ) {
-        setProgress( { stage: "Laying trails…", f: 0 } );
-        await new Promise( ( ok ) => requestAnimationFrame( () => requestAnimationFrame( ok ) ) );
-        const { trailsFromRuns } = await import( "../../../trails/fromRuns" );
-        await trailsFromRuns( realTerrainOf() );
-      }
       const st = useEditor.getState();
       st.toast(
         `Imported ${label}: ${area.chunksX}×${area.chunksZ} km${skip.size ? ` (${n} chunks)` : ""} at ${common.label}` +

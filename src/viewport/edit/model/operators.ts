@@ -5,9 +5,9 @@ import * as THREE from "three/webgpu";
 import { toThree, toUnity } from "../../../core/coords";
 import type { CustomObjectEntry } from "../../../core/types";
 import { useEditor } from "../../../map/store";
-import { bevel } from "../../../model/bevel";
+import { bevel, bevelVerts } from "../../../model/bevel";
 import { edgesOf, type Mesh, type V3 } from "../../../model/mesh";
-import { selectedGroups, extrudeEdges, extrudeFaces, extrudeVerts, inset, selFromEdges, selFromVerts, spin } from "../../../model/ops";
+import { selectedGroups, extrudeEdges, extrudeFaces, extrudeVerts, inset, selFromEdges, selFromFaces, selFromVerts, spin } from "../../../model/ops";
 import type { ModelEditor } from "./modelEditor";
 import { Modal } from "./modelEditor";
 
@@ -110,7 +110,9 @@ export class ModelOperators {
       return;
     }
     // what turns and scales round what: one pivot, or each group of selected vertices its own
-    const groups: number[][] = tools.pivot === "individual" ? selectedGroups( base, selFromVerts( base, m.verts ) ) : [m.verts];
+    // ( the groups by what's selected in the select mode: two faces apart are two, though all their corners are )
+    const own                = this.ed.mode === "face" ? selFromFaces( base, [...this.ed.sel.f] ) : this.ed.mode === "edge" ? selFromEdges( base, [...this.ed.sel.e] ) : selFromVerts( base, m.verts );
+    const groups: number[][] = tools.pivot === "individual" ? selectedGroups( base, own ) : [m.verts];
     const pivotOf            = ( vs: number[] ) => {
       if ( tools.pivot === "cursor" ) return toThree( useEditor.getState().cursor3d );
       if ( tools.pivot === "bounds" ) {
@@ -125,6 +127,8 @@ export class ModelOperators {
     // the grid's step where the pivot is ( a dozen or so pixels long ), a tenth with Shift
     const step     = Math.pow( 10, Math.ceil( Math.log10( this.mpp( m.pivot ) * 14 ) ) ) * ( e.shiftKey ? 0.1 : 1 );
     let applyAt: ( w: THREE.Vector3, pivot: THREE.Vector3 ) => THREE.Vector3;
+    // ( a turn's axis and angle: proportional editing turns the rest by part of the angle, as Blender's )
+    let turn: { axis: THREE.Vector3; deg: number } | null = null;
     if ( m.op === "g" ) {
       let delta: THREE.Vector3;
       if ( dir && m.plane ) {
@@ -177,6 +181,7 @@ export class ModelOperators {
       if ( snapping ) deg = Math.round( deg / ( e.shiftKey ? 1 : 5 ) ) * ( e.shiftKey ? 1 : 5 );
       if ( !Number.isNaN( typed ) ) deg = typed;
       const q = new THREE.Quaternion().setFromAxisAngle( axis, THREE.MathUtils.degToRad( deg ) );
+      turn    = { axis, deg };
       applyAt = ( w, pv ) => w.sub( pv ).applyQuaternion( q ).add( pv );
       status  = `Rotation: ${deg.toFixed( 2 )}°`;
     } else {
@@ -209,8 +214,8 @@ export class ModelOperators {
         for ( const S of start.values() ) dmin = Math.min( dmin, P.distanceTo( S ) );
         if ( dmin >= R ) return;
         const t  = 1 - dmin / R, w = t * t * ( 3 - 2 * t );
-        const to = applyAt( P.clone(), pv );
-        g.v[i]   = toUnity( P.clone().lerp( to, w ).applyMatrix4( Minv ) );
+        const to = turn ? P.clone().sub( pv ).applyAxisAngle( turn.axis, THREE.MathUtils.degToRad( turn.deg * w ) ).add( pv ) : P.clone().lerp( applyAt( P.clone(), pv ), w );
+        g.v[i]   = toUnity( to.applyMatrix4( Minv ) );
       } );
       status += `  proportional ${R.toFixed( 2 )} m (scroll)`;
     }
@@ -293,15 +298,15 @@ export class ModelOperators {
     if ( step < -Math.PI ) step += Math.PI * 2;
     m.turned = Math.max( -360, Math.min( 360, m.turned + THREE.MathUtils.radToDeg( step ) ) );
     m.last   = now;
-    // ( the angle counter-clockwise seen from the axis' tip, as Blender's: turning the way the mouse goes round, seen
-    // from the camera; the piece's own coordinates turn the other way )
+    // ( the angle clockwise seen from the axis' tip, as Blender's Spin turns: the mouse's way round, seen from the
+    // camera; Blender's coordinates are the piece's mirrored, so there it's counter-clockwise )
     const axis: V3 = [0, 0, 0];
     axis[m.axis]   = 1;
     const facing   = toThree( axis ).transformDirection( this.ed.matrix( m.o0 ) ).dot( this.ed.view.camera.getWorldDirection( new THREE.Vector3() ) ) > 0;
-    let deg        = facing ? m.turned : -m.turned;
+    let deg        = facing ? -m.turned : m.turned;
     if ( e.ctrlKey ) deg = Math.round( deg / 15 ) * 15;
     if ( m.typed   && !Number.isNaN( parseFloat( m.typed ) ) ) deg = parseFloat( m.typed );
-    const r            = Math.abs( deg ) < 1e-6 ? { mesh: m.mesh0, sel: m.sel0 } : spin( m.mesh0, m.sel0, m.centre, axis, ( -deg * Math.PI ) / 180, m.steps );
+    const r            = Math.abs( deg ) < 1e-6 ? { mesh: m.mesh0, sel: m.sel0 } : spin( m.mesh0, m.sel0, m.centre, axis, ( deg * Math.PI ) / 180, m.steps );
     this.ed.sel        = r.sel;
     this.ed.statusText = `Spin: ${Math.round( deg * 10 ) / 10}° · ${m.steps} steps (scroll) · axis ${"XZY"[m.axis]} through the 3D cursor${m.typed ? `  [${m.typed}]` : ""}`;
     this.ed.setMesh( r.mesh, null );
@@ -392,12 +397,15 @@ export class ModelOperators {
     this.ed.setMesh( r.mesh, null );
   }
 
-  startBevel() {
+  /**
+   * Ctrl+B: bevel the selected edges; Shift+Ctrl+B ( `verts` ): the selected vertices.
+  **/
+  startBevel( verts = false ) {
     const o = this.ed.obj();
     if ( !o ) return;
     const edges = new Set( this.ed.sel.e );
-    if ( !edges.size ) return;
-    this.ed.modal = { kind: "bevel", o0: o, mesh0: o.model.mesh, edges, pivot: this.ed.gizmo.pivotOf( o, this.ed.sel.v ), x0: this.ed.mouse.x, y0: this.ed.mouse.y, typed: "", segments: 1 };
+    if ( verts ? !this.ed.sel.v.size : !edges.size ) return;
+    this.ed.modal = { kind: "bevel", o0: o, mesh0: o.model.mesh, edges, pivot: this.ed.gizmo.pivotOf( o, this.ed.sel.v ), x0: this.ed.mouse.x, y0: this.ed.mouse.y, typed: "", segments: 1, ...( verts ? { verts: new Set( this.ed.sel.v ) } : {} ) };
     this.runBevel( {} as PointerEvent );
   }
 
@@ -410,9 +418,9 @@ export class ModelOperators {
     if ( e.ctrlKey ) w = Math.round( w * 100 ) / 100;
     if ( m.typed   && !Number.isNaN( parseFloat( m.typed ) ) ) w = parseFloat( m.typed );
     const k            = Math.abs( m.o0.scale.x ) || 1;
-    const r            = w > 0 ? bevel( m.mesh0, m.edges, w / k, m.segments ) : { mesh: m.mesh0, sel: selFromEdges( m.mesh0, [...m.edges] ) };
+    const r            = w <= 0 ? { mesh: m.mesh0, sel: m.verts ? selFromVerts( m.mesh0, [...m.verts] ) : selFromEdges( m.mesh0, [...m.edges] ) } : m.verts ? bevelVerts( m.mesh0, m.verts, w / k ) : bevel( m.mesh0, m.edges, w / k, m.segments );
     this.ed.sel        = r.sel;
-    this.ed.statusText = `Bevel: width ${w.toFixed( 3 )} m, ${m.segments} segment${m.segments > 1 ? "s" : ""} (scroll)${m.typed ? `  [${m.typed}]` : ""}`;
+    this.ed.statusText = m.verts ? `Vertex Bevel: width ${w.toFixed( 3 )} m${m.typed ? `  [${m.typed}]` : ""}` : `Bevel: width ${w.toFixed( 3 )} m, ${m.segments} segment${m.segments > 1 ? "s" : ""} (scroll)${m.typed ? `  [${m.typed}]` : ""}`;
     this.ed.setMesh( r.mesh, null );
   }
 }

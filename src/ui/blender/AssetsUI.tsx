@@ -7,7 +7,6 @@ import { getEngine } from "../Viewport";
 import { MenuButton, type MenuItem } from "../widgets/widgets";
 import { BlIcon, ToolIcon } from "./BlIcon";
 import { pieceTexture } from "../../texture/meshPaint";
-import { newAsset, saveAsset, saveAssetAs } from "../../pieces/assetFiles";
 import { useTransformReadout } from "./ViewOverlays";
 
 const eng = () => getEngine();
@@ -84,12 +83,6 @@ export function AssetsHeader() {
     if ( e?.editing === e?.modelEd && e?.modelEd.uid ) return e.modelEd.picking.selectAll( on );
     st.setSelection( on ? st.customObjects.map( ( o ) => ( { kind: "custom" as const, uid: o.uid } ) ) : [] );
   };
-  const assetItems = (): MenuItem[] => [
-    { label: "New",          bl:    "file_new", run: () => void newAsset() },
-    { sep:   true,           label: "" },
-    { label: "Save",         keys:  "Ctrl S", bl: "file_tick", run: () => void saveAsset() },
-    { label: "Save as New…", keys:  "Shift Ctrl S", run: () => void saveAssetAs() },
-  ];
   const viewItems = (): MenuItem[] => [
     { label: "Frame Selected", keys: "Numpad .", run: () => eng()?.nav.frameSelection() },
     { label: "Frame All",      keys: "Home",     run: () => eng()?.nav.frameAll()       },
@@ -103,9 +96,21 @@ export function AssetsHeader() {
     { sep:   true,           label: "" },
     { label: "Toggle X-Ray", keys:  "Alt Z", bl: "xray", checked: v.xray, run: () => setV( { xray: !v.xray } ) },
   ];
+  // ( Edit Mode's: Blender's Select menu as far as the studio has it )
+  const picking     = () => eng()?.modelEd.picking;
   const selectItems = (): MenuItem[] => [
     { label: "All",  keys: "A",     run: () => sel( true  ) },
     { label: "None", keys: "Alt A", run: () => sel( false ) },
+    ...( mode === "edit" ? [
+      { label: "Invert", keys: "Ctrl I", run: () => picking()?.invert() },
+      { sep:   true,     label: "" },
+      { label: "More",   keys: "Ctrl Numpad +", run: () => picking()?.more() },
+      { label: "Less",   keys: "Ctrl Numpad -", run: () => picking()?.less() },
+      { sep:   true,     label: "" },
+      { label: "Linked", keys: "Ctrl L", run: () => picking()?.linkedAll() },
+      { label: "Edge Loops", run: () => picking()?.loops() },
+      { label: "Edge Rings", run: () => picking()?.rings() },
+    ] : [] ),
   ];
   const objectItems = (): MenuItem[] => [
     { label: "Join",      keys: "Ctrl J",  run: () => eng()?.modelling.joinSelected() },
@@ -155,7 +160,6 @@ export function AssetsHeader() {
           <HB icon="facesel" on={edit.mode === "face"} title="Face (3)" onClick={() => eng()?.modelEd.picking.setMode( "face" )} />
         </div>
       ) }
-      <MenuButton label="Asset" items={assetItems} />
       <MenuButton label="View" items={viewItems} />
       {mode !== "paint" && <MenuButton label="Select" items={selectItems} />}
       { mode !== "paint" && (

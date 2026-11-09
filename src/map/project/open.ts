@@ -11,6 +11,7 @@ import { PART_MARK, RAIL_MARK, recoverRail, withRail } from "../../pieces/rail";
 import type { NewMapOptions } from "../../terrain/generate";
 import { dropShapeEdit } from "../../terrain/shapes/edits";
 import { type Shape, migrateFormation, resetShapes, unpackShape } from "../../terrain/shapes/shapes";
+import { unbakeShapes } from "../../terrain/shapes/unbake";
 import { type ChunkInit, terrain } from "../../terrain/terrain";
 import { TREES_COLLECTION, treesOf } from "../trees";
 import { loadPieceTextures, resetPieceTextures } from "../../texture/meshPaint";
@@ -19,6 +20,7 @@ import { history } from "../history";
 import { holdLoading } from "../loadingHolds";
 import { useEditor } from "../store";
 import { recentProjects, rememberRecent } from "./recent";
+import { saveProject } from "./save";
 import { isUntitled, rememberSession } from "./sessions";
 import { type EditorData, chunkVersion, meta, savedArray, savedVersion, uidAt, usedUids, uuid } from "./state";
 
@@ -96,6 +98,8 @@ async function applyProject( dir: string, p: Project, heights: Float32Array[] ) 
     library:          p.library ?? null,
     chunkExtras,
     selection:        [],
+    cursor3d:         [0, 0, 0],
+    cursorDown:       false,
     dirty:            false,
   } );
   resetPaint();
@@ -110,6 +114,13 @@ async function applyProject( dir: string, p: Project, heights: Float32Array[] ) 
   }
   // ( formations from before the studio had Map-Tools' settings: brought over )
   useEditor.setState( { shapes: ( ( editor.shapes ?? [] ) as Shape[] ).map( ( s ) => ( s.kind === "formation" ? migrateFormation( s ) : s ) ) } );
+  // shapes that came worked into the ground ( a Unity scene's inserts ): the ground under them worked out, each one's
+  // change taken as made, so moving one takes it out first
+  if ( editor.unbake?.length ) {
+    const want = new Set( editor.unbake );
+    await unbakeShapes( useEditor.getState().shapes.filter( ( s ) => want.has( s.uid ) ) );
+    useEditor.setState( { dirty: true } );
+  }
   await loadTrailData( dir, editor.trails );
 
   resetHistoryAfterLoad();
@@ -243,6 +254,8 @@ export async function importUnityScene( scenePath: string, dir: string ) {
     st.setBusy( null );
   }
   await openProject( dir );
+  // ( the inserts' changes worked out on opening: kept, not worked out again each time it's opened )
+  if ( useEditor.getState().dirty ) await saveProject();
   if ( notes.length ) useEditor.getState().toast( notes.slice( 0, 4 ).join( " · " ) + ( notes.length > 4 ? ` · ${notes.length - 4} more` : "" ), "info" );
 }
 

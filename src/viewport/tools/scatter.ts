@@ -1,12 +1,15 @@
 // The object brush ( Scatter ): pieces picked in the asset browser dropped over the ground as the brush is dragged —
 // one at a time at random inside the circle, a few metres apart, each turned at random, leaning with the slope as far
 // as asked ( and a little at random ), a little bigger or smaller. With Ctrl it takes away pieces of those kinds under
-// the brush instead. A stroke is one undo step.
+// the brush instead. A stroke is one undo step. Instanced ( `instanced`, on by default ), each stands upright, as wide as
+// deep, and is marked an instance of its piece's kind: saved into its chunk's tree prototypes ( map/trees.ts, Unity's
+// terrain trees: any piece can be one ), LOD groups and all, far lighter in the game than a piece of its own. A piece
+// with settings an instance can't keep ( a riding surface, a rail, lights… ) is dropped as a piece of its own.
 
 import * as THREE from "three/webgpu";
 import { toThree, type V3 } from "../../core/coords";
 import { ipc } from "../../core/ipc";
-import { transformCustom } from "../../core/transform";
+import { pieceMatrix, transformCustom } from "../../core/transform";
 import type { CustomObjectEntry } from "../../core/types";
 import { history } from "../../map/history";
 import { namesFor } from "../../map/names";
@@ -14,6 +17,32 @@ import { newUid, useEditor } from "../../map/store";
 import { terrain } from "../../terrain/terrain";
 
 type Template = { id: string; name: string; object: Omit<CustomObjectEntry, "uid"> };
+
+// ( a template's piece in its own space: a tree's kind, map/trees.ts )
+const ownOf = ( t: Template ) => transformCustom( { ...( structuredClone( t.object ) as CustomObjectEntry ), uid: "" }, pieceMatrix( t.object as CustomObjectEntry ).invert() );
+
+/**
+ * Whether a piece can be an instance: nothing about it an instance can't keep ( plain surface, no rail, lights, repeat
+ * or kit colliders, no hours it shows at, no other way up ). Can stabilize / rotate / magnetize are a ridden piece's:
+ * scenery doesn't need them.
+**/
+function instanceable( o: Omit<CustomObjectEntry, "uid"> ) {
+  return ( o.surface_type ?? "Generic" ) === "Generic" && !o.intended_up_method && !o.timed_visibility && !o.disable_distance_culling && !o.lights?.length &&
+    !["rail", "kitColliders", "scenery", "model", "fence"].some( ( k ) => k in o );
+}
+
+// ( an instance's settings, as map/trees.ts makes its pieces )
+const TREE_SETTINGS = {
+  surface_type: "Generic", can_stabilize: false, can_rotate: false, can_magnetize: false, intended_up_method: 0, disable_distance_culling: false, timed_visibility: false,
+  visible_from_hour: 0, visible_until_hour: 24, lights: [],
+} as const satisfies Partial<CustomObjectEntry>;
+
+// ( a piece of one of these kinds: dropped from one, or a terrain tree with one's meshes, saved and opened since )
+const meshesOf = ( parts: { mesh: string }[] ) => parts.map( ( p ) => p.mesh ).join( "|" );
+function ofKinds( templates: Template[] ) {
+  const ids = new Set( templates.map( ( t ) => t.id ) ), meshes = new Set( templates.map( ( t ) => meshesOf( t.object.parts ) ) );
+  return ( o: CustomObjectEntry ) => ( !!o.source && ids.has( o.source.id ) ) || ( !!o.tree?.kind && meshes.has( meshesOf( o.tree.kind.parts ) ) );
+}
 
 // The picked pieces as they come into this map ( their meshes copied in once ), by pick set and map.
 let cache: { key: string; templates: Template[] } | null = null;
@@ -53,8 +82,7 @@ export class ScatterStroke {
     if ( this.erase ) return this.takeAway( x, z, s.radius );
     if ( this.last  && Math.hypot( x - this.last[0], z - this.last[1] ) < s.spacing ) return;
     this.last   = [x, z];
-    const kinds = new Set( this.templates.map( ( t ) => t.id ) );
-    const near  = useEditor.getState().customObjects.filter( ( o ) => o.source && kinds.has( o.source.id ) );
+    const near = useEditor.getState().customObjects.filter( ofKinds( this.templates ) );
     // a spot in the circle not crowding another piece of these kinds ( a few tries )
     for ( let attempt = 0; attempt < 8; attempt++ ) {
       const a  = Math.random() * Math.PI * 2, d = Math.sqrt( Math.random() ) * s.radius;
@@ -69,6 +97,7 @@ export class ScatterStroke {
 
   private drop( t: Template, at: V3 ) {
     const s      = useEditor.getState().scatter;
+    if ( s.instanced && instanceable( t.object ) ) return this.dropInstance( t, at );
     // up: the world's, leaning towards the ground's as asked, then a little at random
     const n      = terrain.normalAt( at[0], at[2], 1 );
     const ground = new THREE.Vector3( n.x, n.y, -n.z ).normalize();
@@ -86,10 +115,29 @@ export class ScatterStroke {
     useEditor.setState( { customObjects: [...st.customObjects, o] } );
   }
 
+  /**
+   * An instance: upright, turned about up at random, as wide as deep, marked an instance of the piece's kind.
+  **/
+  private dropInstance( t: Template, at: V3 ) {
+    const s    = useEditor.getState().scatter;
+    const own  = ownOf( t );
+    const kind = { parts: own.parts, colliders: own.colliders, lod_groups: own.lod_groups ?? [] };
+    const k    = 1 + ( Math.random() * 2 - 1 ) * s.scaleJitter;
+    const q    = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), Math.random() * Math.PI * 2 );
+    const uid  = newUid();
+    // ( none of a piece's own settings: a tree prototype hasn't them )
+    const tree = { ...own, ...TREE_SETTINGS, uid, source: { id: t.id, stamp: Date.now() }, tree: { color: [255, 255, 255, 255] as [number, number, number, number], kind } };
+    const o    = transformCustom( tree, new THREE.Matrix4().compose( toThree( at ), q, new THREE.Vector3( k, k, k ) ) );
+    this.placed.push( o );
+    this.names.push( { uid, want: t.name } );
+    const st = useEditor.getState();
+    useEditor.setState( { customObjects: [...st.customObjects, o] } );
+  }
+
   private takeAway( x: number, z: number, r: number ) {
-    const kinds = new Set( this.templates.map( ( t ) => t.id ) );
+    const kinds = ofKinds( this.templates );
     const st    = useEditor.getState();
-    const keep  = st.customObjects.filter( ( o ) => !( o.source && kinds.has( o.source.id ) && !st.locked[o.uid] && Math.hypot( o.position.x - x, o.position.z - z ) <= r ) );
+    const keep  = st.customObjects.filter( ( o ) => !( kinds( o ) && !st.locked[o.uid] && Math.hypot( o.position.x - x, o.position.z - z ) <= r ) );
     if ( keep.length === st.customObjects.length ) return;
     this.removed += st.customObjects.length - keep.length;
     useEditor.setState( { customObjects: keep } );

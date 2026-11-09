@@ -1,8 +1,8 @@
 // The view's look: the Assets workspace's shading ( Blender's ) or the map's, the selection's outline, the stage swapped
 // in for the map, and every shader made ready under the loading veil.
 
-import { outline } from "three/addons/tsl/display/OutlineNode.js";
-import { float, mix, pass, vec3 } from "three/tsl";
+import OutlineNode from "three/addons/tsl/display/OutlineNode.js";
+import { float, mix, nodeObject, pass, perspectiveDepthToViewZ, positionView, screenUV, vec3 } from "three/tsl";
 import * as THREE from "three/webgpu";
 import { useEditor, workspaceOf } from "../../map/store";
 import { terrain } from "../../terrain/terrain";
@@ -10,6 +10,59 @@ import { redraw } from "../redraw";
 import { BLENDER_BG } from "../render/stage";
 import type { Engine } from "./engine";
 import { CameraView } from "./engine";
+
+// three's outline, its own pass over the whole scene for depth left out: the scene's own depth, as it was just drawn
+// for the view, used instead ( drawn twice over, a busy map dragging a piece held the view to 60 fps ). That depth has
+// the selection in it too: a selected piece is behind something where it's further than the scene's nearest by more
+// than a little.
+type Frame = THREE.NodeFrame;
+
+type Inner = { _depthTextureUniform: { value: THREE.Texture; sample( uv: unknown ): unknown }; _cameraNear: unknown; _cameraFar: unknown; _prepareMaskMaterial: THREE.NodeMaterial; _prepareMaskSpriteMaterial: THREE.NodeMaterial };
+class SceneDepthOutline extends OutlineNode {
+  constructor( scene: THREE.Scene, camera: THREE.Camera, private view: ReturnType<typeof pass>, params: ConstructorParameters<typeof OutlineNode>[2] ) {
+    super( scene, camera, params );
+  }
+
+  setup( builder: THREE.NodeBuilder ) {
+    const out  = super.setup( builder );
+    const self = this as unknown as Inner;
+    const mask = () => {
+      const viewZ  = perspectiveDepthToViewZ( self._depthTextureUniform.sample( screenUV ) as never, self._cameraNear as never, self._cameraFar as never );
+      const behind = positionView.z.lessThan( viewZ.sub( viewZ.negate().mul( 0.002 ).max( 0.02 ) ) ).select( 1, 0 );
+      return vec3( 0, behind, 1 );
+    };
+    self._prepareMaskMaterial.colorNode       = mask();
+    self._prepareMaskMaterial.needsUpdate     = true;
+    self._prepareMaskSpriteMaterial.colorNode = mask();
+    return out;
+  }
+
+  updateBefore( frame: Frame ) {
+    if ( !frame.renderer ) return super.updateBefore( frame );
+    // ( the view drawn first, this frame, and its depth taken )
+    frame.updateBeforeNode( this.view );
+    const self = this as unknown as Inner, r = frame.renderer as THREE.WebGPURenderer, render = r.render;
+    self._depthTextureUniform.value = ( this.view as unknown as { renderTarget: THREE.RenderTarget } ).renderTarget.depthTexture!;
+    // ( the first scene drawn is three's depth pass: not drawn; the second its pass over the selection, with the
+    // scene's matrices as the view just had them )
+    let first = true;
+    r.render  = function ( this: THREE.WebGPURenderer, ...a: Parameters<THREE.WebGPURenderer["render"]> ) {
+      if ( first ) return void ( first = false );
+      const scene = a[0], auto = scene.matrixWorldAutoUpdate;
+      scene.matrixWorldAutoUpdate = false;
+      try {
+        return render.apply( this, a );
+      } finally {
+        scene.matrixWorldAutoUpdate = auto;
+      }
+    } as THREE.WebGPURenderer["render"];
+    try {
+      return super.updateBefore( frame );
+    } finally {
+      r.render = render;
+    }
+  }
+}
 
 // The view's look.
 export class ViewLook {
@@ -36,7 +89,7 @@ export class ViewLook {
     // ( on a map, the game's own sky, drawn by its shader, when the game's there )
     ( this.engine.scene as unknown as { backgroundNode: unknown } ).backgroundNode = !bare && !on && this.engine.daylight.skyNode ? this.engine.daylight.skyNode : null;
     this.engine.scene.fog = bare ? null : !on || v.shading === "rendered" ? this.engine.daylight.fog : null;
-    // Solid and Wireframe in Blender's plain colour ( its "Standard" view ); the game's look tone-mapped as on the map
+    // Solid and Wireframe in Blender's plain colour ( its "Standard" view ); the game's look as the game's picture
     const tone            = on && !game ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
     if ( this.engine.renderer.toneMapping !== tone ) {
       this.engine.renderer.toneMapping = tone;
@@ -51,11 +104,11 @@ export class ViewLook {
   outlined() {
     if ( !this.outline ) {
       const selected: THREE.Object3D[] = [];
-      const o                          = outline( this.engine.scene, this.engine.camera, { selectedObjects: selected, edgeThickness: float( 1.4 ), downSampleRatio: 1 } );
+      const scene                      = pass( this.engine.scene, this.engine.camera );
+      const o                          = nodeObject( new SceneDepthOutline( this.engine.scene, this.engine.camera, scene, { selectedObjects: selected, edgeThickness: float( 1.4 ), downSampleRatio: 1 } ) ) as unknown as OutlineNode;
       const pipeline                   = new THREE.RenderPipeline( this.engine.renderer );
       // Blender's theme: selected objects orange, behind things fainter ( drawn over the scene, so it shows on snow too )
       const orange                     = vec3( 0.95, 0.33, 0.02 );
-      const scene                      = pass( this.engine.scene, this.engine.camera );
       pipeline.outputNode              = mix( mix( scene, orange, o.hiddenEdge.mul( 0.5 ).clamp( 0, 1 ) ), orange, o.visibleEdge.mul( 3 ).clamp( 0, 1 ) );
       this.outline                     = { pipeline, selected, scene };
     }
@@ -74,7 +127,8 @@ export class ViewLook {
    * Every shader the view may need, made now ( under the loading veil ) rather than when its piece first comes into
    * view, which held frames up to a second ( looking round, scrolling out ): the whole scene whatever's in view or
    * hidden ( each level of detail, pieces far off ), made ready in the background, then drawn once each way it's drawn
-   * — plain, and outlined as a selection draws it ( the outline's own passes over the scene set up only by drawing ).
+   * — plain, and outlined as a selection draws it ( the outline's own passes over the scene set up only by drawing ),
+   * each casting the sun's shadows.
   **/
   async compileAll() {
     const reveal = () => {
@@ -107,7 +161,11 @@ export class ViewLook {
     try {
       // ( something selected, so the outline's passes run )
       selected.push( ...this.engine.customR.pickables().slice( 0, 1 ) );
+      // ( the sun's shadows drawn each time too: drawn only when something's changed otherwise )
+      const shadow       = this.engine.daylight.sun.shadow;
+      shadow.needsUpdate = true;
       pipeline.render();
+      shadow.needsUpdate = true;
       this.engine.renderer.render( this.engine.scene, this.engine.camera );
     } finally {
       selected.length = 0;

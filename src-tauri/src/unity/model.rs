@@ -407,6 +407,57 @@ fn fbx_name(p: Option<&fbx::Prop>) -> String {
     s.split("::").last().unwrap_or(s).to_string()
 }
 
+/// An FBX's meshes in the world ( Unity's space, metres, the file's axes turned to Y up ): each node's name, its mesh
+/// with every point and normal where it is in the scene, and each submesh's material ( its name, diffuse texture's
+/// file as the FBX names it, colour ). For the studio's model import ( library/userassets/import.rs ).
+pub(crate) fn fbx_meshes(data: &[u8]) -> Result<Vec<(String, Built, Vec<(String, Option<String>, [f32; 4])>)>> {
+    let nodes = fbx_nodes(data, 1.0, true)?;
+    // each node's place in the scene: its parents' turned, moved and scaled before its own
+    let mut world: Vec<Option<Mat4>> = vec![None; nodes.len()];
+    fn at(nodes: &[BNode], world: &mut Vec<Option<Mat4>>, i: usize) -> Mat4 {
+        if let Some(m) = world[i] {
+            return m;
+        }
+        let own = Mat4::trs(nodes[i].t, nodes[i].r, nodes[i].s);
+        let m = match nodes[i].parent {
+            Some(p) if p < nodes.len() => at(nodes, world, p).mul(&own),
+            _ => own,
+        };
+        world[i] = Some(m);
+        m
+    }
+    let mut out = vec![];
+    for i in 0..nodes.len() {
+        let Some(mesh) = &nodes[i].mesh else { continue };
+        let m = at(&nodes, &mut world, i);
+        let mut b = mesh.clone();
+        b.pos = b.pos.iter().map(|p| m.point(*p)).collect();
+        // ( normals turned as the scene turns them: by the inverse transpose, made unit length again )
+        let inv = m.inverse();
+        b.nrm = b
+            .nrm
+            .iter()
+            .map(|n| {
+                let v = [0, 1, 2].map(|r| inv.0[r][0] * n[0] + inv.0[r][1] * n[1] + inv.0[r][2] * n[2]);
+                let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-12);
+                v.map(|x| x / l)
+            })
+            .collect();
+        // ( mirrored by its scale: wound the other way to face out still )
+        let (x, y, z) = (m.0[0], m.0[1], m.0[2]);
+        let mirrored = x[0] * (y[1] * z[2] - y[2] * z[1]) - x[1] * (y[0] * z[2] - y[2] * z[0]) + x[2] * (y[0] * z[1] - y[1] * z[0]) < 0.0;
+        if mirrored {
+            for s in b.subs.iter_mut() {
+                for t in s.chunks_exact_mut(3) {
+                    t.swap(1, 2);
+                }
+            }
+        }
+        out.push((nodes[i].name.clone(), b, nodes[i].mats.clone()));
+    }
+    Ok(out)
+}
+
 fn fbx_nodes(data: &[u8], global_scale: f32, use_file_scale: bool) -> Result<Vec<BNode>> {
     let root = fbx::parse(data)?;
     let objects = root.child("Objects").context("an FBX without objects")?;

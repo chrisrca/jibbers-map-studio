@@ -152,6 +152,7 @@ button .icon { pointer-events: none; }
 .statusbar .hint-item .icon { color: var(--c-text-dim); }
 .statusbar .hint-item kbd { padding: 0 4px; height: 15px; line-height: 15px; border-radius: 3px; border: 1px solid var(--c-hairline-2); color: var(--c-text); font-size: var(--fs-small); }
 .statusbar .stats { color: var(--c-text-faint); }
+.statusbar .cursor-readout { font-variant-numeric: tabular-nums; }
 .status-btn { background: none; border: 0; color: var(--c-text-faint); padding: 0 2px; display: inline-flex; align-items: center; gap: 5px; }
 .status-btn:hover { color: var(--c-text-hi); }
 .status-btn.dirty { color: var(--c-accent); }
@@ -312,8 +313,6 @@ input[type="range"] { accent-color: var(--c-accent); height: 14px; }
 .tool-column .tool.on { background: var(--c-accent); color: #fff; }
 
 /* sculpt / paint brush size by the cursor */
-.brush-label { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 4; padding: 2px 7px; border-radius: var(--r); background: rgba(24, 24, 24, .82); color: var(--c-text-hi); font-size: var(--fs-small); white-space: nowrap; transition: opacity .1s; }
-.brush-label span { color: var(--c-text-dim); }
 
 /* ================================================================ Properties editor */
 .props-editor { flex: 1; display: grid; grid-template-columns: 30px 1fr; min-height: 0; overflow: hidden; }
@@ -500,6 +499,9 @@ body.asset-dragging, body.asset-dragging * { cursor: copy !important; }
 
 .mapsize { display: grid; gap: 6px; justify-items: center; }
 .mapsize-map { background: var(--c-tabs); border: 1px solid var(--c-outline); border-radius: var(--r); }
+.mapsize-map .surround { fill: none; stroke: rgba(255, 255, 255, .28); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+.mapsize-map .surround.last { stroke: rgba(255, 255, 255, .5); stroke-dasharray: none; }
+.mapsize-map { cursor: grab; }
 .grow-preview { display: flex; flex-direction: column; gap: 4px; padding: 8px; margin: 6px 0; border: 1px solid var(--c-accent); border-radius: var(--r-panel); background: var(--c-accent-soft); }
 
 
@@ -558,7 +560,7 @@ body.asset-dragging, body.asset-dragging * { cursor: copy !important; }
 /* everyone whose data is on screen, at the status bar's right end */
 .mtnw-credits { color: var(--c-text-faint); font-size: var(--fs-small); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 55%; margin-left: 14px; }
 .mtnw-value.wrap { white-space: normal; line-height: 1.35; }
-.mtn-progress { position: absolute; inset: 0; background: rgba(0, 0, 0, .55); display: grid; place-items: center; }
+.mtn-progress { position: absolute; inset: 0; z-index: 20; background: rgba(0, 0, 0, .55); display: grid; place-items: center; }
 .mtn-progress .box { min-width: 320px; padding: 18px 24px; border-radius: 12px; background: var(--c-menu); border: 1px solid var(--c-menu-line); text-align: center; }
 .mtn-progress .spinner { margin: 0 auto 12px; }
 
@@ -614,6 +616,8 @@ html.scrubbing, html.scrubbing * { cursor: none !important; user-select: none !i
 .cpick-modes { align-self: stretch; }
 .cpick-modes button { flex: 1; }
 .cpick-hex { display: flex; align-items: center; gap: 6px; }
+.cpick-adjust { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--c-menu-line); }
+.cpick-adjust-head { display: flex; align-items: center; justify-content: space-between; min-height: 20px; color: var(--c-text-dim); }
 .cpick-hex span { color: var(--c-text-dim); }
 .cpick-hex input { flex: 1; min-width: 0; height: var(--row); padding: 0 7px; border: 1px solid var(--c-outline); border-radius: var(--r); background: var(--c-edit); color: var(--c-text-hi); font: inherit; font-variant-numeric: tabular-nums; outline: none; }
 .cpick-hex input:focus { border-color: var(--c-accent); }

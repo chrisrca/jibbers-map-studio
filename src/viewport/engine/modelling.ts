@@ -11,7 +11,7 @@ import { buildMesh, evaluate, joinMeshes, newModel, type ModelData } from "../..
 import type { BoolOp, Poly } from "../../model/csg";
 import { curveMesh, styleOf, type CurveData } from "../../model/curve";
 import { gatherTris, partToPiece, trisToMesh, type SourceTris } from "../../model/importMesh";
-import type { Mesh } from "../../model/mesh";
+import { ek, turnBack, turnBackUv, type Mesh } from "../../model/mesh";
 import { defaultMaterial, meshKey, withModel } from "../../model/objects";
 import { bakeLook, type BakeMaterial } from "../../texture/bake";
 import { pieceTexture, prepare, setBakedLook } from "../../texture/meshPaint";
@@ -206,6 +206,9 @@ export class Modelling {
     const target    = pieces[pieces.length - 1];
     const Minv      = composeUnity( arr3( target.position ), arr3( target.rotation ), arr3( target.scale ) ).invert();
     const out: Mesh = { v: [], f: [], m: [], s: [], w: [] };
+    // ( UVs and creases kept: each face's own, each edge's own )
+    const uvs: number[][] = [], creases: Record<string, number> = {};
+    let anyUv           = false;
     const materials = [...target.parts[0].materials];
     // curves stay curves ( each spline keeping its own tube ), the target's first: its first spline stays the rail
     let curve: CurveData | undefined;
@@ -213,15 +216,31 @@ export class Modelling {
       const g    = o.model.mesh;
       const M    = composeUnity( arr3( o.position ), arr3( o.rotation ), arr3( o.scale ) );
       const here = ( p: V3 ): V3 => ( o === target ? p : toUnity( toThree( p ).applyMatrix4( M ).applyMatrix4( Minv ) ) );
-      const base = out.v.length, slot0 = o === target ? 0 : materials.length;
-      if ( o !== target ) materials.push( ...o.parts[0].materials );
+      const base = out.v.length;
+      // ( its materials into the target's slots: one already there, the same, is shared, as Blender's Join does )
+      const slot = o === target ? o.parts[0].materials.map( ( _, i ) => i ) : o.parts[0].materials.map( ( mat ) => {
+        const had = materials.findIndex( ( x ) => JSON.stringify( x ) === JSON.stringify( mat ) );
+        return had >= 0 ? had : materials.push( mat ) - 1;
+      } );
+      // ( a piece mirrored against the target turns inside out on the way in: its faces turned back )
+      const flip = o !== target && M.clone().premultiply( Minv ).determinant() < 0;
       for ( const p of g.v ) out.v.push( here( p ) );
       g.f.forEach( ( f, fi ) => {
-        out.f.push( f.map( ( v ) => v + base ) );
-        out.m.push( ( g.m[fi] ?? 0 ) + slot0 );
+        const face = f.map( ( v ) => v + base );
+        // ( turned back with its first corner kept first: the same shape, mirrored )
+        out.f.push( flip ? turnBack( face ) : face );
+        const uv = g.u?.[fi] ?? [];
+        if ( uv.length ) anyUv = true;
+        // ( a face turned back: its corners' UVs in the same new order )
+        uvs.push( flip && uv.length === f.length * 2 ? turnBackUv( uv ) : uv );
+        out.m.push( slot[g.m[fi] ?? 0] ?? 0 );
         out.s.push( g.s[fi] ?? false );
       } );
       for ( const [a, b] of g.w ) out.w.push( [a + base, b + base] );
+      for ( const [k, c] of Object.entries( g.c ?? {} ) ) {
+        const [a, b] = k.split( "_" ).map( Number );
+        creases[ek( a + base, b + base )] = c;
+      }
       const c = o.model.curve;
       if ( c ) {
         const splines = c.splines.map( ( s ) => ( { ...s, style: styleOf( c, s ), points: s.points.map( ( q ) => ( { ...q, p: here( q.p ) } ) ) } ) );
@@ -230,6 +249,8 @@ export class Modelling {
     }
     const gone                    = new Set( pieces.slice( 0, -1 ).map( ( o ) => o.uid ) );
     const { curve: _c, ...model } = target.model;
+    if ( anyUv ) out.u = uvs;
+    if ( Object.keys( creases ).length ) out.c = creases;
     const joined                  = withModel( { ...target, parts: [{ ...target.parts[0], materials }, ...target.parts.slice( 1 )] }, { ...model, mesh: out, ...( curve ? { curve } : {} ) } );
     st.commit( "Join", { customObjects: st.customObjects.filter( ( o ) => !gone.has( o.uid ) ).map( ( o ) => ( o.uid === target.uid ? joined : o ) ) } );
     st.setSelection( [{ kind: "custom", uid: target.uid }] );

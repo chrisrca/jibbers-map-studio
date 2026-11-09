@@ -35,6 +35,14 @@ pub struct Api {
     class_get_parent: unsafe extern "C" fn(Ptr) -> Ptr,
     class_get_field_from_name: unsafe extern "C" fn(Ptr, *const c_char) -> Ptr,
     field_get_value: unsafe extern "C" fn(Ptr, Ptr, *mut c_void),
+    class_get_fields: unsafe extern "C" fn(Ptr, *mut Ptr) -> Ptr,
+    field_get_name: unsafe extern "C" fn(Ptr) -> *const c_char,
+    field_get_type: unsafe extern "C" fn(Ptr) -> Ptr,
+    field_get_flags: unsafe extern "C" fn(Ptr) -> i32,
+    class_from_type: unsafe extern "C" fn(Ptr) -> Ptr,
+    class_is_enum: unsafe extern "C" fn(Ptr) -> bool,
+    class_is_valuetype: unsafe extern "C" fn(Ptr) -> bool,
+    field_static_get_value: unsafe extern "C" fn(Ptr, *mut c_void),
 }
 
 static API: OnceLock<Api> = OnceLock::new();
@@ -85,6 +93,14 @@ pub fn api() -> Option<&'static Api> {
             class_get_parent: f!("il2cpp_class_get_parent"),
             class_get_field_from_name: f!("il2cpp_class_get_field_from_name"),
             field_get_value: f!("il2cpp_field_get_value"),
+            class_get_fields: f!("il2cpp_class_get_fields"),
+            field_get_name: f!("il2cpp_field_get_name"),
+            field_get_type: f!("il2cpp_field_get_type"),
+            field_get_flags: f!("il2cpp_field_get_flags"),
+            class_from_type: f!("il2cpp_class_from_type"),
+            class_is_enum: f!("il2cpp_class_is_enum"),
+            class_is_valuetype: f!("il2cpp_class_is_valuetype"),
+            field_static_get_value: f!("il2cpp_field_static_get_value"),
         };
         if (a.domain_get)().is_null() {
             return None;
@@ -222,6 +238,86 @@ impl Api {
             }
             None
         }
+    }
+
+    /// An object's fields ( its class's and those it comes from; not static ): each one's name, its type's name, and
+    /// its value as JSON where it's a plain one ( a number, a flag, a colour or vector, an enum's number, a string ),
+    /// else the object it holds ( to look into ), or nothing.
+    pub fn fields(&self, o: Ptr) -> Vec<(String, String, Option<serde_json::Value>, Option<Ptr>)> {
+        let mut out = vec![];
+        if o.is_null() {
+            return out;
+        }
+        unsafe {
+            let mut c = (self.object_get_class)(o);
+            while !c.is_null() {
+                let mut iter: Ptr = std::ptr::null_mut();
+                loop {
+                    let f = (self.class_get_fields)(c, &mut iter);
+                    if f.is_null() {
+                        break;
+                    }
+                    // ( static fields are the class's, not the object's )
+                    if (self.field_get_flags)(f) & 0x10 != 0 {
+                        continue;
+                    }
+                    let name = CStr::from_ptr((self.field_get_name)(f)).to_string_lossy().into_owned();
+                    let ty = (self.field_get_type)(f);
+                    let tname = self.type_name(ty);
+                    let fc = (self.class_from_type)(ty);
+                    let mut buf = [0u8; 64];
+                    let read = |buf: &mut [u8; 64]| (self.field_get_value)(o, f, buf.as_mut_ptr() as *mut c_void);
+                    let f32s = |b: &[u8; 64], n: usize| serde_json::json!((0..n).map(|k| f32::from_le_bytes(b[k * 4..k * 4 + 4].try_into().unwrap())).collect::<Vec<_>>());
+                    let value = match tname.as_str() {
+                        "System.Single" => { read(&mut buf); Some(serde_json::json!(f32::from_le_bytes(buf[..4].try_into().unwrap()))) }
+                        "System.Int32" | "System.UInt32" => { read(&mut buf); Some(serde_json::json!(i32::from_le_bytes(buf[..4].try_into().unwrap()))) }
+                        "System.Boolean" => { read(&mut buf); Some(serde_json::json!(buf[0] != 0)) }
+                        "UnityEngine.Color" | "UnityEngine.Vector4" => { read(&mut buf); Some(f32s(&buf, 4)) }
+                        "UnityEngine.Vector3" => { read(&mut buf); Some(f32s(&buf, 3)) }
+                        "UnityEngine.Vector2" => { read(&mut buf); Some(f32s(&buf, 2)) }
+                        "System.String" => {
+                            read(&mut buf);
+                            let s = *(buf.as_ptr() as *const Ptr);
+                            Some(serde_json::json!(self.read_string(s)))
+                        }
+                        _ if !fc.is_null() && (self.class_is_enum)(fc) => {
+                            read(&mut buf);
+                            let v = i32::from_le_bytes(buf[..4].try_into().unwrap());
+                            // ( its name too: the enum's constant with that value )
+                            let mut it: Ptr = std::ptr::null_mut();
+                            let mut named = None;
+                            loop {
+                                let ef = (self.class_get_fields)(fc, &mut it);
+                                if ef.is_null() {
+                                    break;
+                                }
+                                if (self.field_get_flags)(ef) & 0x50 != 0x50 {
+                                    continue;
+                                }
+                                let mut ev = [0u8; 8];
+                                (self.field_static_get_value)(ef, ev.as_mut_ptr() as *mut c_void);
+                                if i32::from_le_bytes(ev[..4].try_into().unwrap()) == v {
+                                    named = Some(CStr::from_ptr((self.field_get_name)(ef)).to_string_lossy().into_owned());
+                                    break;
+                                }
+                            }
+                            Some(match named { Some(n) => serde_json::json!(format!("{n} ({v})")), None => serde_json::json!(v) })
+                        }
+                        _ => None,
+                    };
+                    let obj = if value.is_none() && !fc.is_null() && !(self.class_is_valuetype)(fc) {
+                        read(&mut buf);
+                        let p = *(buf.as_ptr() as *const Ptr);
+                        (!p.is_null()).then_some(p)
+                    } else {
+                        None
+                    };
+                    out.push((name, tname, value, obj));
+                }
+                c = (self.class_get_parent)(c);
+            }
+        }
+        out
     }
 
     /// An object's field holding an object, by name (see field).

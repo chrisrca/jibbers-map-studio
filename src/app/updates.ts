@@ -48,7 +48,7 @@ export async function offerUpdate( update: UpdateOffer, restart: () => Promise<v
       if ( e.event === "Started" ) total = e.data.contentLength ?? 0;
       else if ( e.event === "Progress" ) {
         got += e.data.chunkLength;
-        if ( total ) st.setBusy( `Updating to ${update.version}… ${Math.round( ( got / total ) * 100 )}%` );
+        if ( total ) st.setBusy( `Updating to ${update.version}…`, got / total );
       } else if ( e.event === "Finished" ) st.setBusy( `Installing ${update.version}…` );
     } );
     await restart();

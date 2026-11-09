@@ -3,8 +3,20 @@
 // go, as Map-Tools does with Live Erosion on; with it off, only when asked ( Simulate ).
 
 import { history } from "../../map/history";
-import { bakeShapeIn, beginShapeEdit, commitShapeEdit, previewShape, previewShapeSoon, removeShape, simulates, whenShapesSettled, type Shape, type ShapeEdit } from "./shapes";
+import { bakeShapeIn, beginShapeEdit, commitShapeEdit, previewShape, previewShapeSoon, removeShape, setShapeDoc, simulates, whenShapesSettled, type Shape, type ShapeEdit } from "./shapes";
 import { useEditor } from "../../map/store";
+
+// The shapes built on others ( formations on the trails, ski lines on those ) kept on them as the ground beneath them
+// changes: made again there, a ski line with its points moved ( worked out in full, a formation, as one let go is ).
+setShapeDoc( {
+  list:   () => useEditor.getState().shapes,
+  follow: ( s ) => {
+    const st = useEditor.getState();
+    if ( !st.shapes.some( ( x ) => x.uid === s.uid ) ) return;
+    if ( !st.shapes.includes( s ) ) useEditor.setState( { shapes: st.shapes.map( ( x ) => ( x.uid === s.uid ? s : x ) ), dirty: true } );
+    previewShapeSoon( s, s.kind === "formation" && liveErosion() && simulates( s ) );
+  },
+} );
 
 const LIVE_EROSION = "jibbers.formation.liveErosion";
 

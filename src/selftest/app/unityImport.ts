@@ -174,6 +174,32 @@ export async function unityImportSelftest( dir: string ) {
     }
     check( st().objects.length >= 5, `Main: ${st().objects.length} objects` );
     log( "SNAP main" );
+    await sleep( 2000 );
+    // ( its ramps came worked into the ground, a jump inside a knuckle: the jump moved aside, the ground under it changes
+    // ( the knuckle stays ); the knuckle too, and the ground where they were is the ground either side again )
+    {
+      const { liveShape, commitShape } = await import( "../../terrain/shapes/edits" );
+      const { whenShapesSettled }      = await import( "../../terrain/shapes/shapes" );
+      const ramps = st().shapes.filter( ( x ) => x.kind === "curve" ).reverse();
+      for ( const [n, r] of ramps.entries() ) {
+        if ( r.kind !== "curve" ) continue;
+        const mid = [( r.start[0] + r.end[0] ) / 2, ( r.start[1] + r.end[1] ) / 2];
+        const len = Math.hypot( r.end[0] - r.start[0], r.end[1] - r.start[1] ), ax = ( r.end[0] - r.start[0] ) / len, az = ( r.end[1] - r.start[1] ) / len;
+        // ( across it, a ramp's width out either side )
+        const side = ( k: number ) => terrain.heightAt( mid[0] - az * r.width * k, mid[1] + ax * r.width * k );
+        const was  = terrain.heightAt( mid[0], mid[1] );
+        const off  = 3 * r.width;
+        liveShape( { ...r, start: [r.start[0] - az * off, r.start[1] + ax * off], end: [r.end[0] - az * off, r.end[1] + ax * off] }, `Move ${r.name}` );
+        commitShape();
+        await new Promise<void>( ( res ) => whenShapesSettled( res ) );
+        await sleep( 300 );
+        const now = terrain.heightAt( mid[0], mid[1] ), around = ( side( 1 ) + side( -1 ) ) / 2;
+        const lastOne = n === ramps.length - 1;
+        check( Math.abs( was - now ) > 0.3 && ( !lastOne || Math.abs( now - around ) < Math.max( 0.5, Math.abs( was - around ) / 3 ) ), `Main: ${r.name} moved aside: where it was ${was.toFixed( 2 )} m, now ${now.toFixed( 2 )} m${lastOne ? `, the ground either side ${around.toFixed( 2 )} m` : ""}` );
+      }
+      log( "SNAP main-moved" );
+      await sleep( 2000 );
+    }
     await sleep( 3500 );
 
     // ---- a project with every Map-Tools tool ( written by the Rust tests: src-tauri/src/unity/tests.rs )
@@ -182,8 +208,9 @@ export async function unityImportSelftest( dir: string ) {
     await waitFor( () => ( st().map?.name === "Synthetic" && terrain.chunks.length ? true : null ), "the synthetic import", 120000 );
     await sleep( 2000 );
     const kinds = st().shapes.map( ( x ) => x.kind ).sort().join( "," );
-    check( kinds === "circle,curve,formation,paint,stamp,stamp", `Synthetic: its inserts and formation the studio's shapes: ${kinds}` );
-    check( st().trails.runs.length === 2 && ( st().trails.runs[0].features?.length ?? 0 ) === 1, `Synthetic: its ski line made trails: ${st().trails.runs.length} runs, ${st().trails.runs[0]?.features?.length ?? 0} feature` );
+    check( kinds === "circle,curve,formation,paint,skiline,stamp,stamp", `Synthetic: its inserts, formation and ski line the studio's shapes: ${kinds}` );
+    const sk = st().shapes.find( ( x ) => x.kind === "skiline" );
+    check( sk?.kind === "skiline" && sk.nodes.length === 3 && sk.features.length === 1 && st().trails.runs.length === 0, `Synthetic: its ski line a ski line: ${sk?.kind === "skiline" ? `${sk.nodes.length} points, ${sk.features.length} feature` : "none"}, no trails` );
     // the formation switched off: its ground taken out, back to its builder's baseline ( 10 + 40 m )
     const f = st().shapes.find( ( x ) => x.kind === "formation" );
     if ( f?.kind === "formation" ) {

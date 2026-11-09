@@ -32,10 +32,13 @@ pub fn export(dir: &Path, out: &Path) -> Result<ExportStats> {
     let mut map = to_map(dir, &p)?;
     // pieces with moving parts: their moving meshes and materials
     super::motion::bake(&mut map.chunks, &mut map.mesh_library);
+    // pieces with a Hue: copies of their textures with it in
+    super::hue::bake(&mut map.chunks, &mut map.texture_library)?;
     let mut fixed_colliders = 0;
     for c in &mut map.chunks {
         for o in &mut c.custom_objects {
             fixed_colliders += physics_safe(&mut o.colliders);
+            seen_by_game(o);
         }
         for t in &mut c.tree_prototypes {
             fixed_colliders += physics_safe(&mut t.colliders);
@@ -53,6 +56,15 @@ pub fn export(dir: &Path, out: &Path) -> Result<ExportStats> {
         fixed_scales: p.objects.iter().filter(|o| needs_scale_fix(o.scale)).count(),
         fixed_colliders,
     })
+}
+
+/// A piece of colliders alone (the Colliders tool's) given a part with no mesh: the game's map loader
+/// (MapRuntimeImporter) leaves out every custom object with neither parts nor lights, colliders and all, while a part
+/// whose mesh is empty it passes over (nothing drawn) and keeps the object.
+pub(crate) fn seen_by_game(o: &mut CustomObject) {
+    if o.parts.is_empty() && o.lights.is_empty() && !o.colliders.is_empty() {
+        o.parts.push(crate::jbrmap::Part { shadow_casting_mode: 0, ..crate::jbrmap::Part::default() });
+    }
 }
 
 /// The game builds its physics (MuJoCo) from every collider of the map at once, and one it refuses — a capsule with
@@ -175,7 +187,7 @@ pub fn to_map(dir: &Path, p: &Project) -> Result<MapData> {
 
     let (mesh_library, texture_library) = match &p.library {
         Some(rel) => {
-            let mut lib = crate::jbrmap::load(dir.join(rel))?;
+            let mut lib = crate::library::userassets::load_project_library(&dir.join(rel))?;
             let used = p.custom_objects.iter().flat_map(|o| &o.parts).flat_map(|pt| &pt.materials).map(|m| m.base_tex.as_str()).collect();
             for k in scenery::unused_paintings(&lib.texture_library, &used) {
                 lib.texture_library.shift_remove(&k);
@@ -277,4 +289,26 @@ pub(crate) fn load_mask(dir: &Path, rel: Option<&str>) -> Result<Option<TextureD
         compression: 0,
         data: Some(bytes),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::jbrmap::{Collider, ColliderShape, Part, SurfaceType};
+
+    #[test]
+    fn colliders_alone_kept_by_the_game() {
+        let c = Collider {
+            shape: ColliderShape::Box, surface_type: SurfaceType::Jib, local_position: Vec3::ZERO, local_rotation: Vec3::ZERO,
+            local_scale: Vec3::ONE, center: Vec3::ZERO, size: Vec3::ONE, radius: 0.5, height: 1.0, direction: 1, mesh_ref: String::new(),
+        };
+        let mut o = CustomObject { colliders: vec![c], ..CustomObject::default() };
+        seen_by_game(&mut o);
+        assert_eq!(o.parts.len(), 1);
+        assert!(o.parts[0].mesh.is_empty());
+        // ( pieces with something to see are left as they are )
+        let mut p = CustomObject { parts: vec![Part { mesh: "a".into(), ..Part::default() }], colliders: o.colliders.clone(), ..CustomObject::default() };
+        seen_by_game(&mut p);
+        assert_eq!(p.parts.len(), 1);
+    }
 }

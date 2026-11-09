@@ -27,8 +27,8 @@ pub(crate) fn readable(name: &str) -> String {
     if out.is_empty() { "Game Material".into() } else { out }
 }
 
-/// Each feature's default colour (from its placeholder's "color" parameter), for those that have one.
-pub(crate) fn default_colours(placeholders_json: &Path) -> Result<HashMap<String, u32>> {
+/// Each feature's default colour's name (from its placeholder's "color" parameter), for those that have one.
+pub(crate) fn default_colours(placeholders_json: &Path) -> Result<HashMap<String, String>> {
     #[derive(Deserialize)]
     struct Info {
         id: String,
@@ -40,8 +40,7 @@ pub(crate) fn default_colours(placeholders_json: &Path) -> Result<HashMap<String
         .into_iter()
         .filter_map(|i| {
             let p = i.parameters.iter().find(|p| p.get("name").and_then(|n| n.as_str()) == Some("color"))?;
-            let name = p.get("default").and_then(|d| d.as_str()).unwrap_or("blue");
-            Some((i.id, NAMED.iter().find(|(n, _)| *n == name).map_or(0x3b82f6, |(_, h)| *h)))
+            Some((i.id, p.get("default").and_then(|d| d.as_str()).unwrap_or("blue").to_string()))
         })
         .collect())
 }

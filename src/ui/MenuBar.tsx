@@ -12,22 +12,36 @@ import { discordShown, setDiscordShown } from "../app/discordPresence";
 import { PopupMenu, type MenuItem } from "./widgets/widgets";
 import { RichText } from "./widgets/RichText";
 import { copySelection, hasClipboard, paste } from "../map/clipboard";
+import { exportGlb, importModels, newAsset, openAssetFile, saveAsset, saveAssetAs, useAssetFile } from "../pieces/assetFiles";
 
 export type { MenuItem };
 
 /**
  * Blender's top bar: the app button ( home screen ), the File / Edit / … pulldowns, the workspace tabs and, on the
- * right, the map and the export / play buttons. Once a menu is open, moving over another title opens that one.
+ * right, the map and the export / play buttons. Once a menu is open, moving over another title opens that one. In
+ * the Assets workspace the File menu and the right are the asset's ( the asset's own file, as Blender's ).
 **/
 export function TopBar( { onShortcuts }: { onShortcuts: () => void } ) {
   const [open, setOpen] = useState<{ name: string; rect: DOMRect } | null>( null );
   const name            = useEditor( ( s ) => s.map?.name );
   const dirty           = useEditor( ( s ) => s.dirty     );
+  const assets          = useEditor( ( s ) => s.centerTab === "editor" && workspaceOf( s.tool ) === "assets" );
+  const asset           = useAssetFile( ( s ) => s.ref );
   // ( the Edit menu's undo and redo steps: drawn again when they change )
   useSyncExternalStore( history.subscribe.bind( history ), () => `${history.canUndo}${history.nextUndo}${history.canRedo}${history.nextRedo}` );
 
+  const assetFile: MenuItem[] = [
+    { label: "New Asset",    icon: "plus",       keys: "Ctrl N", run: () => void newAsset() },
+    { label: "Open…",        icon: "folderOpen", keys: "Ctrl O", title: "An asset file (to open one from the library, use its card's Edit button)", run: () => void openAssetFile() },
+    { sep:   true,           label: "" },
+    { label: "Import…",      icon: "import", keys: "Ctrl I", title: "Models (.glb, .gltf, .obj, .fbx) into the scene, at the 3D cursor", run: () => void importModels() },
+    { label: "Export glTF…", icon: "export", keys: "Ctrl E", title: "The scene (or the selected objects) as a .glb", run: () => void exportGlb() },
+    { sep:   true,           label: "" },
+    { label: "Save",         keys:  "Ctrl S", title: "The whole scene, as one asset", run: () => void saveAsset() },
+    { label: "Save As…",     keys:  "Ctrl Shift S", run: () => void saveAssetAs() },
+  ];
   const menus: Record<string, MenuItem[]> = {
-    File: [
+    File: assets ? assetFile : [
       { label: "New Map", icon: "plus",       keys: "Ctrl N", run: () => newUntitled() },
       { label: "Open…",   icon: "folderOpen", keys: "Ctrl O", run: pickAndOpenProject },
       { sep:   true,                      label: "" },
@@ -100,17 +114,34 @@ export function TopBar( { onShortcuts }: { onShortcuts: () => void } ) {
       <span className="sep" />
       <Workspaces />
       <span className="spacer" />
-      <span className="scene-box" title="The map (its settings are in the Properties editor's Map tab)">
-        <Icon name="mountain" size={14} />
-        <span className="nm">{name && <RichText text={name} />}</span>
-        {dirty && <span className="dirty-dot" title="Unsaved changes"><Icon name="dot" size={10} /></span>}
-      </span>
-      <button className="btn" onClick={exportToGame} title="Export to the game's Maps folder (Ctrl+E)">
-        <Icon name="export" size={14} /> Export
-      </button>
-      <button className="btn play" style={{ marginLeft: 4 }} onClick={playInGame} title="Export and play it in the Game tab (F5)">
-        <Icon name="play" size={12} /> Play
-      </button>
+      { assets ? (
+        <>
+          <span className="scene-box" title="The asset being made (File › Save keeps the whole scene as it)">
+            <Icon name="cube" size={14} />
+            <span className="nm">{asset?.name ?? "New asset"}</span>
+          </span>
+          <button className="btn" onClick={() => void saveAsset()} title="Save the scene as the asset (Ctrl+S)">
+            <Icon name="check" size={14} /> Save
+          </button>
+          <button className="btn" style={{ marginLeft: 4 }} onClick={() => void exportGlb()} title="Export the scene as a .glb (Ctrl+E)">
+            <Icon name="export" size={14} /> Export
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="scene-box" title="The map (its settings are in the Properties editor's Map tab)">
+            <Icon name="mountain" size={14} />
+            <span className="nm">{name && <RichText text={name} />}</span>
+            {dirty && <span className="dirty-dot" title="Unsaved changes"><Icon name="dot" size={10} /></span>}
+          </span>
+          <button className="btn" onClick={exportToGame} title="Export to the game's Maps folder (Ctrl+E)">
+            <Icon name="export" size={14} /> Export
+          </button>
+          <button className="btn play" style={{ marginLeft: 4 }} onClick={playInGame} title="Export and play it in the Game tab (F5)">
+            <Icon name="play" size={12} /> Play
+          </button>
+        </>
+      ) }
     </div>
   );
 }

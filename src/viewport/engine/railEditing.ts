@@ -1,10 +1,10 @@
 // Editing a piece's grind rail in the view ( Properties › Rail › Edit points ): its points added, moved, deleted.
 
-import { type CustomObjectEntry } from "../../core/types";
+import { type CustomObjectEntry, type RailTweak } from "../../core/types";
 import { useEditor } from "../../map/store";
-import { isModel, railOfCurve, withCurvePoints } from "../../model/objects";
+import { isModel, railOfCurve, withCurvePoints, withTweaks } from "../../model/objects";
 import { partsFor } from "../../pieces/library";
-import { insertAt, railPath, withRail, type P3 } from "../../pieces/rail";
+import { insertAt, railPath, withRail, withTweak, type P3 } from "../../pieces/rail";
 import type { Engine } from "./engine";
 
 // A piece's grind rail being edited.
@@ -20,7 +20,8 @@ export class RailEditing {
     const found = re ? st.customObjects.find( ( o ) => o.uid === re.uid ) : undefined;
     // ( a curve piece's rail is its curve: its own points are edited )
     const piece = found ? railOfCurve( found ) : null;
-    if ( !this.drag ) this.engine.railTool.sync( piece, re?.point ?? null, st.gizmoMode === "rotate" );
+    const collider = re?.collider ?? null;
+    if ( !this.drag ) this.engine.railTool.sync( piece, collider === null ? re?.point ?? null : null, st.gizmoMode === "rotate" && collider === null, collider, found ?? null );
     this.engine.customR.guides.hide( piece?.rail ? piece.uid : null );
     if ( !this.drag ) this.engine.gizmo.sync();
   }
@@ -43,6 +44,31 @@ export class RailEditing {
     const uid = st.railEdit?.uid;
     if ( !st.customObjects.some( ( x ) => x.uid === uid && x.rail ) ) return;
     st.commit( label, { customObjects: st.customObjects.map( ( x ) => ( x.uid !== uid || !x.rail ? x : isModel( x ) && x.model.curve ? withCurvePoints( x, points, up ) : withRail( x, { ...x.rail, points, up } ) ) ) } );
+  }
+
+  /**
+   * Keeps the rail's colliders as shown ( after one was moved, turned or sized, or put back ); they're made again.
+  **/
+  commitTweaks( label: string, tweaks: RailTweak[] | undefined = this.engine.railTool.liveTweaks() ) {
+    const st  = useEditor.getState();
+    const uid = st.railEdit?.uid;
+    if ( !st.customObjects.some( ( x ) => x.uid === uid && x.rail ) ) return;
+    st.commit( label, { customObjects: st.customObjects.map( ( x ) => ( x.uid !== uid || !x.rail ? x : withTweaks( x, tweaks ) ) ) } );
+  }
+
+  /**
+   * The picked collider put back as the rail makes it: all of it, or only how it's moved, turned or sized ( Alt+G,
+   * Alt+R, Alt+S ); null: every collider.
+  **/
+  resetCollider( only?: "shift" | "turn" | "size" | null ) {
+    const st = useEditor.getState(), i = st.railEdit?.collider;
+    if ( only === null ) return this.commitTweaks( "Reset colliders", [] );
+    const run = i === null || i === undefined ? null : this.engine.railTool.run( i );
+    if ( !run?.tweak ) return;
+    const { at: _at, ...t } = run.tweak;
+    if ( only ) delete t[only];
+    const label             = only ? { shift: "Clear collider location", turn: "Clear collider rotation", size: "Clear collider scale" }[only] : "Reset collider";
+    this.commitTweaks( label, withTweak( this.engine.railTool.liveTweaks(), run, only ? t : null ) );
   }
 
   /**

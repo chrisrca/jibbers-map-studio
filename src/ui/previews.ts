@@ -17,7 +17,7 @@ import { CustomObjectsRenderer } from "../viewport/render/customRenderer";
 import { getEngine } from "./Viewport";
 
 // Bump when previews are drawn differently: the ones on disk are drawn again.
-const PREVIEW_VERSION = 1;
+const PREVIEW_VERSION = 2;
 
 const sphere = new THREE.SphereGeometry( 0.5, 48, 32 );
 

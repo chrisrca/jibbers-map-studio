@@ -8,7 +8,8 @@ import { groundRes } from "../terrain/generate";
 import { current, setLayout } from "../terrain/mapSize/edges";
 import { terrain, type ChunkInit } from "../terrain/terrain";
 import { landOf, type Heights, type MadeOptions, type MapBox } from "./land";
-import { buildScenery } from "./scenery/scenery";
+import type { Curve } from "../core/curve";
+import { buildScenery, SCENERY_DETAIL } from "./scenery/scenery";
 
 // The squares the map's chunks cover ( west, south, east, north ).
 export const chunkCells = (): MapBox[] => terrain.chunks.map( ( c ) => [c.position[0], c.position[2], c.position[0] + c.size[0], c.position[2] + c.size[2]] );
@@ -144,25 +145,74 @@ export function removeChunk( key: string ): boolean {
 }
 
 /**
- * The surroundings built ( again ) round the map as it is now, `radius` metres out, in place of any it had.
+ * How a map's surroundings are built: how far out they reach ( metres ), how far their far edge drops away, and how
+ * fine they are from the play area out ( geo/scenery/scenery.ts surroundingsPlan ).
 **/
-export async function buildSurroundings( radius: number, onProgress?: ( stage: string, f: number ) => void, signal?: AbortSignal ) {
-  const st   = useEditor.getState();
-  const land = landOf();
+export interface SurroundingsLook { radius: number; drop: number; detail: Curve }
+export const SURROUNDINGS_LOOK: SurroundingsLook = { radius: 8000, drop: 300, detail: SCENERY_DETAIL };
+
+/**
+ * How the map's surroundings are built now ( as they were last, else as usual ).
+**/
+export function surroundingsLook(): SurroundingsLook {
+  const sc = useEditor.getState().customObjects.find( isScenery )?.scenery;
+  return {
+    radius: sc?.radius ?? SURROUNDINGS_LOOK.radius,
+    drop:   sc?.drop   ?? SURROUNDINGS_LOOK.drop,
+    detail: Array.isArray( sc?.detail ) ? sc.detail : SURROUNDINGS_LOOK.detail,
+  };
+}
+
+// The land last read for the surroundings, by where, how and how fine ( the map's too: a new map starts afresh ): built
+// again as the detail curve's tried out, what's the same isn't downloaded again
+const landKept = new Map<string, Promise<Heights>>();
+let landFor    = "";
+const kept     = ( key: string, read: () => Promise<Heights> ) => {
+  const map = useEditor.getState().projectDir ?? "";
+  if ( map !== landFor ) {
+    landKept.clear();
+    landFor = map;
+  }
+  let p = landKept.get( key );
+  if ( !p ) {
+    p = read();
+    landKept.set( key, p );
+    p.catch( () => landKept.delete( key ) );
+    // ( the last dozen kept )
+    if ( landKept.size > 12 ) landKept.delete( landKept.keys().next().value! );
+  }
+  return p;
+};
+
+/**
+ * The surroundings built ( again ) round the map as it is now, as they were with `change` made, in place of any it had.
+**/
+export async function buildSurroundings( change: Partial<SurroundingsLook>, onProgress?: ( stage: string, f: number ) => void, signal?: AbortSignal, rockAngle?: number ) {
+  const st    = useEditor.getState();
+  const land  = landOf();
   if ( !st.projectDir || !land ) throw new Error( "This map has no land round it" );
-  const made = ( await buildScenery( {
+  const look  = { ...surroundingsLook(), ...change };
+  const angle = rockAngle ?? st.customObjects.find( isScenery )?.scenery?.rockAngle ?? SCENERY_ROCK_ANGLE;
+  // ( the download named for what it is: the best data round the map's middle, "USGS 3DEP 1 m lidar" )
+  const b     = terrain.bounds();
+  const best  = land.kind === "real" ? await land.best( [b.x0, b.z0, b.x1, b.z1], signal ).catch( () => null ) : null;
+  const made  = ( await buildScenery( {
     dir:        st.projectDir,
     cells:      chunkCells(),
-    radius,
+    ...look,
+    rockAngle:  angle,
+    downloading: land.kind === "real" ? `Downloading ${best ?? "elevation data"}…` : "Making the land…",
     edge:       ( x, z ) => terrain.heightAt( x, z ),
-    far:        ( box, step, sig ) => land.coarse( box, step, sig ),
+    far:        ( box, step, sig ) => kept( `${land.kind}|coarse|${box.join( "," )}|${step}`, () => land.coarse( box, step, sig ) ),
+    // ( close by, the best there is: lidar where it's been flown )
+    near:       ( box, step, sig ) => kept( `${land.kind}|fine|${box.join( "," )}|${step}`, async () => ( await land.fine( box, step, undefined, sig ) ).heights ),
     onProgress,
     signal,
   } ) ) as Omit<CustomObjectEntry, "uid">;
   land.keep();
   const now   = useEditor.getState();
   const was   = now.customObjects.find( isScenery );
-  const piece = { ...made, uid: was?.uid ?? newUid(), scenery: { rockAngle: was?.scenery?.rockAngle ?? SCENERY_ROCK_ANGLE, radius } } as CustomObjectEntry;
+  const piece = { ...made, uid: was?.uid ?? newUid(), scenery: { rockAngle: angle, ...look } } as CustomObjectEntry;
   // ( the map's library read again first, its new meshes in it: drawn before, the old ones were drawn, or none )
   if ( !now.library ) useEditor.setState( { library: "assets/library.jbrmap" } );
   ( await import( "../ui/Viewport" ) ).getEngine()?.customR.reloadLibrary();
@@ -172,9 +222,9 @@ export async function buildSurroundings( radius: number, onProgress?: ( stage: s
     labels:        { ...now.labels, [piece.uid]: now.labels[piece.uid] ?? "Surroundings" },
     dirty:         true,
   } );
-  // ( painted with rock from another slope before: painted so again, as it was )
-  const angle = was?.scenery?.rockAngle;
-  if ( angle !== undefined && angle !== SCENERY_ROCK_ANGLE ) await ( await import( "./scenery/inner" ) ).repaintScenery( piece.uid, angle );
+  // ( painted with rock from another slope before, and only one ring, which is painted the usual way: painted so again )
+  const near = piece.parts.some( ( p ) => /^Scenery\/[^/]+\/(near|ring\d+)-/.test( p.mesh ) );
+  if ( !near && angle !== SCENERY_ROCK_ANGLE ) await ( await import( "./scenery/inner" ) ).repaintScenery( piece.uid, angle );
 }
 
 /**
@@ -194,5 +244,5 @@ export async function refitSurroundings() {
   const st = useEditor.getState();
   const sc = st.customObjects.find( isScenery );
   if ( !sc ) return;
-  await buildSurroundings( sc.scenery?.radius ?? 8000, ( stage, f ) => st.setBusy( `${stage} ${Math.round( f * 100 )}%` ) );
+  await buildSurroundings( {}, ( stage, f ) => st.setBusy( stage, f ) );
 }

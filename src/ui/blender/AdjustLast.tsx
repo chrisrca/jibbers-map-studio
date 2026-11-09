@@ -36,7 +36,7 @@ export const ADD_FIELDS: Record<PrimitiveId, Field[]> = {
   icosphere: [{ key: "rings", label: "Subdivisions", def: 2, min: 1, max: 6, whole: true }, RADIUS],
   cylinder:  [VERTICES, RADIUS, DEPTH],
   cone:      [VERTICES, RADIUS, DEPTH],
-  torus:     [{ key: "segments", label: "Major Segments", def: 32, min: 3, max: 256, whole: true }, { key: "minor", label: "Minor Segments", def: 12, min: 3, max: 256, whole: true }, RADIUS],
+  torus:     [{ key: "segments", label: "Major Segments", def: 48, min: 3, max: 256, whole: true }, { key: "minor", label: "Minor Segments", def: 12, min: 3, max: 256, whole: true }, { ...RADIUS, label: "Major Radius" }],
   grid:      [{ key: "segments", label: "Subdivisions", def: 10, min: 1, max: 100, whole: true }, SIZE],
 };
 

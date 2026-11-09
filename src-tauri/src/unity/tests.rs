@@ -372,13 +372,17 @@ fn map_tools_tools_made_the_studios() {
     // the paint: a 6.25 m wide line, a marking, 0.8 of the way
     let pa = by("paint");
     assert_eq!((pa["target"].as_str(), pa["colour"].as_i64(), pa["width"].as_f64(), pa["coverage"].as_f64().map(|c| (c * 10.0).round())), (Some("marking"), Some(11), Some(6.25), Some(8.0)));
-    let tr = tools::trails(&s, &mut notes).expect("trails");
-    let runs = tr["net"]["runs"].as_array().unwrap();
-    assert_eq!((tr["net"]["nodes"].as_array().unwrap().len(), runs.len()), (3, 2));
-    assert_eq!((runs[0]["wa"].as_f64(), runs[0]["wb"].as_f64(), runs[0]["roll"].as_f64()), (Some(14.0), Some(10.0), Some(-5.0)));
-    assert_eq!(runs[0]["features"][0]["kind"], "kicker");
-    assert!(runs[0]["stripes"][0]["pos"].as_f64().unwrap() > 0.3);
-    assert_eq!(tr["net"]["nodes"][0]["p"], serde_json::json!([110.0, 50.0, 210.0]));
+    // the ski line: the studio's own, every setting as it was
+    let lines = tools::ski_lines(&s, &mut notes);
+    assert_eq!(lines.len(), 1);
+    let l = &lines[0];
+    assert_eq!((l["kind"].as_str(), l["width"].as_f64(), l["nodes"].as_array().unwrap().len()), (Some("skiline"), Some(14.0), 3));
+    assert_eq!(l["nodes"][0]["p"], serde_json::json!([110.0, 50.0, 210.0]));
+    assert_eq!((l["nodes"][0]["width"].is_null(), l["nodes"][1]["width"].as_f64(), l["nodes"][0]["roll"].as_f64()), (true, Some(10.0), Some(5.0)));
+    let f = &l["features"][0];
+    assert_eq!((f["name"].as_str(), f["start"].as_f64(), f["length"].as_f64(), f["height"].as_f64(), f["sideBlend"].as_f64()), (Some("Kicker"), Some(5.0), Some(12.0), Some(3.0), Some(0.25)));
+    assert_eq!((f["stripes"][0]["across"].as_bool(), f["stripes"][0]["position"].as_f64(), f["stripes"][0]["colour"].as_i64()), (Some(true), Some(1.0), Some(0)));
+    assert_eq!(f["profile"].as_array().unwrap().len(), 3);
 }
 
 #[test]
@@ -555,4 +559,53 @@ fn rock_surfaces_in_the_export() {
         }
     }
     eprintln!("trees: {:?}", map.chunks[0].tree_prototypes.iter().map(|t| (t.object_id.clone(), t.parts.len(), t.colliders.len(), t.instance_count())).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_full_project_comes_in_whole() {
+    use super::{export, scene, tools};
+    let root = std::env::temp_dir().join("jibbers-unity-full");
+    let want = super::fixture::full(&root);
+    let scene_path = root.join("Assets/Full.unity");
+    let p = UnityProject::open(&scene_path).unwrap();
+    let s = scene::open(&p, &scene_path).unwrap();
+    let (map, notes) = export::map_of(&s).unwrap();
+    assert_eq!((map.name.as_str(), map.author.as_str(), map.chunks.len()), ("Full Test", "Studio Tests", 4), "{notes:?}");
+    assert_eq!((map.allow_background_mountains, map.override_time, map.day_time_hours), (false, true, 14.0));
+    let objects: Vec<_> = map.chunks.iter().flat_map(|c| c.objects.iter()).collect();
+    assert_eq!(objects.len(), want["objects"].as_u64().unwrap() as usize, "{:?}", objects.iter().map(|o| &o.id).collect::<Vec<_>>());
+    assert!(objects.iter().any(|o| o.id == "picnic_table" && (o.position.x - 100.0).abs() < 1e-3), "the prefab instance: {:?}", objects.iter().map(|o| (&o.id, o.position.x)).collect::<Vec<_>>());
+    assert_eq!(objects.iter().filter(|o| o.lift.is_some()).count(), 1);
+    let cannon = objects.iter().find(|o| o.id == "snowcannon").unwrap();
+    assert_eq!(cannon.parameters.len(), 3);
+    assert_eq!(map.spawn_points.len(), 3);
+    let pieces: Vec<_> = map.chunks.iter().flat_map(|c| c.custom_objects.iter()).collect();
+    assert_eq!(pieces.len(), 3, "the inactive one left out");
+    let jib = &pieces[0];
+    assert_eq!((jib.colliders.len(), format!("{:?}", jib.surface_type)), (2, "Jib".to_string()));
+    assert!(pieces.iter().any(|p| p.lights.len() == 1 && !p.lod_groups.is_empty()), "the lamp post: its light and LODs");
+    assert!(pieces.iter().any(|p| p.colliders.iter().any(|c| format!("{:?}", c.shape) == "Mesh")), "a convex mesh collider");
+    let protos = &map.chunks[3].tree_prototypes;
+    assert_eq!(protos.len(), 2);
+    assert_eq!((protos[0].object_id.as_str(), protos[0].instance_count()), ("tree_spruce", want["gameTrees"].as_u64().unwrap() as usize));
+    assert_eq!((protos[1].parts.len(), protos[1].lod_groups.len(), protos[1].instance_count()), (2, 1, want["meshTrees"].as_u64().unwrap() as usize));
+    assert!(map.chunks[0].snow_mask.is_some() && map.chunks[1].snow_mask_4channel && !map.chunks[0].snow_mask_4channel);
+    let mut notes = vec![];
+    let (shapes, patches) = tools::shapes(&s, &mut notes);
+    for (k, n) in want["shapes"].as_object().unwrap() {
+        assert_eq!(shapes.iter().filter(|x| x["kind"] == k.as_str()).count() as u64, n.as_u64().unwrap(), "{k}: {notes:?}");
+    }
+    assert!(!patches.is_empty(), "the formation's change over its baseline");
+    let lines = tools::ski_lines(&s, &mut notes);
+    assert_eq!(lines.len() as u64, want["skiLines"].as_u64().unwrap());
+    let names: Vec<&str> = lines[0]["features"].as_array().unwrap().iter().map(|f| f["name"].as_str().unwrap_or("")).collect();
+    assert_eq!(names, ["Kicker", "Table", "Roller", "Landing"]);
+    assert_eq!(lines[0]["features"][0]["stripes"].as_array().unwrap().len(), 3, "the kicker's stripes");
+    // and as the studio gets it: a project, the inserts to be taken as made
+    let dir = std::env::temp_dir().join("jibbers-unity-full-project");
+    let _ = std::fs::remove_dir_all(&dir);
+    let (proj, _) = super::import(&scene_path, &dir).unwrap();
+    let ed = &proj.editor;
+    assert_eq!(ed["unbake"].as_array().unwrap().len(), 7, "the inserts and the ski line: {}", ed["unbake"]);
+    assert!(ed.get("trails").is_none());
 }

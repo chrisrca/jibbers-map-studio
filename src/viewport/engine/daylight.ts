@@ -10,6 +10,39 @@ import { gameSkyLook, mapGameTime, setLoadedGameSky, type GameSkyData } from "..
 import { DAY, dayLook, mapHour, skyTexture, type DayLook } from "../render/timeOfDay";
 import type { Engine } from "./engine";
 
+// The sun's shadow map's size ( texels a side ), and how far off it's put along its light
+const SHADOW_MAP = 2048, SUN_AWAY = 1000;
+const ZERO       = new THREE.Vector3(), UP = new THREE.Vector3( 0, 1, 0 );
+
+/**
+ * Shadows cast whole by all but cutout materials, as Unity's Lit casts them ( only alpha clipping cuts its shadow ).
+ * three runs a material's colour in the shadow pass for its alpha whenever it has one; a piece with more than one
+ * material then had its shadow's shader made again for each, every frame ( one shadow drawing per piece, its colour
+ * swapped between them: 4 fps on a busy park ).
+**/
+function solidShadows( renderer: THREE.WebGPURenderer ) {
+  type Nodes    = { colorNode: unknown; depthNode: unknown; positionNode: unknown };
+  const r       = renderer as unknown as { _getShadowNodes( m: THREE.Material ): Nodes };
+  const own     = r._getShadowNodes.bind( r );
+  const solid   = new WeakMap<Nodes, Nodes>();
+  r._getShadowNodes = ( m ) => {
+    const n = own( m );
+    if ( m.alphaTest > 0 || n.colorNode === null ) return n;
+    let s   = solid.get( n );
+    if ( !s ) solid.set( n, ( s = { ...n, colorNode: null } ) );
+    return s;
+  };
+  // ( and each material of a piece with several drawn into the shadow as its own: they still differ in sides, and
+  // three keeps one shadow drawing per piece unless told apart by the pass )
+  type Draw         = ( o: THREE.Object3D, s: THREE.Scene, c: THREE.Camera, g: unknown, m: THREE.Material, gr: unknown, l: unknown, cc?: unknown, pass?: string | null ) => void;
+  const draw        = renderer.renderObject.bind( renderer ) as Draw;
+  renderer.renderObject = ( ( o, s, c, g, m, gr, l, cc = null, pass = null ) => {
+    const shadowPass = ( s.overrideMaterial as { isShadowPassMaterial?: boolean } | null )?.isShadowPassMaterial;
+    if ( pass === null && shadowPass && Array.isArray( ( o as THREE.Mesh ).material ) ) pass = `shadow${m.uuid}`;
+    draw( o, s, c, g, m, gr, l, cc, pass );
+  } ) as Draw as unknown as typeof renderer.renderObject;
+}
+
 // The game's sky shader, as a node.
 type SkyNode = ReturnType<ReturnType<typeof wgslFn>>;
 
@@ -50,8 +83,77 @@ export class Daylight {
     scene.fog                  = new THREE.Fog( DAY.horizon.clone(), 3000, 16000 );
     // low-ish sun from the side so slopes and grooves read clearly ( the map's time of day, when it's fixed: applyTime )
     this.sun.position.copy( DAY.sunDir ).multiplyScalar( 1000 );
-    scene.add( this.sun, this.hemi );
+    this.sunWay.copy( DAY.sunDir ).normalize();
+    // the sun's shadows, soft and as dark as the game's ( its sun's shadow strength, as read from it ); a box of them
+    // about where the view looks ( followShadow )
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type    = THREE.PCFShadowMap;
+    const shadow               = this.sun.shadow;
+    this.sun.castShadow        = true;
+    shadow.mapSize.set( SHADOW_MAP, SHADOW_MAP );
+    shadow.intensity           = 0.64;
+    shadow.radius              = 2;
+    shadow.bias                = -0.0004;
+    shadow.normalBias          = 0.04;
+    shadow.camera.near         = 1;
+    shadow.camera.far          = SUN_AWAY * 2;
+    solidShadows( renderer );
+    scene.add( this.sun, this.sun.target, this.hemi );
   }
+
+  /**
+   * The sun's shadows about `focus` ( what the view looks at ): the game draws them out to 75 m from its camera; the
+   * editor's view is often further off, so they reach further with the camera's distance, to a limit. Drawn again only
+   * when `changed` ( something in the view may have: the camera moving alone leaves them be; at most 30 times a
+   * second while it changes every frame ), the sun's moved, or the view's gone far enough for its box to move: in
+   * steps of a quarter of it ( and its size in steps of a quarter more ), each whole texels of the shadow map, so the
+   * edges of shadows don't crawl. Its half-width.
+  **/
+  followShadow( camera: THREE.Camera, focus: THREE.Vector3, changed: boolean ): number {
+    const reach  = 75 * 1.25 ** Math.ceil( Math.log( THREE.MathUtils.clamp( camera.position.distanceTo( focus ) * 0.75, 75, 250 ) / 75 ) / Math.log( 1.25 ) - 1e-9 );
+    const step   = reach / 4, half = reach + step;
+    // ( the middle in the sun's own frame, snapped to the step there )
+    const dir    = this.sunWay;
+    const look   = this.sunLook.lookAt( dir, ZERO, UP );
+    const local  = this.sunAt.copy( focus ).applyMatrix4( this.sunInv.copy( look ).invert() );
+    local.set( Math.round( local.x / step ) * step, Math.round( local.y / step ) * step, Math.round( local.z / step ) * step );
+    const key    = `${half}|${local.x},${local.y},${local.z}|${dir.x},${dir.y},${dir.z}`;
+    const shadow = this.sun.shadow;
+    shadow.autoUpdate = false;
+    // ( changing every frame, a drag or a brush: drawn again 30 times a second, and once it stops, not each frame )
+    const now    = performance.now();
+    if ( key === this.shadowKey ) {
+      if ( changed && now - this.shadowAt < 33 ) {
+        this.shadowOwed = true;
+        redraw();
+      }
+      if ( !changed && !this.shadowOwed || changed && now - this.shadowAt < 33 ) return half;
+    }
+    this.shadowAt      = now;
+    this.shadowOwed    = false;
+    this.shadowKey     = key;
+    shadow.needsUpdate = true;
+    const cam          = shadow.camera as THREE.OrthographicCamera;
+    if ( cam.right !== half ) {
+      cam.left   = cam.bottom = -half;
+      cam.right  = cam.top    = half;
+      cam.updateProjectionMatrix();
+    }
+    const centre = local.applyMatrix4( look );
+    this.sun.target.position.copy( centre );
+    this.sun.position.copy( centre ).addScaledVector( dir, SUN_AWAY );
+    this.sun.updateMatrixWorld();
+    this.sun.target.updateMatrixWorld();
+    return half;
+  }
+  private shadowKey  = "";
+  private shadowAt   = 0;
+  private shadowOwed = false;
+  // the way to the sun ( the time of day's )
+  private sunWay  = new THREE.Vector3( 0, 1, 0 );
+  private sunAt   = new THREE.Vector3();
+  private sunLook = new THREE.Matrix4();
+  private sunInv  = new THREE.Matrix4();
 
   /**
    * The game's sky drawn by its own shader ( its constants set by the time: applyTime ).
@@ -117,6 +219,7 @@ export class Daylight {
     if ( key === this.dayKey ) return;
     this.dayKey = key;
     this.sun.position.copy( look.sunDir ).multiplyScalar( 1000 );
+    this.sunWay.copy( look.sunDir ).normalize();
     snowLook.sunView.value.copy( look.sunDir ).normalize();
     this.sun.color.copy( look.sunColor );
     this.sun.intensity = look.sunIntensity;

@@ -35,6 +35,9 @@ export interface EditorData {
   shapes?:      Shape[];
   // ( the shapes whose change in the ground is kept in shapes/<uid>.bin )
   shapePatches?: string[];
+  // shapes that came worked into the ground ( a Unity scene's terrain inserts ), to be taken as made when the project
+  // is first opened ( terrain/shapes/unbake.ts ); gone once it's saved
+  unbake?:      string[];
   trails?:      ReturnType<typeof trailEditorData>;
   collections?: Collection[];
   membership?:  Record<string, string>;

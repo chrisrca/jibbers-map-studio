@@ -18,6 +18,8 @@
 //! levels, and of each mesh its most detailed level. A feature whose setting picks one of several children (the
 //! snow cannon's direction: MeshDown, MeshFlat…) has each of those renderers tagged with its option.
 //!
+//! The materials the game swaps in for a colour (its blacks: features/colours.rs) in `materials`: {name: material}.
+//!
 //! A feature's lights (a floodlight's lamps, a snow cannon's) beside it in `lights`: {id: [light…]}, a light being
 //! {"type" (Unity's: 0 spot, 1 directional, 2 point), "color", "intensity", "range", "spotAngle", "innerSpotAngle",
 //! "matrix" (in the prefab's frame, as a renderer's), "variant"}.
@@ -51,7 +53,7 @@ use serde_json::{json, Value};
 use unityfile::{At, Game, V};
 
 /// Bump when what's read changes: the look is read again.
-pub const VERSION: u32 = 11;
+pub const VERSION: u32 = 13;
 const MAX_TEX: u32 = 1024;
 const GAME_FILES: [&str; 2] = ["resources.assets", "globalgamemanagers.assets"];
 
@@ -59,6 +61,7 @@ const GAME_OBJECT: i32 = 1;
 const TRANSFORM: i32 = 4;
 const MESH_RENDERER: i32 = 23;
 const MESH_FILTER: i32 = 33;
+const MATERIAL: i32 = 21;
 const LOD_GROUP: i32 = 205;
 const LIGHT: i32 = 108;
 
@@ -205,6 +208,19 @@ fn read_look(data: &Path, out: &Path, placeholders_json: &Path, stamp: &str) -> 
             features.insert(id, Value::Array(renderers));
         }
     }
+    // the materials the game swaps in for a colour (its blacks: features/colours.rs), by name
+    let wanted = features::swapped_materials();
+    let mut materials = serde_json::Map::new();
+    for (file, f) in g.files.iter().enumerate() {
+        for o in f.objects.iter().filter(|o| o.class == MATERIAL) {
+            let at = At { file, path: o.path_id };
+            let Ok(m) = g.read(at) else { continue };
+            let name = m.get("m_Name").s();
+            if wanted.iter().any(|w| w == name) && !materials.contains_key(name) {
+                materials.insert(name.to_string(), rd.material(at)?);
+            }
+        }
+    }
     // the textures, decoded and written side by side
     use rayon::prelude::*;
     rd.jobs.par_iter().try_for_each(|(at, normal, file)| -> Result<()> {
@@ -219,7 +235,7 @@ fn read_look(data: &Path, out: &Path, placeholders_json: &Path, stamp: &str) -> 
         Ok(())
     })?;
     let n = features.len();
-    let index = json!({ "version": VERSION, "source": stamp, "features": features, "lights": lights });
+    let index = json!({ "version": VERSION, "source": stamp, "features": features, "lights": lights, "materials": materials });
     std::fs::write(out.join("index.json"), serde_json::to_vec_pretty(&index)?)?;
     Ok(n)
 }

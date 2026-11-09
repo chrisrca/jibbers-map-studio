@@ -8,6 +8,9 @@ pub(crate) struct LookIndex {
     /// each feature's lights (a floodlight's lamps, a snow cannon's)
     #[serde(default)]
     pub(crate) lights: HashMap<String, Vec<LookLight>>,
+    /// the materials the game swaps in for a colour (its blacks: features/colours.rs), by name
+    #[serde(default)]
+    pub(crate) materials: HashMap<String, LookMaterial>,
 }
 
 /// A light in a feature's prefab (gamelook/mod.rs), Unity's numbers.
@@ -90,6 +93,9 @@ pub(crate) fn quat_of(r: [[f32; 3]; 3]) -> [f32; 4] {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LookRenderer {
     pub(crate) mesh: String,
+    /// the game's name for its mesh (features/colours.rs goes by it)
+    #[serde(default)]
+    pub(crate) mesh_name: String,
     pub(crate) vertex_count: usize,
     pub(crate) submeshes: Vec<usize>,
     /// column-major, the renderer in the prefab's frame

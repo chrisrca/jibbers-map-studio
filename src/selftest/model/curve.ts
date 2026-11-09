@@ -47,8 +47,12 @@ export async function curveSelftest( dir: string ) {
     };
     canvas.dispatchEvent( new PointerEvent( "pointerenter", { bubbles: true } ) );
     pt( "pointermove", r.width / 2, r.height / 2, { buttons: 0 } );
-    key( "A", { shiftKey: true } );
-    log( `Kinked Rail in the add menu: ${await menu( "Kinked Rail" )}` );
+    // ( curve rails aren't in the Add menu since 0.1.1: one made as the menu made it, its editing what's tested )
+    const { CURVE_PRESETS } = await import( "../../model/curve" );
+    eng.menus.addCurveInView( CURVE_PRESETS.find( ( p ) => p.label === "Kinked Rail" )! );
+    await sleep( 400 );
+    st().setSelection( [{ kind: "custom", uid: st().customObjects.find( ( o ) => o.model?.curve )!.uid }] );
+    await sleep( 200 );
     const rail = () => st().customObjects.find( ( o ) => o.model?.curve )!;
     const info = () => {
       const o = rail();

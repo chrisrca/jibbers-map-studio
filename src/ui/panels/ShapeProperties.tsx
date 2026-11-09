@@ -12,6 +12,7 @@ import { terrain } from "../../terrain/terrain";
 import { NumberField, Panel } from "../widgets/controls";
 import { CurveEditor } from "../widgets/CurveEditor";
 import { Dropdown } from "../widgets/widgets";
+import { SkiLineProps } from "./SkiLineProperties";
 
 const ground = ( p: [number, number] ) => {
   const h = terrain.heightAt( p[0], p[1] );
@@ -62,6 +63,7 @@ export function ShapeProperties( { s }: { s: Shape } ) {
   if ( s.kind === "stamp" ) return <StampProps s={s} />;
   if ( s.kind === "formation" ) return <FormationProps s={s} />;
   if ( s.kind === "paint" ) return <PaintProps s={s} />;
+  if ( s.kind === "skiline" ) return <SkiLineProps s={s} />;
   return <CircleProps s={s} />;
 }
 

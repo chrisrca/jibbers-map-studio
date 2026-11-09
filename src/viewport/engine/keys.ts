@@ -1,6 +1,10 @@
 // The 3D view's keys: the numpad's views, each tool's own, and the Modelling workspace's ( Blender's ).
 
+import type { V3 } from "../../core/coords";
+import { deltaBetween, transformCustom } from "../../core/transform";
+import { arr3 } from "../../core/types";
 import { unlocked, useEditor } from "../../map/store";
+import { withRailAgain } from "../../pieces/rail";
 import { deleteShape } from "../../terrain/shapes/edits";
 import { terrain } from "../../terrain/terrain";
 import { deleteTrails, connect } from "../../trails/edits";
@@ -41,6 +45,19 @@ export class ViewportKeys {
       e.preventDefault();
       return;
     }
+    // a G / R / S drag under way, anywhere: X / Y / Z ( Shift: the other two ) hold it to an axis or plane, a number typed
+    // sets it, Esc lets go, Enter keeps
+    if ( this.engine.blGizmo.dragging && !this.engine.controls.flying ) {
+      const k = e.key.toLowerCase(), g = this.engine.blGizmo;
+      if ( k === "escape" ) g.cancel();
+      else if ( k === "enter" || k === " " ) g.up();
+      else if ( k === "x" || k === "y" || k === "z" ) g.constrain( ( { x: 0, y: 1, z: 2 } as const )[k], e.shiftKey );
+      else if ( /^[0-9.]$/.test( e.key ) || e.key === "-" ) g.type( e.key );
+      else if ( k === "backspace" ) g.type( "\b" );
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
     if ( st.tool === "model" && !this.engine.controls.flying && this.modelKey( e ) ) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -49,23 +66,31 @@ export class ViewportKeys {
 
     if ( this.engine.input.sizeDrag && ( e.key === "Escape" || e.key === "Enter" ) ) {
       this.engine.input.endSizeDrag( e.key === "Enter" );
+      // ( only the drag's: Esc didn't also drop the brush for Select )
       e.preventDefault();
+      e.stopImmediatePropagation();
       return;
     }
-    if ( st.tool === "sculpt" ) {
-      if ( e.key === "[" ) st.setSculpt( { radius: Math.max( 0.25, st.sculpt.radius / 1.15 ) } );
-      if ( e.key === "]" ) st.setSculpt( { radius: Math.min( 500,  st.sculpt.radius * 1.15 ) } );
+    // the terrain brushes and Scatter alike: [ ] the brush smaller or bigger, F / Shift+F its size or strength with the mouse
+    const brush = this.engine.input.brushValue( "radius" );
+    if ( brush && !e.ctrlKey && !e.altKey ) {
+      if ( e.key === "[" ) brush.set( brush.get() / 1.15 );
+      if ( e.key === "]" ) brush.set( brush.get() * 1.15 );
+      if ( e.key.toLowerCase() === "f" && !this.engine.controls.flying && !this.engine.input.stroke && !this.engine.input.sizeDrag ) {
+        this.engine.input.startSizeDrag( e.shiftKey ? "strength" : "radius" );
+        e.preventDefault();
+        return;
+      }
     }
     if ( st.tool === "material" && st.materialMode === "paint" ) {
       if ( e.key === "[" ) st.setPaint( { radius: Math.max( 0.005, st.paint.radius / 1.15 ) } );
       if ( e.key === "]" ) st.setPaint( { radius: Math.min( 5,     st.paint.radius * 1.15 ) } );
       if ( e.key.toLowerCase() === "x" && !e.ctrlKey ) st.setPaint( { rgb: st.paint.rgb2, rgb2: st.paint.rgb } );
     }
-    if ( st.tool === "paint" ) {
-      if ( e.key === "[" ) st.setPaint( { radius: Math.max( 0.25, st.paint.radius / 1.15 ) } );
-      if ( e.key === "]" ) st.setPaint( { radius: Math.min( 500,  st.paint.radius * 1.15 ) } );
-      if ( !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "f" && !this.engine.controls.flying && !this.engine.input.stroke ) {
-        this.engine.input.startSizeDrag( e.shiftKey ? "strength" : "radius" );
+    if ( st.tool === "collider" ) {
+      if ( e.key === "[" ) this.engine.colliderTool.resize( 1 / 1.15 );
+      if ( e.key === "]" ) this.engine.colliderTool.resize( 1.15 );
+      if ( !e.ctrlKey && ( e.key === "Delete" || e.key.toLowerCase() === "x" ) && this.engine.colliderTool.deletePicked() ) {
         e.preventDefault();
         return;
       }
@@ -113,16 +138,25 @@ export class ViewportKeys {
         e.preventDefault();
         return;
       }
+      // a collider picked: G / R / S move, turn or size it with the mouse; Alt+G / R / S put that back as the rail makes it
+      if ( ( st.railEdit.collider ?? null ) !== null && !e.ctrlKey && ( k === "g" || k === "r" || k === "s" ) ) {
+        if ( e.altKey ) this.engine.rails.resetCollider( ( { g: "shift", r: "turn", s: "size" } as const )[k] );
+        else this.engine.gizmo.startColliderModal( ( { g: "translate", r: "rotate", s: "scale" } as const )[k] );
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
     }
     // Transforms are gizmo-only: single-letter keys here would collide with fly-mode WASD/QE.
     if ( this.engine.controls.flying ) return;
     // ( the Formation tool: Enter or Escape lets go of the picked point, to start another formation )
-    if ( ( k === "enter" || k === "escape" ) && this.engine.shapeTool?.done() ) return;
+    if ( ( k === "enter" || k === "escape" ) && ( this.engine.skiLineTool?.done() || this.engine.shapeTool?.done() ) ) return;
     if ( k === "f" ) this.engine.nav.frameSelection();
     else if ( st.selection.length && ( k === "delete" || k === "x" ) ) {
       // ( a lift's mast last clicked: that mast, not the lift; a fence's or a formation's point, not the whole of it )
       if ( this.engine.liftTool.deleteMast() ) return;
       if ( this.engine.fenceTool.deletePoint() ) return;
+      if ( this.engine.skiLineTool?.deletePoint() ) return;
       if ( this.engine.shapeTool?.deletePoint() ) return;
       for ( const sel of st.selection.filter( ( x ) => x.kind === "shape" ) ) deleteShape( sel.uid );
       if ( useEditor.getState().selection.length ) useEditor.getState().removeSelected();
@@ -160,13 +194,6 @@ export class ViewportKeys {
       this.engine.menus.snapMenu();
       return true;
     }
-    // a G / R / S drag under way: X / Y / Z ( Shift: the other two ) hold it to an axis or plane, Esc lets go, Enter keeps
-    if ( this.engine.blGizmo.dragging ) {
-      if ( k === "escape" ) this.engine.blGizmo.cancel();
-      else if ( k === "enter" || k === " " ) this.engine.blGizmo.up();
-      else if ( k === "x"     || k === "y" || k === "z" ) this.engine.blGizmo.constrain( ( { x: 0, y: 1, z: 2 } as const )[k], e.shiftKey );
-      return true;
-    }
     if ( this.engine.editing ) return this.engine.editing.key( e );
     // ( Shift+R: the last duplicate again, before R's rotate )
     if ( k === "r" && e.shiftKey && !e.ctrlKey && !e.altKey ) return this.engine.menus.repeatDuplicate();
@@ -182,6 +209,11 @@ export class ViewportKeys {
       this.engine.modelling.joinSelected();
       return true;
     }
+    // Ctrl+A: Apply ( location, rotation, scale into the mesh )
+    if ( k === "a" && e.ctrlKey && !e.shiftKey ) {
+      this.engine.menus.applyMenu();
+      return true;
+    }
     // Bool Tool's keys ( the keypad's or the main row's )
     const bool = !e.ctrlKey ? null : e.key === "-" ? "difference" : e.key === "+" || e.key === "=" ? "union" : e.key === "*" ? "intersect" : null;
     if ( bool ) {
@@ -191,15 +223,31 @@ export class ViewportKeys {
     return false;
   }
 
+  /**
+   * Alt+G / R / S ( Blender's Clear Location, Rotation, Scale ): the selection with no turn, at size 1; moved to the
+   * origin in the Assets workspace ( as Blender's ), onto the ground in the map. A piece's rail or fence made again.
+  **/
   private resetSelected( what: "position" | "rotation" | "scale" ) {
-    const st   = useEditor.getState();
-    const uids = unlocked( st, st.selection ).filter( ( s ) => s.kind === "object" ).map( ( s ) => s.uid );
-    if ( !uids.length ) return;
-    st.updateObjects( `Reset ${what}`, uids, ( o ) => {
-      if ( what === "rotation" ) return { ...o, rotation: [0, 0, 0] };
-      if ( what === "scale"    ) return { ...o, scale:    [1, 1, 1] };
-      const g = terrain.heightAt( o.position[0], o.position[2] );
-      return Number.isNaN( g ) ? o : { ...o, position: [o.position[0], g, o.position[2]] };
+    const st     = useEditor.getState();
+    const sel    = unlocked( st, st.selection );
+    const uids   = sel.filter( ( s ) => s.kind === "object" ).map( ( s ) => s.uid );
+    const pieces = sel.filter( ( s ) => s.kind === "custom" ).map( ( s ) => s.uid );
+    const label  = { position: "Clear Location", rotation: "Clear Rotation", scale: "Clear Scale" }[what];
+    if ( uids.length )
+      st.updateObjects( label, uids, ( o ) => {
+        if ( what === "rotation" ) return { ...o, rotation: [0, 0, 0] };
+        if ( what === "scale"    ) return { ...o, scale:    [1, 1, 1] };
+        const g = terrain.heightAt( o.position[0], o.position[2] );
+        return Number.isNaN( g ) ? o : { ...o, position: [o.position[0], g, o.position[2]] };
+      } );
+    if ( !pieces.length ) return;
+    const stage = this.engine.stage.shown;
+    useEditor.getState().updateCustom( label, pieces, ( o ) => {
+      const cur = { pos: arr3( o.position ), rot: arr3( o.rotation ), scl: arr3( o.scale ) };
+      const g   = what === "position" && !stage ? terrain.heightAt( cur.pos[0], cur.pos[2] ) : 0;
+      if ( what === "position" && !stage && Number.isNaN( g ) ) return o;
+      const to  = what === "rotation" ? { ...cur, rot: [0, 0, 0] as V3 } : what === "scale" ? { ...cur, scl: [1, 1, 1] as V3 } : { ...cur, pos: ( stage ? [0, 0, 0] : [cur.pos[0], g, cur.pos[2]] ) as V3 };
+      return withRailAgain( transformCustom( o, deltaBetween( cur, to ) ) );
     } );
   }
 }

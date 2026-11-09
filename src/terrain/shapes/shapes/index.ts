@@ -6,10 +6,10 @@
 // it takes its own change back out and applies the new one. Sculpting done over a shape afterwards is kept, and
 // undo/redo are exact.
 
-export { type EdgeMode, type CurveShape, type CircleShape, type StampShape, type StampGrid, type FormationShape, type PaintShape, type Shape, newCurve, newCircle, newStamp, newFormation, easeInOut } from "./types";
+export { type EdgeMode, type CurveShape, type CircleShape, type StampShape, type StampGrid, type FormationShape, type PaintShape, type Shape, newCurve, newCircle, newStamp, newFormation, newSkiLine, easeInOut, type SkiLineShape, type SkiLineNode, type SkiLineFeature, type SkiLineStripe } from "./types";
 export { formationGrid, formationChunk, insideBy, peakPoint, simulates } from "./formation";
 export { FORMATION_PRESETS, applyPreset, fitFormation, formationSettings, migrateFormation, type FormationSettings } from "./presets";
 export { captureStamp, imprintOf } from "./stamp";
 export { shapeBounds, kickerArc, lipAngleFor, kickerHeight, shapeHeightAt } from "./height";
-export { bakeShapeIn, packShape, unpackShape, shapeChanges, previewShape, previewShapeSoon, settleShapes, shapesBusy, setRockLayers, whenShapesSettled, type ShapeEdit, beginShapeEdit, commitShapeEdit, removeShape, resetShapes, groundWithout } from "./apply";
+export { adoptShape, clearStripesUnder, settleShape, bakeShapeIn, packShape, unpackShape, shapeChanges, previewShape, previewShapeSoon, settleShapes, shapesBusy, setRockLayers, setShapeDoc, layerOf, trailsChanging, trailsMoved, shapesRebased, shapesLift, whenShapesSettled, type ShapeEdit, beginShapeEdit, commitShapeEdit, removeShape, resetShapes, groundWithout } from "./apply";
 

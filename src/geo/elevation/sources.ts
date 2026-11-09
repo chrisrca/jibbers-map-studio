@@ -4,7 +4,7 @@
 // as a sampler. All read straight from their publishers ( see `attribution` ), most through the studio ( src-tauri
 // http_fetch ): their servers don't let a web page read them.
 
-import { arcgisPiece, decodePng, mercatorGrid, pool, terrarium, usgs3dep, type DemLevel, type DemSource, type Sampler } from "./dem";
+import { arcgisPiece, decodePng, fetchRetry, mercatorGrid, pool, terrarium, usgs3dep, type DemLevel, type DemSource, type Sampler } from "./dem";
 import { mercator, type LonLat } from "../proj";
 import { fastProjection, httpFetch, openCog, projectBox, readWindow, windowsAt, type Window } from "./remote";
 
@@ -301,7 +301,7 @@ async function gsiSampler( layer: string, z: number, box: Box, onProgress?: ( f:
   for ( let ty = ty0; ty <= ty1; ty++ ) for ( let tx = tx0; tx <= tx1; tx++ ) jobs.push( [tx, ty] );
   let done = 0;
   await pool( jobs, 6, async ( [tx, ty] ) => {
-    const r = await fetch( `https://cyberjapandata.gsi.go.jp/xyz/${layer}/${z}/${tx}/${ty}.png` );
+    const r = await fetchRetry( `https://cyberjapandata.gsi.go.jp/xyz/${layer}/${z}/${tx}/${ty}.png` );
     if ( r.ok ) {
       const px = await decodePng( await r.blob() );
       const ox = ( tx - tx0 ) * TILE, oy = ( ty - ty0 ) * TILE;

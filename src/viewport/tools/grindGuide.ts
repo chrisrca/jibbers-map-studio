@@ -170,23 +170,29 @@ function colliderBox( c: CustomObjectEntry["colliders"][number] ) {
  * Rail capsules and boxes ( world colliders ) as shapes to draw.
 **/
 export function railShells( colliders: CustomObjectEntry["colliders"] ): Shell[] {
-  return colliders.filter( ( c ) => isRailCollider( c ) && ( c.shape === "Capsule" || c.shape === "Box" ) ).map( ( c ) => {
-    const q                = unityEulerToQuat( arr3( c.local_rotation ) );
-    const { centre, half } = colliderBox( c );
-    if ( c.shape === "Box" ) return { centre: centre.applyQuaternion( q ).add( toThree( arr3( c.local_position ) ) ), q, radius: 0, length: 0, box: half };
-    const axis             = c.direction ?? 1;
-    const radius           = Math.max( ...[0, 1, 2].filter( ( k ) => k !== axis ).map( ( k ) => half.getComponent( k ) ) );
-    // turned so its length runs along Y, as a capsule is drawn
-    const turn             = axis === 0 ? new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 0, 1 ), Math.PI / 2 )
-      : axis === 2 ? new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 1, 0, 0 ), Math.PI / 2 )
-      : new THREE.Quaternion();
-    return {
-      centre: centre.applyQuaternion( q ).add( toThree( arr3( c.local_position ) ) ),
-      q:      q.clone().multiply( turn ),
-      radius,
-      length: Math.max( 0, 2 * ( half.getComponent( axis ) - radius ) ),
-    };
-  } );
+  return colliders.filter( ( c ) => isRailCollider( c ) && ( c.shape === "Capsule" || c.shape === "Box" ) ).map( colliderShell );
+}
+
+/**
+ * A box, capsule or sphere collider ( a world collider ) as a shape to draw ( a sphere: a capsule no longer than it's
+ * round ).
+**/
+export function colliderShell( c: CustomObjectEntry["colliders"][number] ): Shell {
+  const q                = unityEulerToQuat( arr3( c.local_rotation ) );
+  const { centre, half } = colliderBox( c );
+  if ( c.shape === "Box" ) return { centre: centre.applyQuaternion( q ).add( toThree( arr3( c.local_position ) ) ), q, radius: 0, length: 0, box: half };
+  const axis             = c.direction ?? 1;
+  const radius           = Math.max( ...[0, 1, 2].filter( ( k ) => k !== axis ).map( ( k ) => half.getComponent( k ) ) );
+  // turned so its length runs along Y, as a capsule is drawn
+  const turn             = axis === 0 ? new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 0, 1 ), Math.PI / 2 )
+    : axis === 2 ? new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 1, 0, 0 ), Math.PI / 2 )
+    : new THREE.Quaternion();
+  return {
+    centre: centre.applyQuaternion( q ).add( toThree( arr3( c.local_position ) ) ),
+    q:      q.clone().multiply( turn ),
+    radius,
+    length: Math.max( 0, 2 * ( half.getComponent( axis ) - radius ) ),
+  };
 }
 
 /**

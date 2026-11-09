@@ -39,14 +39,8 @@ export class ModelToolbar {
         if ( m?.kind === "transform" ) { m.op = "slide"; m.label = "Slide"; }
         break;
       }
-      case "smooth": this.startDrag( "Smooth", ( px ) => {
-        const f = Math.max( 0, Math.min( 1, px / 200 ) );
-        return { mesh: smoothVerts( this.dragBase(), new Set( this.ed.sel.v ), f, 3 ).mesh, status: `Smooth: ${Math.round( f * 100 )}%` };
-      } ); break;
-      case "shrink": this.startDrag( "Shrink/Fatten", ( px ) => {
-        const o = this.ed.obj()!, d = ( px * this.ed.ops.mpp( this.ed.gizmo.pivotOf( o, this.ed.sel.v ) ) ) / ( Math.abs( o.scale.x ) || 1 );
-        return { mesh: shrinkFatten( this.dragBase(), new Set( this.ed.sel.v ), d ).mesh, status: `Shrink/Fatten: ${d.toFixed( 3 )} m` };
-      } ); break;
+      case "smooth": this.startSmooth(); break;
+      case "shrink": this.startShrink(); break;
       default: return false;
     }
     this.toolDrag = !!this.ed.modal;
@@ -62,6 +56,30 @@ export class ModelToolbar {
     else if ( tool === "knife" ) this.ed.knife.start();
   }
 
+  /**
+   * Smooth: the selected vertices eased toward their neighbours, as far as the mouse goes sideways ( or a typed
+   * factor, 0 to 1 ).
+  **/
+  startSmooth() {
+    if ( !this.ed.sel.v.size ) return;
+    this.startDrag( "Smooth", ( px, typed ) => {
+      const f = Math.max( 0, Math.min( 1, typed ?? px / 200 ) );
+      return { mesh: smoothVerts( this.dragBase(), new Set( this.ed.sel.v ), f, 3 ).mesh, status: `Smooth: ${Math.round( f * 100 )}%` };
+    } );
+  }
+
+  /**
+   * Shrink/Fatten ( Alt+S ): the selected vertices along their normals, as far as the mouse goes sideways ( or typed
+   * metres: out, or in with "-" ).
+  **/
+  startShrink() {
+    if ( !this.ed.sel.v.size ) return;
+    this.startDrag( "Shrink/Fatten", ( px, typed ) => {
+      const o = this.ed.obj()!, d = typed ?? ( px * this.ed.ops.mpp( this.ed.gizmo.pivotOf( o, this.ed.sel.v ) ) ) / ( Math.abs( o.scale.x ) || 1 );
+      return { mesh: shrinkFatten( this.dragBase(), new Set( this.ed.sel.v ), d ).mesh, status: `Shrink/Fatten: ${d.toFixed( 3 )} m` };
+    } );
+  }
+
   private dragBase() {
     const m = this.ed.modal;
     return m?.kind === "drag" ? m.mesh0 : this.ed.obj()!.model.mesh;
@@ -70,18 +88,19 @@ export class ModelToolbar {
   /**
    * A drag sideways sets an amount ( Smooth, Shrink/Fatten ).
   **/
-  private startDrag( label: string, run: ( px: number ) => { mesh: Mesh; status: string } ) {
+  private startDrag( label: string, run: ( px: number, typed: number | null ) => { mesh: Mesh; status: string } ) {
     const o = this.ed.obj();
     if ( !o ) return;
-    this.ed.modal = { kind: "drag", o0: o, mesh0: o.model.mesh, x0: this.ed.mouse.x, label, run };
+    this.ed.modal = { kind: "drag", o0: o, mesh0: o.model.mesh, x0: this.ed.mouse.x, label, typed: "", run };
     this.runDrag();
   }
 
   runDrag() {
     const m = this.ed.modal;
     if ( m?.kind !== "drag" ) return;
-    const r            = m.run( this.ed.mouse.x - m.x0 );
-    this.ed.statusText = r.status;
+    const t            = m.typed && !Number.isNaN( parseFloat( m.typed ) ) ? parseFloat( m.typed ) : null;
+    const r            = m.run( this.ed.mouse.x - m.x0, t );
+    this.ed.statusText = `${r.status}${m.typed ? `  [${m.typed}]` : ""}`;
     this.ed.setMesh( r.mesh, null );
   }
 }

@@ -4,6 +4,7 @@ import { evalCurve, evalRepeated } from "../../../core/curve";
 import { terrain } from "../../terrain";
 import { stampSample } from "./stamp";
 import { formationAt, formationBounds, insideBy } from "./formation";
+import { skiLineAt, skiLineBounds } from "./skiline";
 import type { CurveShape, Shape } from "./types";
 
 const smooth = ( u: number ) => u * u * ( 3 - 2 * u );
@@ -15,6 +16,7 @@ const sat = ( x: number ) => ( x < 0 ? 0 : x > 1 ? 1 : x );
 **/
 export function shapeBounds( s: Shape ): [number, number, number, number] {
   if ( s.kind === "formation" ) return formationBounds( s );
+  if ( s.kind === "skiline" ) return skiLineBounds( s );
   if ( s.kind === "circle" ) return [s.center[0] - s.radius, s.center[1] - s.radius, s.center[0] + s.radius, s.center[1] + s.radius];
   if ( s.kind === "stamp" ) {
     const r = ( Math.hypot( s.grid.w - 1, s.grid.h - 1 ) * s.grid.spacing ) / 2;
@@ -30,6 +32,7 @@ export function shapeBounds( s: Shape ): [number, number, number, number] {
 **/
 export function shapeAt( s: Shape, x: number, z: number, ground: ( x: number, z: number ) => number ): { h: number; blend: number } | null {
   if ( s.kind === "formation" ) return formationAt( s, x, z, ground );
+  if ( s.kind === "skiline" ) return skiLineAt( s, x, z );
   // ( a paint stroke paints; it leaves the ground as it is )
   if ( s.kind === "paint" ) return null;
   if ( s.kind === "stamp" ) {

@@ -399,7 +399,7 @@ fn dist(a: [f32; 3], b: [f32; 3]) -> f32 {
 }
 
 /// SkiLineSpline.GetPoint: the centripetal Catmull-Rom through the nodes, segment `seg` at `u`.
-fn spline(p: &[[f32; 3]], seg: usize, u: f32) -> [f32; 3] {
+pub(crate) fn spline(p: &[[f32; 3]], seg: usize, u: f32) -> [f32; 3] {
     let (p1, p2) = (p[seg], p[seg + 1]);
     let refl = |a: [f32; 3], b: [f32; 3]| [a[0] * 2.0 - b[0], a[1] * 2.0 - b[1], a[2] * 2.0 - b[2]];
     let p0 = if seg > 0 { p[seg - 1] } else { refl(p1, p2) };
@@ -418,98 +418,56 @@ fn spline(p: &[[f32; 3]], seg: usize, u: f32) -> [f32; 3] {
     remap(b1, b2, t1, t2)
 }
 
-/// A feature's kind, by its preset, else its name, else its profile.
-fn feature_kind(f: &Value) -> Option<&'static str> {
-    const KINDS: [&str; 5] = ["kicker", "table", "roller", "gap", "landing"];
-    let p = f.get("preset");
-    let by = if p.is_null() { None } else { KINDS.get(p.i32() as usize).copied() };
-    let name = f.get("name").str().to_lowercase();
-    let k = by.or_else(|| KINDS.iter().copied().find(|k| name.contains(k))).unwrap_or_else(|| {
-        let keys = f.get("profile").get("m_Curve").list();
-        let end = keys.last().map(|k| k.get("value").f32()).unwrap_or(0.0);
-        if f.get("height").f32() < 0.0 { "gap" } else if end > 0.5 { "kicker" } else { "roller" }
-    });
-    // ( a landing is level ground: no feature of the studio's )
-    if k == "landing" { None } else { Some(k) }
-}
-
-/// The ski line builders' lines as the studio's trails: each line a chain of runs between its nodes, shaped by the
-/// spline through them, its widths, roll, cross-section and features with their stripes across.
-pub fn trails(s: &Scene, notes: &mut Vec<String>) -> Option<Json> {
-    let (mut nodes, mut runs) = (vec![], vec![]);
-    let mut lines = 0;
+/// The ski line builders' lines as the studio's ski lines ( Map-Tools' Ski Line Builder, ported:
+/// terrain/shapes/shapes/skiline.ts ), every setting as Map-Tools has it, the points in world space.
+pub fn ski_lines(s: &Scene, notes: &mut Vec<String>) -> Vec<Json> {
+    let mut out = vec![];
     for b in s.all(114, "SkiLineBuilder") {
         let v = &s.obj(b).value;
         let Some(g) = grid_of(s, b, v.get("terrain")) else { continue };
         for line in v.get("lines").list() {
-            if !line.get("enabled").bool_or(true) {
-                continue;
-            }
-            let ns = line.get("nodes").list();
-            if ns.len() < 2 {
-                continue;
-            }
-            lines += 1;
-            let pts: Vec<[f32; 3]> = ns.iter().map(|n| { let p = n.get("position").xyz(); [g.pos[0] + p[0], g.pos[1] + p[1], g.pos[2] + p[2]] }).collect();
-            let width = line.get("width").f32_or(14.0);
-            let w_of = |n: &Value| { let o = n.get("widthOverride").f32_or(-1.0); if o > 0.0 { o } else { width } };
-            let first = nodes.len();
-            for (i, p) in pts.iter().enumerate() {
-                nodes.push(json!({ "id": format!("n{}", first + i), "p": p }));
-            }
-            // each run's length along the spline, to place the features
-            let lens: Vec<f32> = (0..pts.len() - 1).map(|seg| (0..32).map(|k| dist(spline(&pts, seg, k as f32 / 32.0), spline(&pts, seg, (k + 1) as f32 / 32.0))).sum()).collect();
-            let feats = line.get("features").list();
-            let mut along = 0.0;
-            for seg in 0..pts.len() - 1 {
-                let d = 1e-3;
-                let ta = sub(spline(&pts, seg, d), pts[seg]).map(|x| x / d / 3.0);
-                let tb = sub(spline(&pts, seg, 1.0 - d), pts[seg + 1]).map(|x| x / d / 3.0);
-                let len = lens[seg];
-                let mut features = vec![];
-                let mut stripes = vec![];
-                for f in feats {
-                    let start = f.get("start").f32();
-                    if !f.get("enabled").bool_or(true) || start < along || start >= along + len {
-                        continue;
-                    }
-                    let Some(kind) = feature_kind(f) else { continue };
-                    let length = f.get("length").f32_or(12.0);
-                    features.push(json!({ "kind": kind, "at": start - along, "length": length, "height": f.get("height").f32().abs(), "offset": f.get("lateralOffset").f32(), "width": f.get("width").f32(), "blend": f.get("sideBlend").f32_or(0.25) }));
-                    for st in f.get("paintStripes").list() {
-                        if !st.get("acrossLine").bool() {
-                            continue;
-                        }
-                        let at = start - along + st.get("position").f32_or(0.5) * length;
-                        stripes.push(json!({ "along": false, "pos": (at / len).clamp(0.0, 1.0), "width": st.get("stripeWidth").f32_or(0.6), "colour": st.get("colorIdx").i32_or(11), "softness": st.get("softness").f32_or(0.4), "opacity": st.get("opacity").f32_or(0.7) }));
-                    }
-                }
-                let roll = -(ns[seg].get("roll").f32() + ns[seg + 1].get("roll").f32()) * 0.5;
-                let mut run = json!({
-                    "id": format!("r{}", runs.len()), "a": format!("n{}", first + seg), "b": format!("n{}", first + seg + 1),
-                    "ha": ta, "hb": tb, "wa": w_of(&ns[seg]), "wb": w_of(&ns[seg + 1]), "roll": roll,
-                    "corners": [0, 0, 0, 0], "mids": [0, 0],
-                    "profile": [{ "t": 0, "v": 0 }, { "t": 1, "v": 0 }], "bump": 0,
-                    "cross": curve(line.get("crossSection"), false), "crossDepth": line.get("crossSectionDepth").f32(),
-                });
-                if !features.is_empty() {
-                    run["features"] = Json::Array(features);
-                }
-                if !stripes.is_empty() {
-                    run["stripes"] = Json::Array(stripes);
-                }
-                runs.push(run);
-                along += len;
-            }
+            let nodes: Vec<Json> = line
+                .get("nodes")
+                .list()
+                .iter()
+                .map(|n| {
+                    let p = n.get("position").xyz();
+                    let w = n.get("widthOverride").f32_or(-1.0);
+                    json!({ "p": [g.pos[0] + p[0], g.pos[1] + p[1], g.pos[2] + p[2]], "width": if w > 0.0 { json!(w) } else { Json::Null }, "roll": n.get("roll").f32() })
+                })
+                .collect();
+            let features: Vec<Json> = line
+                .get("features")
+                .list()
+                .iter()
+                .map(|f| {
+                    let stripes: Vec<Json> = f
+                        .get("paintStripes")
+                        .list()
+                        .iter()
+                        .map(|st| json!({
+                            "across": st.get("acrossLine").bool(), "position": st.get("position").f32_or(0.5), "width": st.get("stripeWidth").f32_or(0.6),
+                            "softness": st.get("softness").f32_or(0.4), "opacity": st.get("opacity").f32_or(0.7), "inset": st.get("inset").f32(), "colour": st.get("colorIdx").i32_or(11),
+                        }))
+                        .collect();
+                    json!({
+                        "name": f.get("name").str(), "enabled": f.get("enabled").bool_or(true), "start": f.get("start").f32_or(20.0), "length": f.get("length").f32_or(12.0),
+                        "height": f.get("height").f32_or(3.0), "lateral": f.get("lateralOffset").f32(), "width": f.get("width").f32(), "sideBlend": f.get("sideBlend").f32_or(0.5),
+                        "profile": curve(f.get("profile"), false), "stripes": stripes,
+                    })
+                })
+                .collect();
+            out.push(json!({
+                "uid": uid("skiline", out.len() + 1), "kind": "skiline", "name": line.get("name").str(), "enabled": line.get("enabled").bool_or(true),
+                "width": line.get("width").f32_or(14.0), "cross": curve(line.get("crossSection"), false), "crossDepth": line.get("crossSectionDepth").f32(),
+                "sideFlatten": line.get("sideFlatten").f32_or(0.15), "autoBank": line.get("autoBank").f32(), "edgeBlend": line.get("edgeBlend").f32_or(0.25),
+                "edgeFalloff": line.get("edgeFalloff").f32_or(1.0), "endBlend": line.get("endBlend").f32_or(10.0), "detail": line.get("bakeResolution").i32_or(1024),
+                "nodes": nodes, "features": features,
+            }));
         }
     }
-    if runs.is_empty() {
-        return None;
+    if !out.is_empty() {
+        notes.push(format!("{} ski line(s) brought over as the studio's ski lines", out.len()));
     }
-    notes.push(format!("{lines} ski line(s) made trails ( their ground kept as Unity left it till one's changed )"));
-    Some(json!({
-        "net": { "nodes": nodes, "runs": runs, "v": 7 },
-        "ground": { "blend": 80, "amount": 0, "size": 300, "roughness": 0.5, "edge": 40, "seed": 1 },
-        "field": null, "blocks": [], "flat": {},
-    }))
+    out
 }

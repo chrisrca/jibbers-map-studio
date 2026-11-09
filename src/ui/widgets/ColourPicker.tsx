@@ -1,6 +1,6 @@
 // Blender's colour picker: a hue/saturation wheel with a value bar beside it, then the colour as RGB, HSV or hex.
 
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { hexOf, hsvOf, rgbOfHex, rgbOfHsv } from "../../core/colour";
 import { NumSlider } from "./widgets";
@@ -128,9 +128,10 @@ export function ColourPicker( { value, onChange, recent = [] }: { value: RGB; on
 }
 
 /**
- * A colour field: the colour as a chip that opens the picker under it ( closes on a click elsewhere or Esc ).
+ * A colour field: the colour as a chip that opens the picker under it ( closes on a click elsewhere or Esc ), with
+ * `children` under the picker in it ( a piece's paint adjustments ).
 **/
-export function ColourChip( { value, onChange, recent }: { value: RGB; onChange: ( c: RGB ) => void; recent?: string[] } ) {
+export function ColourChip( { value, onChange, recent, children }: { value: RGB; onChange: ( c: RGB ) => void; recent?: string[]; children?: ReactNode } ) {
   const [at, setAt] = useState<DOMRect | null>( null );
   const pop         = useRef<HTMLDivElement>( null );
   useEffect( () => {
@@ -145,13 +146,21 @@ export function ColourChip( { value, onChange, recent }: { value: RGB; onChange:
     };
   }, [at] );
   const left = at ? Math.max( 8, Math.min( window.innerWidth - 228, at.left ) ) : 0;
+  // under the chip, or as far up as it needs to be all in the window ( tall with a piece's adjustments in it )
+  const [top, setTop] = useState( 0 );
+  useLayoutEffect( () => {
+    if ( !at || !pop.current ) return;
+    const h = pop.current.offsetHeight;
+    setTop( Math.max( 8, Math.min( at.bottom + 4, window.innerHeight - 8 - h ) ) );
+  }, [at, children] );
   return (
     <>
       <button className="colour-chip" style={{ background: hexOf( value ) }} onClick={( e ) => setAt( at ? null : e.currentTarget.getBoundingClientRect() )} />
       { at &&
         createPortal(
-          <div ref={pop} className="bmenu cpick-pop" style={{ left, top: at.bottom + 4 }}>
+          <div ref={pop} className="bmenu cpick-pop" style={{ left, top: top || at.bottom + 4 }}>
             <ColourPicker value={value} onChange={onChange} recent={recent} />
+            {children}
           </div>,
           document.body,
         ) }

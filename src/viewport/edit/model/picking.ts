@@ -4,8 +4,9 @@
 import * as THREE from "three/webgpu";
 import type { CustomObjectEntry } from "../../../core/types";
 import type { ModelData } from "../../../model/build";
-import { edgesOf } from "../../../model/mesh";
-import { emptySel, selFromEdges, selFromFaces, selFromVerts, type SelectMode } from "../../../model/ops";
+import { useEditor } from "../../../map/store";
+import { ek, edgesOf, type Mesh } from "../../../model/mesh";
+import { edgeLoop, edgeRing, emptySel, invertSel, linked, selectLess, selectMore, selFromEdges, selFromFaces, selFromVerts, shortestPath, type Sel, type SelectMode } from "../../../model/ops";
 import type { ModelEditor } from "./modelEditor";
 
 // A triangle of a piece in the view, and its face.
@@ -62,6 +63,8 @@ export class ModelPicking {
    * Whether a point of the piece can be seen ( no face in front of it ).
   **/
   visible( o: CustomObjectEntry & { model: ModelData }, p: THREE.Vector3, tris = this.tris( o ) ) {
+    // ( X-ray: through the mesh, as Blender selects then )
+    if ( useEditor.getState().view3d.xray ) return true;
     const cam = this.ed.view.camera.position, dir = p.clone().sub( cam ), dist = dir.length();
     const ray = new THREE.Ray( cam, dir.normalize() ), hit = new THREE.Vector3();
     for ( const t of tris ) if ( ray.intersectTriangle( t.a, t.b, t.c, false, hit ) && hit.distanceTo( cam ) < dist - dist * 0.002 - 0.002 ) return false;
@@ -114,27 +117,30 @@ export class ModelPicking {
     return best?.k ?? null;
   }
 
+  /**
+   * A click's selection: `el` alone, or with Shift ( `extend` ) added, as Blender's: a selected one that isn't the
+   * active one made active; the active one let go.
+  **/
   selectOnly( el: number | string | null, extend: boolean ) {
     const o = this.ed.obj();
     if ( !o ) return;
     const g   = o.model.mesh;
     const was = this.ed.snapshot();
+    // ( Shift on the active one: off, and no active left )
+    const off = extend && el !== null && el === this.ed.active;
     if ( el === null ) {
       if ( !extend ) this.ed.sel = emptySel();
     } else if ( typeof el === "string" ) {
-      const has   = this.ed.sel.e.has( el );
-      const edges = extend ? ( has ? [...this.ed.sel.e].filter( ( k ) => k !== el ) : [...this.ed.sel.e, el] ) : [el];
+      const edges = extend ? ( off ? [...this.ed.sel.e].filter( ( k ) => k !== el ) : [...this.ed.sel.e, el] ) : [el];
       this.ed.sel = selFromEdges( g, edges );
     } else if ( this.ed.mode === "face" ) {
-      const has   = this.ed.sel.f.has( el );
-      const faces = extend ? ( has ? [...this.ed.sel.f].filter( ( f ) => f !== el ) : [...this.ed.sel.f, el] ) : [el];
+      const faces = extend ? ( off ? [...this.ed.sel.f].filter( ( f ) => f !== el ) : [...this.ed.sel.f, el] ) : [el];
       this.ed.sel = selFromFaces( g, faces );
     } else {
-      const has   = this.ed.sel.v.has( el );
-      const verts = extend ? ( has ? [...this.ed.sel.v].filter( ( v ) => v !== el ) : [...this.ed.sel.v, el] ) : [el];
+      const verts = extend ? ( off ? [...this.ed.sel.v].filter( ( v ) => v !== el ) : [...this.ed.sel.v, el] ) : [el];
       this.ed.sel = selFromVerts( g, verts );
     }
-    this.ed.active = el;
+    this.ed.active = off ? null : el;
     this.ed.selected( was );
     this.ed.sync();
     this.ed.publish();
@@ -152,6 +158,58 @@ export class ModelPicking {
     this.ed.selected( was );
     this.ed.sync();
     this.ed.publish();
+  }
+
+  /**
+   * The selection made `next` ( one undo step ).
+  **/
+  apply( next: ( g: Mesh, sel: Sel ) => Sel, active: number | string | null = this.ed.active ) {
+    const o = this.ed.obj();
+    if ( !o ) return;
+    const was      = this.ed.snapshot();
+    this.ed.sel    = next( o.model.mesh, this.ed.sel );
+    this.ed.active = active;
+    this.ed.selected( was );
+    this.ed.sync();
+    this.ed.publish();
+  }
+
+  // Blender's Select menu: More and Less ( Ctrl+Numpad + / - ), Invert ( Ctrl+I ), Linked ( Ctrl+L ), Edge Loops and
+  // Edge Rings from the selected edges
+  more()      { this.apply( ( g, s ) => selectMore( g, s, this.ed.mode ) ); }
+  less()      { this.apply( ( g, s ) => selectLess( g, s, this.ed.mode ) ); }
+  invert()    { this.apply( ( g, s ) => invertSel( g, s, this.ed.mode ) ); }
+  linkedAll() {
+    this.apply( ( g, s ) => {
+      const v = selFromVerts( g, linked( g, s.v ) );
+      return this.ed.mode === "face" ? selFromFaces( g, v.f ) : v;
+    } );
+  }
+  loops()     { this.apply( ( g, s ) => selFromEdges( g, [...s.e].flatMap( ( k ) => edgeLoop( g, k ) ) ) ); }
+  rings()     { this.apply( ( g, s ) => selFromEdges( g, [...s.e].flatMap( ( k ) => edgeRing( g, k ).ring.map( ( [a, b] ) => ek( a, b ) ) ) ) ); }
+
+  /**
+   * Ctrl+click ( Blender's Pick Shortest Path ): from the active element to `el`, added; with none active, `el` alone.
+  **/
+  path( el: number | string ) {
+    const from = this.ed.active;
+    const fits = ( x: unknown ) => ( typeof x === "string" ) === ( this.ed.mode === "edge" ) && x !== null;
+    if ( from === null || !fits( from ) || !fits( el ) ) return this.selectOnly( el, false );
+    this.apply( ( g, s ) => {
+      const way = shortestPath( g, from, el, this.ed.mode );
+      return this.ed.mode === "edge" ? selFromEdges( g, [...s.e, ...( way as string[] )] ) : this.ed.mode === "face" ? selFromFaces( g, [...s.f, ...( way as number[] )] ) : selFromVerts( g, [...s.v, ...( way as number[] )] );
+    }, el );
+  }
+
+  /**
+   * Ctrl+Alt+click ( Blender's edge ring ): the ring across the edge nearest the mouse ( faces: the faces it runs
+   * across ); Shift adds it.
+  **/
+  ring( k: string, extend: boolean ) {
+    this.apply( ( g, s ) => {
+      const r = edgeRing( g, k );
+      return this.ed.mode === "face" ? selFromFaces( g, [...( extend ? s.f : [] ), ...r.faces] ) : selFromEdges( g, [...( extend ? s.e : [] ), ...r.ring.map( ( [a, b] ) => ek( a, b ) )] );
+    }, k );
   }
 
   selectAll( on: boolean ) {

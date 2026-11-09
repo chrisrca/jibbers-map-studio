@@ -85,7 +85,7 @@ export function ShapeHeader() {
   };
   return (
     <>
-      <b><Icon name={kind === "curve" ? "shapeCurve" : kind === "circle" ? "shapeCircle" : kind === "formation" ? "mountain" : "shapeCopy"} size={14} /> {kind === "curve" ? "Curve" : kind === "circle" ? "Circle" : kind === "formation" ? "Formation" : "Copy"}</b>
+      <b><Icon name={kind === "curve" ? "shapeCurve" : kind === "circle" ? "shapeCircle" : kind === "formation" ? "mountain" : kind === "skiline" ? "skiLine" : "shapeCopy"} size={14} /> {kind === "curve" ? "Curve" : kind === "circle" ? "Circle" : kind === "formation" ? "Formation" : kind === "skiline" ? "Ski Line" : "Copy"}</b>
       { kind === "curve" && (
         <div className="seg">
           { Object.entries( PROFILES ).map( ( [id, p] ) => (
@@ -102,7 +102,7 @@ export function ShapeHeader() {
             <NumberField value={set.lipAngle} step={1} min={0} max={60} digits={0} unit="°" onChange={( lipAngle ) => update( { lipAngle } )} />
           </div>
         </div>
-      ) : kind !== "stamp" && kind !== "formation" && <div className="group">
+      ) : kind !== "stamp" && kind !== "formation" && kind !== "skiline" && <div className="group">
         <label>{kind === "curve" ? "Height" : "Depth"}</label>
         <div style={{ width: 70 }}>
           <NumberField value={set.height} step={0.1} onChange={( height ) => update( { height } )} />
@@ -117,7 +117,7 @@ export function ShapeHeader() {
         </div>
       ) }
       <span style={{ color: "var(--muted)" }}>
-        {kind === "curve" ? "Drag along the run, from the start to the lip/end" : kind === "circle" ? "Drag from the centre out" : kind === "formation" ? "Click its outline point by point; its first point or Enter closes it" : "Drag a box over the terrain to copy, then drag the copy's centre handle to place it"} · click a shape to edit it · Del removes
+        {kind === "skiline" ? "Click to add points · Shift+click inserts · Ctrl+click or X removes · Enter ends the line" : <>{kind === "curve" ? "Drag along the run, from the start to the lip/end" : kind === "circle" ? "Drag from the centre out" : kind === "formation" ? "Click its outline point by point; its first point or Enter closes it" : "Drag a box over the terrain to copy, then drag the copy's centre handle to place it"} · click a shape to edit it · Del removes</>}
       </span>
     </>
   );

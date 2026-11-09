@@ -11,6 +11,7 @@ pub mod files;
 pub mod math;
 pub mod mesh;
 pub mod model;
+pub mod package;
 pub mod scene;
 mod shader;
 pub mod texture;
@@ -19,6 +20,8 @@ mod yaml;
 
 mod tools;
 
+#[cfg(test)]
+pub mod fixture;
 #[cfg(test)]
 mod tests;
 
@@ -32,11 +35,12 @@ pub fn import(scene_path: &Path, dir: &Path) -> Result<(crate::project::Project,
     let project = files::UnityProject::open(scene_path)?;
     let s = scene::open(&project, scene_path)?;
     let (map, mut notes) = export::map_of(&s)?;
-    let (shapes, patches) = tools::shapes(&s, &mut notes);
-    let mut editor = serde_json::json!({ "shapes": shapes, "shapePatches": patches.iter().map(|(u, _)| u.clone()).collect::<Vec<_>>() });
-    if let Some(t) = tools::trails(&s, &mut notes) {
-        editor["trails"] = t;
-    }
+    let (mut shapes, patches) = tools::shapes(&s, &mut notes);
+    shapes.extend(tools::ski_lines(&s, &mut notes));
+    // ( the inserts come worked into the ground, Map-Tools keeping nothing of what was there: the studio works out the
+    // ground under them when it first opens the project, and takes each one's change as made: terrain/shapes/unbake.ts )
+    let unbake: Vec<String> = shapes.iter().filter(|s| matches!(s["kind"].as_str(), Some("curve" | "circle" | "stamp" | "skiline"))).filter_map(|s| s["uid"].as_str().map(String::from)).collect();
+    let editor = serde_json::json!({ "shapes": shapes, "shapePatches": patches.iter().map(|(u, _)| u.clone()).collect::<Vec<_>>(), "unbake": unbake });
     let p = crate::project::import_map(&map, editor, dir)?;
     // ( each formation's change in the ground, so an edit takes it out before putting the new one in )
     for (uid, bytes) in &patches {

@@ -1,13 +1,15 @@
 // Map size editor: the map's ground seen from above, the squares round it greyed out over the land there ( geo/land.ts:
-// the real land, or one made up to match ). Hovered, a square shows + ( an empty one ) or − ( a chunk ). An empty one
-// clicked is previewed in the view ( the surroundings faint meanwhile ), its settings below, then added; a chunk
-// clicked is taken away, once asked. Either way the surroundings are built again to fit.
+// the real land, or one made up to match ), and the surroundings round that, their rings outlined. Dragged, it moves;
+// the wheel zooms it; a double-click brings the map back to the middle. Hovered, a square shows + ( an empty one ) or −
+// ( a chunk ). An empty one clicked is previewed in the view ( the surroundings faint meanwhile ), its settings below,
+// then added; a chunk clicked is taken away, once asked. Either way the surroundings are built again to fit.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ask } from "../../app/ask";
 import { isScenery } from "../../core/types";
 import { landOf, type Land, type MapBox } from "../../geo/land";
-import { addLandChunk, chunkDefaults, previewLandChunk, refitSurroundings, removeChunk, ringCells, type ChunkSettings } from "../../geo/landGround";
+import { addLandChunk, chunkCells, chunkDefaults, previewLandChunk, refitSurroundings, removeChunk, ringCells, surroundingsLook, type ChunkSettings } from "../../geo/landGround";
+import { surroundingsPlan } from "../../geo/scenery/scenery";
 import { useEditor } from "../../map/store";
 import { mapSize, showGroundPreview } from "../../terrain/mapSize";
 import { terrain, type TerrainChunk } from "../../terrain/terrain";
@@ -19,7 +21,7 @@ const W = 220, PX = 220;
 
 /**
  * Heights over `box` as a picture from above ( lit from the north-west ): `tone` the colours from shadow to light,
- * transparent where there are none.
+ * transparent where there are none; PX pixels a side.
 **/
 function shaded( box: MapBox, at: ( x: number, z: number ) => number, tone: [number, number] ) {
   const c   = document.createElement( "canvas" );
@@ -44,21 +46,21 @@ function shaded( box: MapBox, at: ( x: number, z: number ) => number, tone: [num
 /**
  * The land over `box` as a greyed picture from above; null till it's in, or without one.
 **/
-function useLandPicture( land: Land | null, box: MapBox ): string | null {
-  const [url, setUrl] = useState<string | null>( null );
+function useLandPicture( land: Land | null, box: MapBox ): { url: string; box: MapBox } | null {
+  const [pic, setPic] = useState<{ url: string; box: MapBox } | null>( null );
   const key           = land ? `${land.kind}:${box.map( ( v ) => Math.round( v ) ).join( "," )}` : "";
   useEffect( () => {
-    if ( !land ) return setUrl( null );
+    if ( !land ) return setPic( null );
     let dead  = false;
     const ctl = new AbortController();
-    land.coarse( box, ( box[2] - box[0] ) / PX, ctl.signal ).then( ( h ) => !dead && setUrl( shaded( box, h, [46, 112] ) ) ).catch( () => !dead && setUrl( null ) );
+    land.coarse( box, ( box[2] - box[0] ) / PX, ctl.signal ).then( ( h ) => !dead && setPic( { url: shaded( box, h, [46, 112] ), box } ) ).catch( () => {} );
     return () => {
       dead = true;
       ctl.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key] );
-  return url;
+  return pic;
 }
 
 /**
@@ -103,11 +105,29 @@ export function MapSizeEditor() {
     maxx = Math.max( maxx, b[2] );
     maxz = Math.max( maxz, b[3] );
   }
-  // ( square, the map in its middle: the pictures are square too )
-  const side = Math.max( maxx - minx, maxz - minz ), cx = ( minx + maxx ) / 2, cz = ( minz + maxz ) / 2;
-  const box: MapBox = [cx - side / 2, cz - side / 2, cx + side / 2, cz + side / 2];
-  const around      = useLandPicture( land, box );
-  const ground      = useGroundPicture( box, layout );
+  // ( the map and the squares round it, square, in the middle: as it's shown till it's moved or zoomed )
+  const fitSide = Math.max( maxx - minx, maxz - minz ), fitX = ( minx + maxx ) / 2, fitZ = ( minz + maxz ) / 2;
+  const fit: MapBox = [fitX - fitSide / 2, fitZ - fitSide / 2, fitX + fitSide / 2, fitZ + fitSide / 2];
+  // the surroundings: how far out, and their rings ( as they'd be built )
+  const sc       = useEditor( ( st ) => st.customObjects.find( isScenery ) );
+  const look     = surroundingsLook();
+  const reach    = sc ? look.radius : 0;
+  const rings    = sc && chunks.length ? surroundingsPlan( chunkCells(), look.radius, look.detail ).rings : [];
+  const all: MapBox = [fit[0] - reach, fit[1] - reach, fit[2] + reach, fit[3] + reach];
+  // what's shown: moved and zoomed, else the map's fit ( its middle and how much a side )
+  const [view, setView] = useState<{ x: number; z: number; side: number } | null>( null );
+  const side            = view?.side ?? fitSide, cx = view?.x ?? fitX, cz = view?.z ?? fitZ;
+  const box: MapBox     = [cx - side / 2, cz - side / 2, cx + side / 2, cz + side / 2];
+  // the land: all of it ( the surroundings and all ) once, and, once it's been still a moment, sharper where it's looked at
+  const [still, setStill] = useState<MapBox>( box );
+  useEffect( () => {
+    const t = setTimeout( () => setStill( box ), 300 );
+    return () => clearTimeout( t );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [box.join( "," )] );
+  const wide        = useLandPicture( land, all );
+  const close       = useLandPicture( land, still );
+  const ground      = useGroundPicture( fit, layout );
 
   // the square being added previewed in the view as its settings change ( the surroundings faint meanwhile )
   const kind = land?.kind ?? "made";
@@ -140,12 +160,54 @@ export function MapSizeEditor() {
   // ( let go: no preview left behind )
   useEffect( () => () => showGroundPreview( null ), [] );
 
+  // ( dragged: moved, the click a drag ends with not a square's; the wheel: zoomed about the pointer )
+  const svg   = useRef<SVGSVGElement>( null );
+  const moved = useRef( false );
+  // ( what's shown now, for the wheel: notches come faster than it's drawn )
+  const shown = useRef( { x: cx, z: cz, side } );
+  shown.current = { x: cx, z: cz, side };
+  const onDown = ( e: React.PointerEvent ) => {
+    if ( e.button !== 0 ) return;
+    const x0 = e.clientX, y0 = e.clientY, from = { x: cx, z: cz };
+    moved.current = false;
+    const move = ( m: PointerEvent ) => {
+      const dx = m.clientX - x0, dy = m.clientY - y0;
+      if ( !moved.current && Math.hypot( dx, dy ) < 3 ) return;
+      moved.current = true;
+      const k       = side / ( svg.current?.clientWidth || W );
+      setView( { x: from.x - dx * k, z: from.z + dy * k, side } );
+    };
+    const up = () => {
+      window.removeEventListener( "pointermove", move );
+      window.removeEventListener( "pointerup",   up   );
+    };
+    window.addEventListener( "pointermove", move );
+    window.addEventListener( "pointerup",   up   );
+  };
+  const onWheel = ( e: React.WheelEvent ) => {
+    const r    = svg.current!.getBoundingClientRect();
+    const fx   = ( e.clientX - r.left ) / r.width, fz = ( e.clientY - r.top ) / r.height;
+    const was  = shown.current;
+    const most = Math.max( all[2] - all[0], fitSide ) * 1.1;
+    const next = Math.min( most, Math.max( 500, was.side * ( e.deltaY > 0 ? 1.2 : 1 / 1.2 ) ) );
+    // ( the point under the pointer stays under it )
+    const px   = was.x - was.side / 2 + fx * was.side, pz = was.z + was.side / 2 - fz * was.side;
+    shown.current = { x: px + ( 0.5 - fx ) * next, z: pz - ( 0.5 - fz ) * next, side: next };
+    setView( shown.current );
+  };
+
   if ( !chunks.length ) return null;
   const scale = W / side;
   const rect  = ( b: MapBox ) => ( { x: ( b[0] - box[0] ) * scale, y: ( box[3] - b[3] ) * scale, w: ( b[2] - b[0] ) * scale, h: ( b[3] - b[1] ) * scale } );
+  const image = ( pic: { url: string; box: MapBox } | null ) => {
+    if ( !pic ) return null;
+    const r = rect( pic.box );
+    return <image href={pic.url} x={r.x} y={r.y} width={r.w} height={r.h} preserveAspectRatio="none" />;
+  };
   const { width, depth } = mapSize();
 
   const pick = ( b: MapBox ) => {
+    if ( moved.current ) return;
     setOpts( chunkDefaults( kind ) );
     setAdding( b );
   };
@@ -154,7 +216,7 @@ export function MapSizeEditor() {
     setAdding( null );
     try {
       st.setBusy( "Adding ground…" );
-      const source = await addLandChunk( b[0], b[1], opts, ( f ) => st.setBusy( `Adding ground… ${Math.round( f * 100 )}%` ) );
+      const source = await addLandChunk( b[0], b[1], opts, ( f ) => st.setBusy( "Adding ground…", f ) );
       await refit();
       st.toast( `Added ground from ${source}`, "success" );
     } catch ( e ) {
@@ -164,6 +226,7 @@ export function MapSizeEditor() {
     }
   };
   const remove = async ( c: TerrainChunk ) => {
+    if ( moved.current ) return;
     const st = useEditor.getState();
     if ( chunks.length < 2 ) return st.toast( "That's the only ground the map has", "info" );
     const a = await ask( { title: "Remove this chunk?", answers: [{ id: "remove", label: "Remove", primary: true }] } );
@@ -179,9 +242,27 @@ export function MapSizeEditor() {
 
   return (
     <div className="mapsize">
-      <svg className="mapsize-map" width={W} height={W} viewBox={`0 0 ${W} ${W}`}>
-        { around && <image href={around} x={0} y={0} width={W} height={W} preserveAspectRatio="none" /> }
-        { ground && <image href={ground} x={0} y={0} width={W} height={W} preserveAspectRatio="none" /> }
+      <svg
+        ref={svg}
+        className="mapsize-map"
+        width={W}
+        height={W}
+        viewBox={`0 0 ${W} ${W}`}
+        onPointerDown={onDown}
+        onWheel={onWheel}
+        onDoubleClick={() => setView( null )}
+      >
+        {image( wide )}
+        { close && close.box.join( "," ) === box.join( "," ) && image( close ) }
+        { ground && image( { url: ground, box: fit } ) }
+        { rings.map( ( r, k ) => {
+          const q = rect( r.outer );
+          return (
+            <rect key={`s${k}`} className={`surround${k === rings.length - 1 ? " last" : ""}`} x={q.x} y={q.y} width={q.w} height={q.h}>
+              <title>{`Surroundings${rings.length > 1 ? ` ring ${k + 1}` : ""}: ${r.step} m between vertices`}</title>
+            </rect>
+          );
+        } ) }
         { ring.map( ( b ) => {
           const r = rect( b ), on = adding && adding[0] === b[0] && adding[1] === b[1];
           return (
@@ -209,6 +290,7 @@ export function MapSizeEditor() {
       </svg>
       <div className="note">
         {( width / 1000 ).toFixed( 2 )} × {( depth / 1000 ).toFixed( 2 )} km · {chunks.length} chunk{chunks.length > 1 ? "s" : ""}
+        {reach ? ` · surroundings ${( reach / 1000 ).toFixed( 0 )} km round` : ""}
       </div>
       { adding && (
         <div className="props chunk-add">

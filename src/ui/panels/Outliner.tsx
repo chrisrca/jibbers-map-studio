@@ -49,7 +49,7 @@ function useItems(): Item[] {
   const labels  = useEditor( ( s ) => s.labels        );
   return useMemo( () => [
     ...spawns.map( ( s ): Item => ( { sel: { kind: "spawn", uid: s.uid }, name: s.name, icon: "spawn" } ) ),
-    ...shapes.map( ( s ): Item => ( { sel: { kind: "shape", uid: s.uid }, name: s.name, icon: s.kind === "circle" ? "shapeCircle" : s.kind === "stamp" ? "shapeCopy" : "shapeCurve" } ) ),
+    ...shapes.map( ( s ): Item => ( { sel: { kind: "shape", uid: s.uid }, name: s.name, icon: s.kind === "circle" ? "shapeCircle" : s.kind === "stamp" ? "shapeCopy" : s.kind === "skiline" ? "skiLine" : s.kind === "formation" ? "mountain" : "shapeCurve" } ) ),
     ...objects.map( ( o ): Item => {
       const [uid, id, color] = o.split( "\n" );
       const col              = color ? PLACEHOLDER_COLORS[color] : undefined;

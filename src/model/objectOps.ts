@@ -3,11 +3,12 @@
 // way and the piece's placement with it.
 
 import * as THREE from "three/webgpu";
-import { toThree, toUnity, type V3 } from "../core/coords";
+import { toThree, toUnity, unityEulerToQuat, type V3 } from "../core/coords";
 import { pieceMatrix, transformCustom } from "../core/transform";
 import { arr3, xyz, type CustomObjectEntry } from "../core/types";
 import { railScaled, withRail } from "../pieces/rail";
 import type { ModelData } from "./build";
+import { turnBack, turnBackUv } from "./mesh";
 import { withModel } from "./objects";
 
 type Modelled           = CustomObjectEntry & { model: ModelData };
@@ -76,7 +77,7 @@ export function applyScale( o: Modelled ): Modelled {
   const m                = o.model;
   const model: ModelData = {
     ...m,
-    mesh: { ...m.mesh, v: m.mesh.v.map( sc ), ...( flip ? { f: m.mesh.f.map( ( f ) => [...f].reverse() ) } : {} ) },
+    mesh: { ...m.mesh, v: m.mesh.v.map( sc ), ...( flip ? { f: m.mesh.f.map( turnBack ), ...( m.mesh.u ? { u: m.mesh.u.map( ( uv, i ) => ( uv.length === m.mesh.f[i]?.length * 2 ? turnBackUv( uv ) : uv ) ) } : {} ) } : {} ) },
     ...( m.curve ? { curve: { ...m.curve, splines: m.curve.splines.map( ( s ) => ( { ...s, points: s.points.map( ( q ) => ( { ...q, p: sc( q.p ) } ) ) } ) ) } } : {} ),
   };
   const one  = xyz( [1, 1, 1] ), own = `Models/${o.uid}/`;
@@ -91,6 +92,46 @@ export function applyScale( o: Modelled ): Modelled {
 }
 
 /**
+ * Blender's Apply Rotation: its turn put into its mesh ( its curve's points, its rail and its way up too ), the piece
+ * left unturned. ( As Blender's: a piece stretched more one way than another keeps its scale on its new axes. )
+**/
+export function applyRotation( o: Modelled ): Modelled {
+  const r = arr3( o.rotation );
+  if ( r.every( ( v ) => Math.abs( v ) < 1e-9 ) ) return o;
+  const q                = unityEulerToQuat( r );
+  const turn             = ( p: V3 ): V3 => toUnity( toThree( p ).applyQuaternion( q ) );
+  const m                = o.model;
+  const model: ModelData = {
+    ...m,
+    mesh: { ...m.mesh, v: m.mesh.v.map( turn ) },
+    ...( m.curve ? { curve: { ...m.curve, splines: m.curve.splines.map( ( s ) => ( { ...s, points: s.points.map( ( p ) => ( { ...p, p: turn( p.p ) } ) ) } ) ) } } : {} ),
+  };
+  const none = xyz( [0, 0, 0] ), own = `Models/${o.uid}/`;
+  let out    = withModel( { ...o, rotation: none, parts: o.parts.map( ( p ) => ( p.mesh.startsWith( own ) ? { ...p, local_rotation: none } : p ) ) }, model ) as Modelled;
+  if ( o.rail ) out = withRail( out, { ...o.rail, points: o.rail.points.map( turn ), ...( o.rail.up ? { up: turn( o.rail.up ) } : {} ), parts: undefined } ) as Modelled;
+  return out;
+}
+
+/**
+ * Blender's Apply Location: its place put into its mesh, the piece's origin at the world's, the same to look at.
+**/
+export function applyLocation( o: Modelled ): Modelled {
+  return originTo( o, new THREE.Vector3() );
+}
+
+/**
+ * Blender's Apply ( Ctrl+A ): what's asked of its place, turn and scale put into its mesh, scale first, then the turn,
+ * then the place ( as the piece applies them ).
+**/
+export function applyTransform( o: Modelled, what: { location?: boolean; rotation?: boolean; scale?: boolean } ): Modelled {
+  let out = o;
+  if ( what.scale ) out = applyScale( out );
+  if ( what.rotation ) out = applyRotation( out );
+  if ( what.location ) out = applyLocation( out );
+  return out;
+}
+
+/**
  * Mirror along one of its own axes ( the game's index ), baked into it: corners flipped, faces turned back round.
 **/
 export function mirrorLocal( o: Modelled, axis: 0 | 1 | 2 ): Modelled {
@@ -98,7 +139,7 @@ export function mirrorLocal( o: Modelled, axis: 0 | 1 | 2 ): Modelled {
   const m                = o.model;
   const model: ModelData = {
     ...m,
-    mesh: { ...m.mesh, v: m.mesh.v.map( flip ), f: m.mesh.f.map( ( f ) => [...f].reverse() ) },
+    mesh: { ...m.mesh, v: m.mesh.v.map( flip ), f: m.mesh.f.map( turnBack ), ...( m.mesh.u ? { u: m.mesh.u.map( ( uv, i ) => ( uv.length === m.mesh.f[i]?.length * 2 ? turnBackUv( uv ) : uv ) ) } : {} ) },
     ...( m.curve ? { curve: { ...m.curve, splines: m.curve.splines.map( ( s ) => ( { ...s, points: s.points.map( ( q ) => ( { ...q, p: flip( q.p ) } ) ) } ) ) } } : {} ),
     // ( painted: its layout is made again for the new faces )
     paint: m.paint ? { ...m.paint, topo: undefined, uv: undefined } : undefined,

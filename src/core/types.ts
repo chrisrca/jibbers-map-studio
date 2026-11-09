@@ -1,6 +1,7 @@
 // Mirrors src-tauri/src/project/mod.rs ( serde camelCase ). All positions/rotations are Unity space.
 import type { ModelData } from "../model/build";
 import type { V3 } from "./coords";
+import type { Curve } from "./curve";
 
 export type ParamValue =
   | { type: "Int";    value: number  }
@@ -87,15 +88,34 @@ export interface CustomObjectEntry {
   // a fence's colliders copied from the map's pieces it uses for posts or panels ( studio only, world space: kept
   // apart so a change of its model keeps them; pieces/fence.ts )
   kitColliders?:            CustomCollider[];
-  // a map's surroundings: how its texture was last painted, and how far out they reach ( studio only;
-  // geo/scenery/inner.ts, geo/landGround.ts )
-  scenery?:                 { rockAngle: number; radius?: number };
+  // a map's surroundings: how its texture was last painted, how far out they reach, and how they were built ( studio
+  // only; geo/scenery/inner.ts, geo/landGround.ts SurroundingsLook )
+  // ( `detail`: the detail curve, geo/scenery/scenery.ts surroundingsPlan; a number from before it, read as none )
+  scenery?:                 { rockAngle: number; radius?: number; detail?: Curve | number; texture?: number; drop?: number };
   // the library asset it was placed from, and that file's date then ( studio only: overwriting the asset brings the
   // piece up to date, pieces/assetFiles.ts )
   source?:                  { id: string; stamp: number };
   // a piece modelled in the studio: its mesh and modifiers ( studio only; model/objects.ts )
   model?:                   ModelData;
   tree?:                    TreeMark;
+  // its paint turned round the colour wheel ( 0..1 ), as the game turns its own features' ( studio only: baked into
+  // copies of its textures on export, project/export.rs )
+  hue?:                     number;
+  // and its paint's Saturation, Lightness, Brightness and Contrast ( Photoshop's: -1..1 each, 0 as it is; studio only,
+  // baked with the Hue: project/hue.rs )
+  adjust?:                  PieceAdjust;
+}
+
+// A piece's paint adjusted ( beside its Hue ): each -1..1, 0 or missing as it is.
+export interface PieceAdjust { saturation?: number; lightness?: number; brightness?: number; contrast?: number }
+
+/**
+ * A piece's paint adjustments, all five ( Hue a turn, 0..1; the others -1..1 ), or null when it has none.
+**/
+export function adjustOf( o: { hue?: number; adjust?: PieceAdjust } ): Required<PieceAdjust> & { hue: number } | null {
+  const hue = ( ( ( o.hue ?? 0 ) % 1 ) + 1 ) % 1, a = o.adjust ?? {};
+  const out = { hue: hue > 1e-4 && hue < 1 - 1e-4 ? hue : 0, saturation: a.saturation ?? 0, lightness: a.lightness ?? 0, brightness: a.brightness ?? 0, contrast: a.contrast ?? 0 };
+  return Object.values( out ).some( ( v ) => Math.abs( v ) > 1e-4 ) ? out : null;
 }
 
 // A grind rail: a curve through control points in the piece's own coordinates ( Unity, before its scale ).
@@ -117,11 +137,32 @@ export interface Rail {
   parts?:      CustomCollider[];
   // the piece is one convex shape ( a box, a ledge, a hump ): its own collider is its solid body, exactly
   whole?:      boolean;
+  // its colliders changed by hand ( Edit Points: one picked, then moved, turned or sized )
+  tweaks?:     RailTweak[];
+  // a curve piece's rail ( its curve sampled ): each point's place along the curve's own points, as RailTweak's `at`
+  knots?:      number[];
+}
+
+// A rail collider changed by hand: where along the rail it is ( by its points: 1.5 is halfway from the second to the
+// third ), and how far it's moved, turned and sized from how the rail makes it, in its own axes ( X across, Y along
+// the rail, Z its way up ). Made again with the rail, each is the collider there: it moves, turns and scales with the
+// piece, and keeps its place along the rail as points are moved, added or taken away.
+export interface RailTweak {
+  at:     number;
+  shift?: [number, number, number];
+  // ( a quaternion: x, y, z, w )
+  turn?:  [number, number, number, number];
+  size?:  [number, number, number];
 }
 
 export const xyz  = ( v: [number, number, number] | number[] ): XYZ => ( { x: v[0], y: v[1], z: v[2] } );
 export const arr3 = ( v: XYZ ): [number, number, number] => [v.x, v.y, v.z];
 
+/**
+ * Whether a piece has anything to see: a part with a mesh ( a piece of colliders alone has none; exported, it's given a
+ * part with no mesh, which the game needs: project/export.rs seen_by_game, and comes back with it imported again ).
+**/
+export const hasLook            = ( o: { parts: { mesh: string }[] } ) => o.parts.some( ( p ) => !!p.mesh );
 /**
  * A real-world map's surroundings ( geo/scenery/scenery.ts ): its meshes are kept under "Scenery/".
 **/

@@ -1,10 +1,12 @@
 // The asset browser's cards: a piece, a lift, a material, a material used in the map; their previews and marks.
 
 import { useEffect, useState } from "react";
+import { ask } from "../../../app/ask";
 import { type LibraryEntry, ipc } from "../../../core/ipc";
 import type { CustomMaterial } from "../../../core/types";
 import { useEditor } from "../../../map/store";
 import { openAsset } from "../../../pieces/assetFiles";
+import { inAssets } from "../../../pieces/assetScene";
 import { isUserEntry, loadLibrary, placeEntry, userPath } from "../../../pieces/library";
 import { deleteUserAsset, deleteUserMaterial, materialName, saveMaterialToLibrary } from "../../../pieces/userAssets";
 import { BlIcon } from "../../blender/BlIcon";
@@ -89,8 +91,11 @@ export function MeshCard( { e, on }: { e: LibraryEntry; on: boolean } ) {
           onDrop:  ( x, y ) => {
             const pl = getEngine()?.placing.libraryPlacementAt( x, y );
             if ( pl ) placeEntry( e.id, pl.pos, pl.rot );
+            // ( the asset's scene has no ground to drop on: at the 3D cursor )
+            else if ( inAssets() ) placeEntry( e.id, useEditor.getState().cursor3d );
           },
-          onClick: ( ctrl ) => ( ctrl || useEditor.getState().tool === "scatter" ? togglePick( e.id ) : useEditor.setState( { placeEntry: e.id, placeId: null, tool: "place" } ) ),
+          // ( in Assets, added to the scene at the 3D cursor: Blender's Append )
+          onClick: ( ctrl ) => ( inAssets() ? placeEntry( e.id, useEditor.getState().cursor3d ) : ctrl || useEditor.getState().tool === "scatter" ? togglePick( e.id ) : useEditor.setState( { placeEntry: e.id, placeId: null, tool: "place" } ) ),
         } )
       }
     >
@@ -177,7 +182,8 @@ function DeleteButton( { e }: { e: LibraryEntry } ) {
       title="Delete"
       onPointerDown={( ev ) => ev.stopPropagation()}
       onClick={async () => {
-        if ( !confirm( `Delete “${e.name}” from your library?` ) ) return;
+        const a = await ask( { title: `Delete “${e.name}” from your library?`, answers: [{ id: "delete", label: "Delete", primary: true }] } );
+        if ( a?.id !== "delete" ) return;
         dropPreview( e.id );
         const path = userPath( e );
         if ( e.kind === "mesh" ) await deleteUserAsset( { path, name: e.name, parts: 0, textures: 0, size: [0, 0, 0], surfaceType: "Generic" } );

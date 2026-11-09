@@ -1,5 +1,6 @@
 import { Icon } from "./widgets/icons";
 import { useEffect, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ipc } from "../core/ipc";
 import { playInGame } from "../map/project";
 import { useEditor } from "../map/store";
@@ -15,9 +16,28 @@ function areaOf( el: HTMLElement ) {
   return { x: Math.round( r.left * d ), y: Math.round( r.top * d ), w: Math.round( r.width * d ), h: Math.round( r.height * d ) };
 }
 
+// What lies over the studio's page and must be seen: a question ( "Save changes?" as the studio closes ), a dialog, the
+// real-mountain window. The game's window, pulled in, sits over the page and hid them: no answer could be given, nor
+// the game closed.
+const OVER = ".modal-back, .mtnw";
+
+/**
+ * Whether anything is over the studio's page ( OVER ), as it comes and goes.
+**/
+function useSomethingOver() {
+  const [over, setOver] = useState( () => !!document.querySelector( OVER ) );
+  useEffect( () => {
+    const mo = new MutationObserver( () => setOver( !!document.querySelector( OVER ) ) );
+    mo.observe( document.body, { childList: true, subtree: true } );
+    return () => mo.disconnect();
+  }, [] );
+  return over;
+}
+
 /**
  * The Game tab: the running Jibbers window is pulled in over this panel's area ( see src-tauri/src/game/embed.rs ).
- * What's rendered here only shows when the game isn't inside.
+ * What's rendered here only shows when the game isn't inside; the game's put out of sight while a question or dialog
+ * is up ( useSomethingOver ).
 **/
 export function GamePanel( { active }: { active: boolean } ) {
   const host                = useRef<HTMLDivElement>( null );
@@ -25,6 +45,7 @@ export function GamePanel( { active }: { active: boolean } ) {
   const poppedOut           = useEditor( ( s ) => s.gamePoppedOut );
   const launch              = useEditor( ( s ) => s.gameLaunch    );
   const [, tick]            = useState( 0 );
+  const over                = useSomethingOver();
 
   // the launch indicator ends when the game is there ( or gives up after a while ); elapsed time ticks meanwhile
   useEffect( () => {
@@ -41,8 +62,10 @@ export function GamePanel( { active }: { active: boolean } ) {
   }, [launch, status, poppedOut] );
 
   useEffect( () => {
-    if ( !active || poppedOut ) {
+    if ( !active || poppedOut || over ) {
       ipc.gameSetVisible( false );
+      // ( a question up over the game: the keyboard the studio's, to answer it )
+      if ( over && active && !poppedOut ) void getCurrentWindow().setFocus().catch( () => {} );
       return;
     }
     let stopped  = false;
@@ -77,7 +100,7 @@ export function GamePanel( { active }: { active: boolean } ) {
       clearInterval( poll );
       ipc.gameSetVisible( false );
     };
-  }, [active, poppedOut] );
+  }, [active, poppedOut, over] );
 
   // Release the game if the panel goes away ( project closed ).
   useEffect( () => () => void ipc.gameRelease(), [] );

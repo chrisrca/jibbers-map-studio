@@ -10,6 +10,8 @@
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
     "react/static-components": "error",
+    "no-alert": "error",
+    "no-restricted-globals": ["error", { "name": "onbeforeunload", "message": "No browser dialogs: ask in the studio's own (app/ask.ts)" }],
 
     "react/react-in-jsx-scope": "off",
     "unicorn/consistent-function-scoping": "off",

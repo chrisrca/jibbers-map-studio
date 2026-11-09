@@ -9,4 +9,6 @@ export { type KnifePoint, knifeCut, edgeLoop, edgeRing, faceLoop, loopCut, subdi
 export { type DeleteKind, remove, type MergeKind, merge } from "./delete";
 export { fill, edgeChains, bridge } from "./fill";
 export { flip, duplicate, setSmooth } from "./faces";
+export { selectMore, selectLess, invertSel, shortestPath } from "./picks";
+export { type SeparateKind, separate } from "./separate";
 

@@ -60,10 +60,28 @@ pub fn prepare(dir: &Path, library: Option<String>) -> Result<AssetIndex> {
             None => return Ok(AssetIndex::default()),
         },
     };
-    if !dir.join(&lib_rel).exists() {
+    let lib = dir.join(&lib_rel);
+    if !lib.exists() {
         return Ok(AssetIndex::default());
     }
-    prepare_library(&dir.join(&lib_rel), &dir.join("cache").join("assets"))
+    let cache = dir.join("cache").join("assets");
+    let mut idx = prepare_library(&lib, &cache)?;
+    // what's been added beside a big library ( userassets::added_path ): converted on its own, into a folder of the
+    // cache's, in the library's place where both have it ( the big one left as it was converted )
+    let added = crate::library::userassets::added_path(&lib);
+    if added.exists() {
+        let a = prepare_library(&added, &cache.join("added"))?;
+        for (k, mut e) in a.meshes {
+            e.file = format!("added/{}", e.file);
+            idx.meshes.insert(k, e);
+        }
+        for (k, f) in a.textures {
+            idx.textures.insert(k, format!("added/{f}"));
+        }
+        idx.linear.extend(a.linear);
+        idx.stamp = format!("{}+{}", idx.stamp, a.stamp);
+    }
+    Ok(idx)
 }
 
 /// Same, for a standalone library file (previews). Cached under `<studio data>\cache\<hash of path>`.
@@ -232,7 +250,7 @@ fn write_texture(tex: &TextureData, path: &Path) -> Result<()> {
 
 /// Decodes the largest mip level that fits `MAX_TEXTURE` from Unity raw texture data (rows bottom-up, so the
 /// result is flipped to the top-down order PNGs use).
-fn decode_raw(tex: &TextureData, data: &[u8]) -> Result<image::RgbaImage> {
+pub(crate) fn decode_raw(tex: &TextureData, data: &[u8]) -> Result<image::RgbaImage> {
     let (mut w, mut h) = (tex.width.max(1) as u32, tex.height.max(1) as u32);
     let level_size = |w: u32, h: u32| -> Option<usize> {
         match tex.format {

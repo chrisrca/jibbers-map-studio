@@ -2,7 +2,7 @@
 // selection, views, workspaces ).
 
 import type { LibraryEntry, UserAsset, UserMaterial } from "../../core/ipc";
-import type { ChunkEntry, CustomObjectEntry, MapSettings, ObjectEntry, PlaceholderInfo, SpawnEntry } from "../../core/types";
+import type { ChunkEntry, CustomObjectEntry, MapSettings, ObjectEntry, PlaceholderInfo, SpawnEntry, SurfaceType } from "../../core/types";
 import type { Mesh, PrimitiveId, PrimitiveOpts, V3 } from "../../model/mesh";
 import type { PaintSettings } from "../../paint/settings";
 import type { BrushSettings, SculptState } from "../../sculpt/brushes";
@@ -10,7 +10,7 @@ import type { Shape } from "../../terrain/shapes/shapes";
 import type { GroundSettings } from "../../trails/ground";
 import type { TrailNet } from "../../trails/trails";
 
-export type ToolId = "select" | "sculpt" | "shape" | "trail" | "paint" | "place" | "spawn" | "scatter" | "model" | "material";
+export type ToolId = "select" | "sculpt" | "shape" | "trail" | "paint" | "place" | "spawn" | "scatter" | "collider" | "model" | "material";
 
 export type CameraMode = "orbit" | "fly" | "rider";
 
@@ -76,13 +76,19 @@ export interface EditorState {
   // every trail and terrain shape ( ramps, formations, copies ) drawn whatever tool is out, not just their own tool's
   showPaths:        boolean;
   // what the Shapes tool draws
-  shapeKind:        "curve" | "circle" | "stamp" | "formation";
+  shapeKind:        "curve" | "circle" | "stamp" | "formation" | "skiline";
   // what the select tool's gizmo does
   gizmoMode:        "translate" | "rotate" | "scale";
   // the map's ground drawn to read its shape: slope colours ( degrees ), hillshade, contour lines ( metres apart )
   terrainView:      TerrainView;
   // the object brush: the library pieces it drops ( asset browser picks ), and how ( viewport/tools/scatter.ts )
-  scatter:          { picks: string[]; radius: number; spacing: number; scaleJitter: number; followSlope: number; tilt: number };
+  // ( `instanced`: dropped as instances, upright, saved into the chunks' tree prototypes ( map/trees.ts ): far lighter in
+  // the game; a piece with settings an instance can't keep is dropped as a piece of its own )
+  scatter:          { picks: string[]; radius: number; spacing: number; scaleJitter: number; followSlope: number; tilt: number; instanced: boolean };
+  // the Collider tool's brush ( viewport/tools/colliderTool.ts ): half its width, what it lays, and their surface ( null:
+  // the piece's own ); and the collider of the picked piece picked with it ( its index ), for the gizmo
+  colliderBrush:    { radius: number; shape: "Box" | "Capsule"; surface: SurfaceType | null };
+  colliderPick:     number | null;
   library:          string | null;
   objects:          ObjectEntry[];
   spawns:           SpawnEntry[];
@@ -112,8 +118,8 @@ export interface EditorState {
   centerTab:               "editor" | "game";
   // the game was moved back to its own window from the Game tab
   gamePoppedOut:           boolean;
-  // a piece's grind rail being edited in the 3D view, and its picked point
-  railEdit:                { uid: string; point: number | null } | null;
+  // a piece's grind rail being edited in the 3D view, and its picked point, or its picked collider ( their order along it )
+  railEdit:                { uid: string; point: number | null; collider?: number | null } | null;
   // a modelled piece in Edit Mode ( viewport/edit/model/modelEditor.ts ): its select mode, how much is selected, what the
   // running operator says
   modelEdit:               { uid: string; mode: "vert" | "edge" | "face"; verts: number; edges: number; faces: number; status: string } | null;
@@ -125,6 +131,10 @@ export interface EditorState {
   hiddenInView:            Record<string, true>;
   // how a click or box adds to what's selected ( Blender's select mode )
   selectOp:                "set" | "extend" | "subtract";
+  // Design's Select Box or Cursor, over whatever mode it is ( null: the mode's own tools )
+  designPick:              "box" | "cursor" | null;
+  // the 3D cursor put down on the map ( Design's Add then puts things there, as Blender's does )
+  cursorDown:              boolean;
   // Blender's 3D cursor ( Unity space ): where things are added, what Spin turns round
   cursor3d:                [number, number, number];
   // the Assets workspace's 3D view: Blender's shading, X-ray and overlays
@@ -142,6 +152,8 @@ export interface EditorState {
   libraryDir:      string;
   toasts:          Toast[];
   busy:            string | null;
+  // how far along it is ( 0..1: a bar under it, as the real-mountain import's ), or null
+  busyProgress:    number | null;
   // the "import a real mountain" dialog is open
   mountainImport:  boolean;
   // the start window ( Blender's splash ) shown
@@ -167,7 +179,7 @@ export interface EditorState {
   setPaint(     p:    Partial<PaintSettings> ): void;
   setSelection( s:    Selection[] ): void;
   toast(        text: string, kind?: Toast["kind"] ): void;
-  setBusy(      text: string | null ): void;
+  setBusy(      text: string | null, progress?: number | null ): void;
   markDirty(): void;
 
   // Applies an object/spawn change as one undoable step.
@@ -198,6 +210,8 @@ export interface EditorState {
   setLocked(           uids:   string[], on: boolean ): void;
   // hidden in the 3D view ( Blender's H ): not drawn or picked, still in the map; hidden ones are let go of
   setHidden(           uids:   string[], on: boolean ): void;
+  // Alt+H ( Blender's Reveal Hidden ): everything hidden shown again, and selected
+  revealHidden(): void;
 }
 
 // What one undo step puts back.

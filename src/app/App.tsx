@@ -1,13 +1,13 @@
 import { Icon, type IconName } from "../ui/widgets/icons";
 import { redo, undo } from "../ui/UndoHistory";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { V3 } from "../core/coords";
 import { exportToGame, isUntitled, keepMapChanges, loadLibrary, newUntitled, playInGame, saveFromMenu, saveProject, saveProjectAs, startSession } from "../map/project";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { bootMark } from "../core/ipc";
 import { inAssets } from "../pieces/assetScene";
-import { saveAsset, saveAssetAs } from "../pieces/assetFiles";
+import { exportGlb, importModels, newAsset, openAssetFile, saveAsset, saveAssetAs } from "../pieces/assetFiles";
 import { toHide, unlocked, useEditor, workspaceOf } from "../map/store";
 import { terrain } from "../terrain/terrain";
 import { AssetBrowser } from "../ui/panels/AssetBrowser";
@@ -29,7 +29,45 @@ import type { BrushId } from "../sculpt/brushes";
 import { AskDialog } from "../ui/dialogs/Ask";
 import { getEngine, Viewport } from "../ui/Viewport";
 
-type Stats = { fps: number; tiles: number; visible: number; triangles: number; cursor: V3 | null; slope: number | null };
+type Stats = { fps: number; tiles: number; visible: number; triangles: number };
+
+// The status bar's figures, handed to it straight from the 3D view: the ground under the mouse each frame it moves
+// ( written into the bar as it is, nothing drawn again ), the view's own twice a second ( only the bar drawn again ).
+const statusFeed = {
+  stats:  null as ( ( s: Stats ) => void ) | null,
+  cursor: null as ( ( at: V3 | null, slope: number | null ) => void ) | null,
+};
+const feedStats  = ( s: Stats ) => statusFeed.stats?.( s );
+const feedCursor = ( at: V3 | null, slope: number | null ) => statusFeed.cursor?.( at, slope );
+
+/**
+ * Where the mouse is on the ground ( Unity metres ) and its slope there, as it moves.
+**/
+function CursorReadout() {
+  const el = useRef<HTMLSpanElement>( null );
+  useEffect( () => {
+    statusFeed.cursor = ( at, slope ) => {
+      if ( !el.current ) return;
+      el.current.hidden      = !at;
+      el.current.textContent = at ? `${at[0].toFixed( 1 )}, ${at[1].toFixed( 1 )}, ${at[2].toFixed( 1 )} m${slope !== null ? ` · ${slope.toFixed( 1 )}°` : ""}` : "";
+    };
+    return () => void ( statusFeed.cursor = null );
+  }, [] );
+  return <span className="stats cursor-readout" ref={el} hidden />;
+}
+
+/**
+ * The view's chunks, tiles, triangles and frame rate.
+**/
+function ViewStats() {
+  const [stats, setStats] = useState<Stats | null>( null );
+  useEffect( () => {
+    statusFeed.stats = setStats;
+    return () => void ( statusFeed.stats = null );
+  }, [] );
+  const tri = stats ? ( stats.triangles > 1e6 ? `${( stats.triangles / 1e6 ).toFixed( 1 )}M` : `${( stats.triangles / 1e3 ).toFixed( 0 )}k` ) : "";
+  return <span className="stats">{terrain.chunks.length} chunks · {stats?.visible ?? 0}/{stats?.tiles ?? 0} tiles · {tri} tris{stats ? ` · ${stats.fps.toFixed( 0 )} fps` : ""}</span>;
+}
 
 const SHORTCUTS: [string, string][] = [
   ["V / B / H / P / N",             "Select · Sculpt · Shapes (jumps, curves, copies) · Place · Spawn tool"],
@@ -68,6 +106,7 @@ setTimeout( showWindow, 15000 );
 export default function App() {
   const projectDir              = useEditor( ( s ) => s.projectDir     );
   const busy                    = useEditor( ( s ) => s.busy           );
+  const busyProgress            = useEditor( ( s ) => s.busyProgress   );
   const mountainImport          = useEditor( ( s ) => s.mountainImport );
   const toasts                  = useEditor( ( s ) => s.toasts         );
   const splash                  = useEditor( ( s ) => s.splash         );
@@ -114,6 +153,11 @@ export default function App() {
       if ( e.ctrlKey && k === "z" && !e.shiftKey ) { e.preventDefault(); undo(); }
       else if ( e.ctrlKey && ( k === "y" || ( k === "z" && e.shiftKey ) ) ) { e.preventDefault(); redo(); }
       else if ( e.ctrlKey && k === "s" && inAssets() ) { e.preventDefault(); void ( e.shiftKey ? saveAssetAs() : saveAsset() ); }
+      // ( in Assets, the asset's file: as Blender's File menu has them )
+      else if ( e.ctrlKey && k === "i" && inAssets() ) { e.preventDefault(); void importModels(); }
+      else if ( e.ctrlKey && k === "e" && inAssets() ) { e.preventDefault(); void exportGlb(); }
+      else if ( e.ctrlKey && k === "n" && inAssets() ) { e.preventDefault(); void newAsset(); }
+      else if ( e.ctrlKey && k === "o" && inAssets() ) { e.preventDefault(); void openAssetFile(); }
       else if ( e.ctrlKey && k === "s" ) { e.preventDefault(); if ( st.projectDir ) void ( e.shiftKey ? saveProjectAs() : saveFromMenu() ); }
       else if ( e.ctrlKey && k === "i" ) { e.preventDefault(); pickAndImportAny(); }
       else if ( e.ctrlKey && k === "e" ) { e.preventDefault(); if ( st.projectDir ) exportToGame(); }
@@ -124,7 +168,7 @@ export default function App() {
       else if ( e.ctrlKey && e.key === "Tab" ) { e.preventDefault(); if ( st.projectDir ) st.setCenterTab( st.centerTab === "game" ? "editor" : "game" ); }
       else if ( e.key === "F5" ) { e.preventDefault(); if ( st.projectDir ) playInGame(); }
       else if ( e.altKey  && k === "a" ) { e.preventDefault(); st.setSelection( [] ); }
-      else if ( e.altKey  && k === "h" ) { e.preventDefault(); if ( st.projectDir ) st.setHidden( Object.keys( st.hiddenInView ), false ); }
+      else if ( e.altKey  && k === "h" ) { e.preventDefault(); if ( st.projectDir ) st.revealHidden(); }
       // ( Ctrl+A, not A: A is the camera's, with W, S and D )
       else if ( e.ctrlKey && !e.shiftKey && k === "a" ) { if ( st.projectDir && st.tool === "select" ) { e.preventDefault(); selectAll(); } }
       else if ( e.ctrlKey && !e.shiftKey && k === "c" ) { if ( st.projectDir && copySelection() ) e.preventDefault(); }
@@ -151,15 +195,10 @@ export default function App() {
         }
       }
     };
+    // ( no beforeunload guard: the WebView asks with a browser dialog of its own. Closing asks in the studio's own
+    // dialog: keepMapChanges, below )
     window.addEventListener( "keydown", onKey );
-    const beforeUnload = ( e: BeforeUnloadEvent ) => {
-      if ( useEditor.getState().dirty ) e.preventDefault();
-    };
-    window.addEventListener( "beforeunload", beforeUnload );
-    return () => {
-      window.removeEventListener( "keydown",      onKey        );
-      window.removeEventListener( "beforeunload", beforeUnload );
-    };
+    return () => window.removeEventListener( "keydown", onKey );
   }, [] );
 
   return (
@@ -190,6 +229,7 @@ export default function App() {
           <div className="box">
             <div className="spinner" />
             {busy}
+            { busyProgress !== null && <div className="progress"><div style={{ width: `${Math.round( busyProgress * 100 )}%` }} /></div> }
           </div>
         </div>
       ) }
@@ -209,10 +249,7 @@ function Editor( { onShortcuts }: { onShortcuts: () => void } ) {
   const [sideW,     setSideW    ] = useState( 360 );
   const [assetsH,   setAssetsH  ] = useState( 236 );
   const [outlinerH, setOutlinerH] = useState( 250 );
-  const [stats, setStats]         = useState<Stats | null>( null );
   const centerTab                 = useEditor( ( s ) => s.centerTab );
-  // Modeling and Materials work on pieces on their own: no asset browser there
-  const onStage                   = useEditor( ( s ) => s.tool === "model" || s.tool === "material" );
 
   useEffect( () => startLagWatch(),        [] );
   useEffect( () => startDiscordPresence(), [] );
@@ -251,27 +288,23 @@ function Editor( { onShortcuts }: { onShortcuts: () => void } ) {
     return () => off?.();
   }, [] );
 
-  const tri = stats ? ( stats.triangles > 1e6 ? `${( stats.triangles / 1e6 ).toFixed( 1 )}M` : `${( stats.triangles / 1e3 ).toFixed( 0 )}k` ) : "";
   return (
     <div className="app">
       <TopBar onShortcuts={onShortcuts} />
       <div className="areas" style={{ gridTemplateColumns: `minmax(0, 1fr) var(--gap) ${sideW}px` }}>
-        <div className="col" style={{ gridTemplateRows: onStage ? "minmax(0, 1fr)" : `minmax(0, 1fr) var(--gap) ${assetsH}px` }}>
+        { /* ( the asset browser in every workspace: in Assets its cards add to the scene, Blender's Append ) */ }
+        <div className="col" style={{ gridTemplateRows: `minmax(0, 1fr) var(--gap) ${assetsH}px` }}>
           <div className="area view3d">
             {centerTab === "game" ? <GameHeader /> : <ToolHeader />}
             <div className="stage">
-              <Viewport onStats={setStats} hidden={centerTab === "game"} />
+              <Viewport onStats={feedStats} onCursor={feedCursor} hidden={centerTab === "game"} />
               <GamePanel active={centerTab === "game"} />
             </div>
           </div>
-          { !onStage && (
-            <>
-              <Splitter dir="v" onDrag={( d ) => setAssetsH( ( h ) => Math.min( 700, Math.max( 120, h - d ) ) )} />
-              <div className="area assets">
-                <AssetBrowser />
-              </div>
-            </>
-          ) }
+          <Splitter dir="v" onDrag={( d ) => setAssetsH( ( h ) => Math.min( 700, Math.max( 120, h - d ) ) )} />
+          <div className="area assets">
+            <AssetBrowser />
+          </div>
         </div>
         <Splitter dir="h" onDrag={( d ) => setSideW( ( w ) => Math.min( 720, Math.max( 260, w - d ) ) )} />
         <div className="col" style={{ gridTemplateRows: `${outlinerH}px var(--gap) minmax(0, 1fr)` }}>
@@ -287,14 +320,9 @@ function Editor( { onShortcuts }: { onShortcuts: () => void } ) {
       <div className="statusbar">
         <Hints />
         <span className="spacer" />
-        { stats?.cursor && (
-          <span className="stats">
-            {stats.cursor[0].toFixed( 1 )}, {stats.cursor[1].toFixed( 1 )}, {stats.cursor[2].toFixed( 1 )} m
-            {stats.slope !== null && ` · ${stats.slope.toFixed( 1 )}°`}
-          </span>
-        ) }
+        <CursorReadout />
         <SaveStatus />
-        <span className="stats">{terrain.chunks.length} chunks · {stats?.visible ?? 0}/{stats?.tiles ?? 0} tiles · {tri} tris{stats ? ` · ${stats.fps.toFixed( 0 )} fps` : ""}</span>
+        <ViewStats />
       </div>
     </div>
   );
@@ -322,7 +350,8 @@ const HINTS: Record<ToolId, Hint[]> = {
   paint:    [["mouseLeft", "Paint"                             ], ["Ctrl",       "Other way"          ], ["[ ]", "Size"], ["1-5", "Snow, Markings, Powder, Grip, Corduroy"], ["X", "Swap colours"], ...MOUSE_NAV],
   place:    [["mouseLeft", "Place"                             ], ["V",          "Done"               ], ...MOUSE_NAV],
   spawn:    [["mouseLeft", "Add a spawn"                       ], ...MOUSE_NAV],
-  scatter:  [["mouseLeft", "Scatter"                           ], ["Ctrl",       "Take away"          ], ["Ctrl click", "Pick pieces in the asset browser"], ...MOUSE_NAV],
+  scatter:  [["mouseLeft", "Scatter"                           ], ["Ctrl",       "Take away"          ], ["[ ] F", "Size"], ["Ctrl click", "Pick pieces in the asset browser"], ...MOUSE_NAV],
+  collider: [["mouseLeft", "Place a collider ( drag: longer )"], ["[ ]", "Size"], ["X", "Delete"], ...MOUSE_NAV],
   model:    [["mouseLeft", "Select"                            ], ["Shift A",    "Add"                ], ["Tab", "Edit Mode"], ...MOUSE_NAV],
   material: [["mouseLeft", "Select, or paint in Texture Paint" ], ["Ctrl",       "Erase"              ], ["[ ]", "Size"], ...MOUSE_NAV],
 };

@@ -168,7 +168,71 @@ export interface PaintShape {
   coverage:      number;
 }
 
-export type Shape = CurveShape | CircleShape | StampShape | FormationShape | PaintShape;
+// A ski line ( Map-Tools' Ski Line Builder, terrain/shapes/shapes/skiline.ts ): a run carved along a spline through its
+// points, a feature's bumps along it and its stripes painted into the snow mask, its settings as Map-Tools has them.
+export interface SkiLineNode {
+  // where it is ( world ); the line runs at its height
+  p:     [number, number, number];
+  // its width ( metres ); null: the line's
+  width: number | null;
+  // banked here ( degrees ), on top of the line's Auto Bank
+  roll:  number;
+}
+
+export interface SkiLineStripe {
+  // across the line at one place along the feature, or along it at one place across
+  across:   boolean;
+  // along stripes: where across the width ( 0..1 ); across stripes: where along the feature ( 0 start, 1 end )
+  position: number;
+  width:    number;
+  softness: number;
+  opacity:  number;
+  // across stripes pulled in from the line's edges ( a fraction of the width )
+  inset:    number;
+  colour:   number;
+}
+
+export interface SkiLineFeature {
+  name:      string;
+  enabled:   boolean;
+  // metres along the line it starts, and how long
+  start:     number;
+  length:    number;
+  height:    number;
+  // metres off the line's middle, and how wide ( 0: the line's width )
+  lateral:   number;
+  width:     number;
+  // the fraction of its half-width blended in at its sides
+  sideBlend: number;
+  // its height along it ( 0..1 × height )
+  profile:   Curve;
+  stripes:   SkiLineStripe[];
+}
+
+export interface SkiLineShape {
+  uid:         string;
+  kind:        "skiline";
+  name:        string;
+  enabled:     boolean;
+  width:       number;
+  // the surface across the line, left edge to right, × crossDepth metres
+  cross:       Curve;
+  crossDepth:  number;
+  // the fraction of each side the cross-section and roll fade out over
+  sideFlatten: number;
+  // degrees banked in a 20 m turn
+  autoBank:    number;
+  // the fraction of each side blended into the ground round it, how sharply, and metres faded in and out at the ends
+  edgeBlend:   number;
+  edgeFalloff: number;
+  endBlend:    number;
+  // samples along the line
+  detail:      number;
+  nodes:       SkiLineNode[];
+  features:    SkiLineFeature[];
+}
+
+export type Shape = CurveShape | CircleShape | StampShape | FormationShape | PaintShape | SkiLineShape;
 
 let counter = 0;
 
@@ -187,6 +251,16 @@ export function newFormation( points: [number, number][] ): FormationShape {
     hydraulic: { on: false, droplets: 0.5, lifetime: 250, inertia: 0.05, capacity: 4, erode: 0.3, deposit: 0.3, evaporate: 0.01, radius: 3 },
     snow:      { on: false, rockFrom: 30, rockFull: 54, rock: 1, crevices: 0.5, lineLow: -1, lineHigh: -1, depth: 1.2, addsHeight: 0.4, soften: 2 },
     v:         2,
+  };
+}
+
+/**
+ * A new ski line through `nodes`, as Map-Tools makes one ( SetLineDefaults ).
+**/
+export function newSkiLine( nodes: SkiLineNode[] ): SkiLineShape {
+  return {
+    uid: uid(), kind: "skiline", name: "New Line", enabled: true, width: 14, cross: [{ t: 0, v: 0, ti: 0, to: 0 }, { t: 1, v: 0, ti: 0, to: 0 }], crossDepth: 0,
+    sideFlatten: 0.15, autoBank: 0, edgeBlend: 0.25, edgeFalloff: 1, endBlend: 10, detail: 1024, nodes, features: [],
   };
 }
 

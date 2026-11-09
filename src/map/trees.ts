@@ -88,10 +88,11 @@ function stillKind( o: CustomObjectEntry, kind: TreeKind ): boolean {
   return same( o.parts, placed.parts ) && same( o.colliders, placed.colliders );
 }
 
-// ( a piece that stands only as a tree does: none of a piece's own settings, which a tree prototype hasn't )
+// ( a piece that stands only as a tree does: none of a piece's own settings, which a tree prototype hasn't; a
+// scattered tree's library piece it came from isn't kept )
 const plainPiece = ( o: CustomObjectEntry ) =>
   o.surface_type === "Generic" && !o.can_stabilize && !o.can_rotate && !o.can_magnetize && !o.intended_up_method && !o.disable_distance_culling && !o.timed_visibility && !o.lights.length &&
-  !["rail", "kitColliders", "scenery", "source", "model", "fence"].some( ( k ) => k in o );
+  !["rail", "kitColliders", "scenery", "model", "fence"].some( ( k ) => k in o ) && ( !o.source || !!o.tree?.kind );
 
 // ( a kind as its settings, worked out once a kind: a copied tree's is a copy of it )
 const kindKeys = new WeakMap<TreeKind, string>();

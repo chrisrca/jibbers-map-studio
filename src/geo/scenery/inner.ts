@@ -23,8 +23,12 @@ const UNDER = 10;
 // coloured: the two shaders agree on brightness but not on how the sky tints them, so fitting each colour to one
 // moment's light ( as this first did ) bakes that sky into the snow. Measured in game on 2026-10-14 — Mont Tremblant
 // ( untinted 250 white: 192,187,182 against the terrain's 175,166,163 ) and Crotched ( tinted: 177,164,161 against
-// 170,162,161 ) — the two agree on 0.758 on average, within ~4 levels of the terrain in both.
-const SNOW_TARGET = [0.758, 0.758, 0.758];
+// 170,162,161 ) — the two agree on 0.758 on average, within ~4 levels of the terrain in both. That was the game's old
+// terrain ( SnowTerrain ); its maps' ground is now NewSnowTerrain ( Custom/PisteSnow, its snow texture ~0.64 ), which
+// the studio drew as the game does ( 2026-11-07 ): the scenery's snow came out like it at 0.70. Seen in game after
+// ( 2026-11-09 ), the scenery's snow 2.2% the lighter in linear light, the same hue: 0.685, which the scenery is now
+// painted with ( scenery.ts SNOW: the tint near white ).
+const SNOW_TARGET = [0.685, 0.685, 0.685];
 const toLinear    = ( c: number ) => ( c <= 0.04045 ? c / 12.92 : ( ( c + 0.055 ) / 1.055 ) ** 2.4 );
 const toSrgb      = ( c: number ) => ( c <= 0.0031308 ? c * 12.92 : 1.055 * c ** ( 1 / 2.4 ) - 0.055 );
 
@@ -191,6 +195,12 @@ export async function repaintScenery( uid: string, angle: number ) {
   const sc = st.customObjects.find( ( o ) => o.uid === uid );
   if ( !st.projectDir || !sc ) return;
   const prefix = sceneryPrefix( sc );
+  // ( surroundings of more than one ring: built again, each texture painted with the land's own heights, finer than its
+  // mesh )
+  if ( sc.parts.some( ( p ) => p.mesh.startsWith( `${prefix}/` ) && !p.mesh.startsWith( `${prefix}/strip-` ) && p.mesh !== `${prefix}/inner` ) ) {
+    const { buildSurroundings } = await import( "../landGround" );
+    return buildSurroundings( {}, undefined, undefined, angle );
+  }
   await updateSceneryInner();
   const key = await ipc.repaintScenery( st.projectDir, prefix, angle );
   st.updateCustom( `Rocks from ${angle}°`, [uid], ( o ) => ( {

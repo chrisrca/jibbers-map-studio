@@ -45,7 +45,7 @@ export async function railSelftest( dir: string ) {
       if ( !o.rail ) {
         const { autoRail } = await import( "../../pieces/rail" );
         const pts          = await eng.customR.localVertices( o );
-        why                = ` (surface ${o.surface_type}, from ${feature( id )}, ${pts ? `${pts.length / 3} corners, finder: ${autoRail( pts ).why ?? "a rail"}` : "no mesh yet"})`;
+        why                = ` (surface ${o.surface_type}, from ${feature( id )}, ${pts ? `${pts.length / 3} corners, finder: ${autoRail( pts ).rail ? "a rail" : "none"}` : "no mesh yet"})`;
       }
       log( `${id}: ${o.rail ? `rail of ${o.rail.points.length} points, ${( o.rail.radius * 200 ).toFixed( 1 )} cm thick, ${railCaps( o.uid )} capsules, setting ${o.intended_up_method}${fit}` : `no rail, setting ${o.intended_up_method}${why}`}` );
     }

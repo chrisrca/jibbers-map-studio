@@ -58,7 +58,9 @@ export class CurveTransforms {
         if ( e.ctrlKey ) delta.set( Math.round( delta.x * 10 ) / 10, Math.round( delta.y * 10 ) / 10, Math.round( delta.z * 10 ) / 10 );
       }
       apply              = ( w ) => w.add( delta );
-      this.ed.statusText = `${m.label}: ${toUnity( delta ).map( ( v ) => v.toFixed( 3 ) ).join( ", " )}${m.axis !== null ? ` along ${"XYZ"[m.axis]}` : ""}`;
+      // ( on Blender's axes: X, Y, Z )
+      const u            = toUnity( delta );
+      this.ed.statusText = `${m.label}: ${[u[0], u[2], u[1]].map( ( v ) => v.toFixed( 3 ) ).join( ", " )}${m.axis !== null ? ` along ${"XZY"[m.axis]}` : ""}`;
     } else if ( m.op === "r" ) {
       let deg       = THREE.MathUtils.radToDeg( Math.atan2( this.ed.mouse.y - py, this.ed.mouse.x - px ) - Math.atan2( m.y0 - py, m.x0 - px ) );
       const viewDir = this.ed.view.camera.getWorldDirection( new THREE.Vector3() );

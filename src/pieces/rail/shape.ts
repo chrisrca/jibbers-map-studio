@@ -51,12 +51,12 @@ export function simplify( pts: P3[], tol: number ): P3[] {
 /**
  * A rail along a piece from its mesh ( `pts`: vertices in the piece's own coordinates, xyz… ). The piece is sliced
  * along its length ( the longer of its level axes ); the top of each slice is the top of the rail there, and how the
- * top curves gives the rail's thickness. No rail ( and why ) where slicing can't follow the shape: when it doubles back
- * over itself, like a spiral.
+ * top curves gives the rail's thickness. No rail where slicing can't follow the shape: when it doubles back over
+ * itself, like a spiral.
 **/
-export function autoRail( pts: Float32Array ): { rail: Rail | null; why?: string; radius?: number } {
+export function autoRail( pts: Float32Array ): { rail: Rail | null; radius?: number } {
   const n = Math.floor( pts.length / 3 );
-  if ( n < 3 ) return { rail: null, why: "it has no shape to follow" };
+  if ( n < 3 ) return { rail: null };
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for ( let i = 0; i < n; i++ ) {
     x0 = Math.min( x0, pts[i * 3] );
@@ -68,7 +68,7 @@ export function autoRail( pts: Float32Array ): { rail: Rail | null; why?: string
   const C   = 2 - A;                      // across
   const lo  = A === 0 ? x0 : z0;
   const len = A === 0 ? x1 - x0 : z1 - z0;
-  if ( len < 1e-3 ) return { rail: null, why: "it has no length" };
+  if ( len < 1e-3 ) return { rail: null };
   const N   = Math.min( 48, Math.max( 12, Math.round( len / 0.05 ) ) );
   const bin = ( i: number ) => Math.min( N - 1, Math.floor( ( ( pts[i * 3 + A] - lo ) / len ) * N ) );
 
@@ -82,7 +82,7 @@ export function autoRail( pts: Float32Array ): { rail: Rail | null; why?: string
     w1[b]   = Math.max( w1[b],  pts[i * 3 + C] );
   }
   const used = [...Array( N ).keys()].filter( ( k ) => top[k] > -Infinity );
-  if ( used.length < 2 ) return { rail: null, why: "it has no length" };
+  if ( used.length < 2 ) return { rail: null };
   // the band just under each slice's top: its middle across, and from its width the rail's thickness
   const h   = clamp( median( used.map( ( k ) => w1[k] - w0[k] ) ) * 0.25, 0.004, 0.08 );
   const c0  = new Float64Array( N ).fill( Infinity ), c1 = new Float64Array( N ).fill( -Infinity );
@@ -131,8 +131,7 @@ export function autoRail( pts: Float32Array ): { rail: Rail | null; why?: string
   } );
   // the top hopping across or up and down from slice to slice: the slices are cutting the shape twice
   const jumps = line.slice( 1 ).filter( ( p, i ) => Math.abs( p[C] - line[i][C] ) > 3 * step + 4 * r || Math.abs( p[1] - line[i][1] ) > 3 * step + 4 * r ).length;
-  const why   = "it doubles back over itself (like a spiral), so it can't be followed slice by slice";
-  if ( jumps > 1 ) return { rail: null, why, radius: r };
+  if ( jumps > 1 ) return { rail: null, radius: r };
   // seen from above, the rail should cover the piece ( legs and posts are small dots under it ): a spiral's slices
   // only find its highest turn
   const cell  = Math.max( r, len / 200 );
@@ -150,7 +149,7 @@ export function autoRail( pts: Float32Array ): { rail: Rail | null; why?: string
   }
   let inside = 0;
   for ( const c of shape ) if ( covered.has( c ) ) inside++;
-  if ( inside < shape.size * 0.65 ) return { rail: null, why, radius: r };
+  if ( inside < shape.size * 0.65 ) return { rail: null, radius: r };
   // the ends reach the ends of the rail, carrying on the way it runs just inside them ( the very end is often rounded
   // off, lower than the rail )
   const reachTo = ( end: number, i: number, j: number, to: number ) => {
