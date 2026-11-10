@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { customName, isScenery } from "../../../core/types";
-import { useEditor, workspaceOf } from "../../../map/store";
+import { useEditor, workspaceOf, type EditorState } from "../../../map/store";
+import { getEngine } from "../../Viewport";
 import { BlIcon } from "../../blender/BlIcon";
 import { Panel } from "../../widgets/controls";
 import { BrushProperties } from "../BrushProperties";
@@ -120,11 +121,50 @@ function AssetsPropertiesEditor() {
   );
 }
 
+/**
+ * A part of the store as useEditor gives it, but while something's dragged with the gizmo, caught up with at most every
+ * CALM ms ( and straight away when it's let go ): the panel drawn again on every step of a drag, its fields' and boxes'
+ * attributes set again each time, had the page laid out and painted again every frame ( a piece dragged on a busy
+ * park ran at half the view's rate ).
+**/
+const CALM = 80;
+function useCalm<T>( pick: ( s: EditorState ) => T ): T {
+  const [, bump] = useReducer( ( n: number ) => n + 1, 0 );
+  const shown    = useRef( pick( useEditor.getState() ) );
+  useEffect( () => {
+    let timer: ReturnType<typeof setTimeout> | null = null, last = 0;
+    const flush = () => {
+      timer   = null;
+      last    = performance.now();
+      const v = pick( useEditor.getState() );
+      if ( v === shown.current ) return;
+      shown.current = v;
+      bump();
+    };
+    // ( caught up with anything that changed before this was listening )
+    flush();
+    const off = useEditor.subscribe( ( s, p ) => {
+      if ( pick( s ) === pick( p ) ) return;
+      if ( !getEngine()?.blGizmo.dragging ) {
+        if ( timer ) clearTimeout( timer );
+        return flush();
+      }
+      timer ??= setTimeout( flush, Math.max( 0, CALM - ( performance.now() - last ) ) );
+    } );
+    return () => {
+      off();
+      if ( timer ) clearTimeout( timer );
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [] );
+  return shown.current;
+}
+
 export function Properties( { tab }: { tab?: AssetTab } = {} ) {
   const selection     = useEditor( ( s ) => s.selection     );
-  const objects       = useEditor( ( s ) => s.objects       );
-  const spawns        = useEditor( ( s ) => s.spawns        );
-  const customObjects = useEditor( ( s ) => s.customObjects );
+  const objects       = useCalm(   ( s ) => s.objects       );
+  const spawns        = useCalm(   ( s ) => s.spawns        );
+  const customObjects = useCalm(   ( s ) => s.customObjects );
   const shapes        = useEditor( ( s ) => s.shapes        );
   const trails        = useEditor( ( s ) => s.trails        );
   const tool          = useEditor( ( s ) => s.tool          );

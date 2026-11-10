@@ -1,7 +1,43 @@
-// Editing terrain shapes from the UI: live changes while dragging a handle or a slider, one undo step per edit.
+// Editing terrain shapes from the UI: live changes while dragging a handle or a slider, one undo step per edit. A
+// formation is worked out quickly while it's being changed and in full ( its erosion, the snow softened ) once it's let
+// go, as Map-Tools does with Live Erosion on; with it off, only when asked ( Simulate ).
 
-import { beginShapeEdit, commitShapeEdit, previewShape, previewShapeSoon, removeShape, whenShapesSettled, type Shape, type ShapeEdit } from "./shapes";
+import { history } from "../../map/history";
+import { bakeShapeIn, beginShapeEdit, commitShapeEdit, previewShape, previewShapeSoon, removeShape, setShapeDoc, simulates, whenShapesSettled, type Shape, type ShapeEdit } from "./shapes";
 import { useEditor } from "../../map/store";
+
+// The shapes built on others ( formations on the trails, ski lines on those ) kept on them as the ground beneath them
+// changes: made again there, a ski line with its points moved ( worked out in full, a formation, as one let go is ).
+setShapeDoc( {
+  list:   () => useEditor.getState().shapes,
+  follow: ( s ) => {
+    const st = useEditor.getState();
+    if ( !st.shapes.some( ( x ) => x.uid === s.uid ) ) return;
+    if ( !st.shapes.includes( s ) ) useEditor.setState( { shapes: st.shapes.map( ( x ) => ( x.uid === s.uid ? s : x ) ), dirty: true } );
+    previewShapeSoon( s, s.kind === "formation" && liveErosion() && simulates( s ) );
+  },
+} );
+
+const LIVE_EROSION = "jibbers.formation.liveErosion";
+
+/**
+ * Whether formations are worked out in full after each edit.
+**/
+export function liveErosion() {
+  try {
+    return localStorage.getItem( LIVE_EROSION ) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function setLiveErosion( on: boolean ) {
+  try {
+    localStorage.setItem( LIVE_EROSION, on ? "on" : "off" );
+  } catch {
+    // ( kept for this run only )
+  }
+}
 
 let session: { edit: ShapeEdit; before: Shape[]; label: string } | null = null;
 
@@ -30,6 +66,9 @@ export function commitShape() {
   const s     = session;
   session     = null;
   const after = useEditor.getState().shapes;
+  // ( a formation let go: worked out in full before the step's recorded )
+  const shape = after.find( ( x ) => x.uid === s.edit.uid );
+  if ( shape?.kind === "formation" && liveErosion() && simulates( shape ) ) previewShapeSoon( shape, true );
   whenShapesSettled( () =>
     commitShapeEdit( s.edit, s.label, {
       undo: () => useEditor.setState( { shapes: s.before, dirty: true } ),
@@ -58,8 +97,41 @@ export function cancelShape() {
   useEditor.setState( { shapes: s.before } );
 }
 
+/**
+ * A formation worked out in full now ( Live Erosion off: Map-Tools' Apply ), one undo step.
+**/
+export function simulateShape( s: Shape ) {
+  commitShape();
+  const edit = beginShapeEdit( s.uid );
+  previewShapeSoon( s, true );
+  whenShapesSettled( () => commitShapeEdit( edit, "Simulate formation", { undo: () => {}, redo: () => {} } ) );
+}
+
+/**
+ * A shape made part of the ground and taken off the list ( Map-Tools' Bake Into Terrain ), one undo step.
+**/
+export function bakeShape( uid: string ) {
+  commitShape();
+  whenShapesSettled( () => {
+    const st     = useEditor.getState();
+    const before = st.shapes, after = before.filter( ( s ) => s.uid !== uid );
+    const b      = bakeShapeIn( uid );
+    useEditor.setState( { shapes: after, selection: st.selection.filter( ( s ) => s.uid !== uid ), dirty: true } );
+    history.push( {
+      label: "Bake formation",
+      undo:  () => { b.undo(); useEditor.setState( { shapes: before, dirty: true } ); },
+      redo:  () => { b.redo(); useEditor.setState( { shapes: after,  dirty: true } ); },
+    } );
+  } );
+}
+
 export function deleteShape( uid: string ) {
   commitShape();
+  // ( once what's under way is in )
+  whenShapesSettled( () => deleteNow( uid ) );
+}
+
+function deleteNow( uid: string ) {
   const st     = useEditor.getState();
   const before = st.shapes;
   const edit   = beginShapeEdit( uid );

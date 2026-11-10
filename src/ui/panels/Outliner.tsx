@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { customName } from "../../core/types";
+import { type CustomObjectEntry, customName } from "../../core/types";
 import { BlIcon } from "../blender/BlIcon";
 import { useEditor, workspaceOf, type Collection, type Selection } from "../../map/store";
+import { TREES_COLLECTION } from "../../map/trees";
 import { PLACEHOLDER_COLORS } from "../../viewport/render/objectsRenderer";
 import { Icon, type IconName } from "../widgets/icons";
 import { getEngine } from "../Viewport";
 import { plainText, RichText } from "../widgets/RichText";
 import { PopupMenu, type MenuItem } from "../widgets/widgets";
 
-// Collections folded shut ( kept while the app runs ).
-const closed = new Set<string>();
+// Collections folded shut ( kept while the app runs ): the map's trees to start with.
+const closed = new Set<string>( [TREES_COLLECTION] );
 
 type Item = { sel: Selection; name: string; icon?: IconName; dot?: string; bl?: string };
 
@@ -18,26 +19,41 @@ type Item = { sel: Selection; name: string; icon?: IconName; dot?: string; bl?: 
  * A feature's id as words ( "rail_long" → "Rail Long" ).
 **/
 const pretty = ( id: string ) => id.replace( /_/g, " " ).replace( /\b\w/g, ( c ) => c.toUpperCase() );
-const byName = ( a:  { name: string }, b: { name: string } ) => a.name.localeCompare( b.name, undefined, { numeric: true, sensitivity: "base" } );
+// ( one collator for every comparison: localeCompare with options makes one each time, slow over a map's trees )
+const collator = new Intl.Collator( undefined, { numeric: true, sensitivity: "base" } );
+const byName   = ( a: { name: string }, b: { name: string } ) => collator.compare( a.name, b.name );
+
+// ( a piece's row: its uid, name and kind; worked out once a piece, not for every piece each time one changes )
+const rows  = new WeakMap<CustomObjectEntry, string>();
+const rowOf = ( o: CustomObjectEntry ) => {
+  let r = rows.get( o );
+  if ( r === undefined ) rows.set( o, ( r = `${o.uid}
+${customName( o )}
+${o.model?.curve && !o.model.mesh.f.length ? "curve" : "mesh"}` ) );
+  return r;
+};
 
 /**
  * Everything in the map as Outliner items, named as shown.
 **/
 function useItems(): Item[] {
-  const objects = useEditor( ( s ) => s.objects       );
+  // ( each feature's and piece's uid, name and kind only: one being moved, or a fence or lift being pulled about, doesn't
+  // make the list again every frame )
+  const objects = useEditor( useShallow( ( s ) => s.objects.map( ( o ) => {
+    const c = o.params?.color;
+    return `${o.uid}\n${o.id}\n${c?.type === "String" ? c.value : ""}`;
+  } ) ) );
   const spawns  = useEditor( ( s ) => s.spawns        );
-  // ( each piece's uid, name and kind only: a piece being moved, or a fence or lift being pulled about, doesn't make the
-  // list again every frame )
-  const custom  = useEditor( useShallow( ( s ) => s.customObjects.map( ( o ) => `${o.uid}\n${customName( o )}\n${o.model?.curve && !o.model.mesh.f.length ? "curve" : "mesh"}` ) ) );
+  const custom  = useEditor( useShallow( ( s ) => s.customObjects.map( rowOf ) ) );
   const shapes  = useEditor( ( s ) => s.shapes        );
   const labels  = useEditor( ( s ) => s.labels        );
   return useMemo( () => [
     ...spawns.map( ( s ): Item => ( { sel: { kind: "spawn", uid: s.uid }, name: s.name, icon: "spawn" } ) ),
-    ...shapes.map( ( s ): Item => ( { sel: { kind: "shape", uid: s.uid }, name: s.name, icon: s.kind === "circle" ? "shapeCircle" : s.kind === "stamp" ? "shapeCopy" : "shapeCurve" } ) ),
+    ...shapes.map( ( s ): Item => ( { sel: { kind: "shape", uid: s.uid }, name: s.name, icon: s.kind === "circle" ? "shapeCircle" : s.kind === "stamp" ? "shapeCopy" : s.kind === "skiline" ? "skiLine" : s.kind === "formation" ? "mountain" : "shapeCurve" } ) ),
     ...objects.map( ( o ): Item => {
-      const c   = o.params?.color;
-      const col = c?.type === "String" ? PLACEHOLDER_COLORS[c.value] : undefined;
-      return { sel: { kind: "object", uid: o.uid }, name: labels[o.uid] ?? pretty( o.id ), dot: col !== undefined ? `#${col.toString( 16 ).padStart( 6, "0" )}` : "#9a9a9a" };
+      const [uid, id, color] = o.split( "\n" );
+      const col              = color ? PLACEHOLDER_COLORS[color] : undefined;
+      return { sel: { kind: "object", uid }, name: labels[uid] ?? pretty( id ), dot: col !== undefined ? `#${col.toString( 16 ).padStart( 6, "0" )}` : "#9a9a9a" };
     } ),
     ...custom.map( ( c ): Item => {
       const [uid, name, kind] = c.split( "\n" );

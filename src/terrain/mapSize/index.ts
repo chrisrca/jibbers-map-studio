@@ -5,7 +5,7 @@ import { EPS, type Side, bounds, current, edgeChunks, setLayout } from "./edges"
 
 export { type Side, type EdgeCell } from "./edges";
 export { type GrowParams, DEFAULT_GROW, growMap } from "./grow";
-export { type GrowPreview, onGrowPreview, previewGrow, applyGrow, cancelGrow } from "./preview";
+export { type GrowPreview, onGrowPreview, previewGrow, applyGrow, cancelGrow, showGroundPreview } from "./preview";
 export { type EdgeAnalysis, analyzeEdge } from "./ground";
 
 /**

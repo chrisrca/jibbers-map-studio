@@ -89,6 +89,8 @@ export class CurveEditor {
   }
 
   enter( uid: string ) {
+    const at           = this.view.mouse?.();
+    if ( at ) this.mouse = { x: at.x, y: at.y };
     this.uid           = uid;
     this.sel           = new Set();
     this.modal         = null;
@@ -111,7 +113,12 @@ export class CurveEditor {
   /**
    * Redraws the points and the path.
   **/
+  // set while a kept result is recorded ( the piece is put back for a moment to record it from: the selection isn't
+  // to be trimmed to that )
+  private recording = false;
+
   sync() {
+    if ( this.recording ) return;
     const o = this.obj();
     if ( !o ) {
       if ( this.uid ) this.exit();
@@ -166,8 +173,13 @@ export class CurveEditor {
     // ( its points moved by hand: an arch's shape no longer says where they are )
     const { arch: _, ...curve } = edited;
     if ( label ) {
-      if ( o0 ) useEditor.setState( { customObjects: st.customObjects.map( ( x ) => ( x.uid === o.uid ? o0 : x ) ) } );
-      st.updateCustom( label, [o.uid], ( x ) => withModel( x, { ...x.model!, curve } ) );
+      this.recording = true;
+      try {
+        if ( o0 ) useEditor.setState( { customObjects: st.customObjects.map( ( x ) => ( x.uid === o.uid ? o0 : x ) ) } );
+        st.updateCustom( label, [o.uid], ( x ) => withModel( x, { ...x.model!, curve } ) );
+      } finally {
+        this.recording = false;
+      }
     } else useEditor.setState( { customObjects: st.customObjects.map( ( x ) => ( x.uid === o.uid ? { ...o, model: { ...o.model, curve } } : x ) ) } );
     this.sync();
     this.publish();
@@ -268,7 +280,8 @@ export class CurveEditor {
       if ( k === "enter"  ) return this.keep(),   true;
       if ( m.kind === "transform" ) {
         if ( k === "x" || k === "y" || k === "z" ) {
-          const axis = ( ["x", "y", "z"] as const ).indexOf( k ) as 0 | 1 | 2;
+          // ( Blender's letters: its Y is the game's Z, its Z the game's Y, as in Edit Mode )
+          const axis = ( { x: 0, y: 2, z: 1 } as const )[k];
           m.axis     = m.axis === axis ? null : axis;
           this.transforms.runTransform( e );
         } else if ( /^[0-9.-]$/.test( e.key ) ) {

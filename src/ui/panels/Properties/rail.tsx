@@ -59,6 +59,8 @@ export function RailEditor( { o, set, commit }: { o: CustomObjectEntry; set: ( f
       </button>
       {editing && <button className="btn" onClick={() => getEngine()?.rails.addPoint()}>Add point</button>}
       {editing && <button className="btn" disabled={editing.point === null} onClick={() => getEngine()?.rails.deletePoint()}>Delete point</button>}
+      {editing && ( editing.collider ?? null ) !== null && <button className="btn" title="As the rail makes it (Alt G / R / S: location, rotation, scale)" onClick={() => getEngine()?.rails.resetCollider()}>Reset collider</button>}
+      {editing && !!o.rail.tweaks?.length && <button className="btn" title={`${o.rail.tweaks.length} changed`} onClick={() => getEngine()?.rails.resetCollider( null )}>Reset colliders</button>}
       {!curve && resetButton}
     </div>
   );
@@ -190,10 +192,11 @@ export async function makeRail( o: CustomObjectEntry, set: ( f: ( x: CustomObjec
   const made = autoRail( pts );
   const rail = made.rail ?? { points: [], radius: made.radius ?? straightRail( pts ).radius };
   const body = await partsFor( o, rail );
-  set( ( x ) => withRail( also( flat( x ) ), { ...rail, ...body } ) );
+  // ( made again: its colliders changed by hand go too )
+  set( ( x ) => withRail( also( flat( x ) ), { ...rail, ...body, tweaks: undefined } ) );
   commit();
   if ( !made.rail ) {
     useEditor.setState( { railEdit: { uid: o.uid, point: null } } );
-    useEditor.getState().toast( `Couldn't follow its shape by itself (${made.why}). Ctrl+click along its top, from one end to the other, to lay the rail.`, "info" );
+    useEditor.getState().toast( "Ctrl+click along its top, end to end, to lay the rail", "info" );
   }
 }

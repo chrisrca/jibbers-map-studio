@@ -11,12 +11,14 @@ import { toThree, toUnity } from "../../core/coords";
 import { PROFILES } from "../../core/curve";
 import { history } from "../../map/history";
 import { cancelShape, commitShape, deleteShape, liveShape } from "../../terrain/shapes/edits";
-import { captureStamp, groundWithout, newCircle, newCurve, newFormation, newStamp, shapeHeightAt, type CurveShape, type FormationShape, type Shape, type StampShape } from "../../terrain/shapes/shapes";
+import { captureStamp, fitFormation, groundWithout, newCircle, newCurve, newFormation, newStamp, shapeHeightAt, type CurveShape, type FormationShape, type Shape, type StampShape } from "../../terrain/shapes/shapes";
 import { useEditor } from "../../map/store";
+import { rampArms, rampLength, rampPath, rampRights } from "../../terrain/shapes/shapes/rampPath";
 import { terrain } from "../../terrain/terrain";
+import { redraw } from "../redraw";
 
 // ( a number: a formation's outline point )
-type Handle = "start" | "end" | "center" | "radius" | "rotate" | number;
+type Handle = "start" | "end" | "startArm" | "endArm" | "center" | "radius" | "rotate" | number;
 
 const COLOR    = 0x38bdf8;
 const SELECTED = 0xffb000;
@@ -61,7 +63,8 @@ export class ShapeTool {
   private lineMats  = new Map<string, THREE.LineBasicNodeMaterial>();
   private drag:
     | { kind: "draw";   at:     [number, number]; shape: Shape | null; box?: [number, number] }
-    | { kind: "handle"; handle: Handle; shape: Shape }
+    // ( `level`: a ramp's arm, dragged level with its end's handle )
+    | { kind: "handle"; handle: Handle; shape: Shape; level?: number }
     | null = null;
 
   constructor( private raycast: ( x: number, y: number ) => THREE.Raycaster, private pickTerrain: ( x: number, y: number ) => THREE.Vector3 | null ) {
@@ -135,6 +138,14 @@ export class ShapeTool {
   gizmoCancel() {
     this.moving = null;
     cancelShape();
+  }
+
+  /**
+   * Whether a handle of a picked shape is under the mouse ( any of them: Design's Select Box hands a press on one to
+   * the tool ).
+  **/
+  handleUnder( x: number, y: number ) {
+    return this.handles.visible && this.raycast( x, y ).intersectObjects( this.handles.children, false ).length > 0;
   }
 
   /**
@@ -263,7 +274,11 @@ export class ShapeTool {
   hover( hit: THREE.Vector3 | null ) {
     const u = this.forming() && !this.drag && hit ? toUnity( hit ) : null;
     const e = u ? this.edgeNear( [u[0], u[2]] ) : null;
-    if ( !e ) return void ( this.ghost.visible = false );
+    if ( !e ) {
+      if ( this.ghost.visible ) redraw();
+      return void ( this.ghost.visible = false );
+    }
+    redraw();
     const size         = this.handleSize( e.s );
     this.ghost.visible = true;
     this.ghost.position.copy( toThree( [e.p[0], ground( e.p[0], e.p[1] ) + size, e.p[1]] ) );
@@ -282,7 +297,9 @@ export class ShapeTool {
       deleteShape( s.uid );
       return true;
     }
-    liveShape( { ...s, points: s.points.filter( ( _, i ) => i !== p.i ) }, "Delete point" );
+    // ( fitted to what's left, if it hadn't been yet: Map-Tools' RefitAfterAreaEdit )
+    const next = { ...s, points: s.points.filter( ( _, i ) => i !== p.i ) };
+    liveShape( !s.fitted && next.points.length >= 3 ? fitFormation( next ) : next, "Delete point" );
     commitShape();
     this.sync();
     return true;
@@ -342,6 +359,8 @@ export class ShapeTool {
     const mat  = this.lineMat( color );
     // ( a formation: closed round from three points; its line so far before that )
     if ( s.kind === "formation" ) return s.points.length > 1 ? this.polyline( s.points.length > 2 ? [...s.points, s.points[0]] : s.points, mat ) : undefined;
+    // ( a ski line: drawn and edited by its own tool, viewport/tools/skiLineTool.ts )
+    if ( s.kind === "skiline" ) return undefined;
     const line = ( pts: [number, number][] ) => {
       const v       = pts.map( ( [x, z] ) => toThree( [x, ground( x, z ) + 0.08, z] ) );
       const l       = new THREE.Line( new THREE.BufferGeometry().setFromPoints( v ), mat );
@@ -361,6 +380,28 @@ export class ShapeTool {
       return;
     }
     const [ax, az] = s.start, [bx, bz] = s.end;
+    // ( a ramp along its curve: rampPath.ts; a paint stroke straight )
+    const p        = s.kind === "curve" ? rampPath( s ) : null;
+    if ( p ) {
+      const rights = rampRights( p ), n = p.x.length - 1, hw = s.width / 2;
+      const side   = ( o: number ) => Array.from( { length: n + 1 }, ( _, i ) => [p.x[i] + rights[i][0] * o, p.z[i] + rights[i][1] * o] as [number, number] );
+      line( side( 0 ) );
+      line( side( hw ) );
+      line( side( -hw ) );
+      line( [[p.x[0] + rights[0][0] * hw, p.z[0] + rights[0][1] * hw], [p.x[0] - rights[0][0] * hw, p.z[0] - rights[0][1] * hw]] );
+      line( [[p.x[n] + rights[n][0] * hw, p.z[n] + rights[n][1] * hw], [p.x[n] - rights[n][0] * hw, p.z[n] - rights[n][1] * hw]] );
+      // ( picked: its arms, out from its ends, level with their handles: they turn it, the panel sets its heights )
+      if ( color === SELECTED && s.kind === "curve" ) {
+        const [a0, a1] = rampArms( s ), size = this.handleSize( s );
+        for ( const [[ex, ez], [ox, oz]] of [[s.start, a0], [s.end, a1]] as const ) {
+          const y = ground( ex, ez ) + size;
+          const l = new THREE.Line( new THREE.BufferGeometry().setFromPoints( [toThree( [ex, y, ez] ), toThree( [ex + ox, y, ez + oz] )] ), mat );
+          l.renderOrder = 9;
+          this.into.add( l );
+        }
+      }
+      return;
+    }
     const len      = Math.hypot( bx - ax, bz - az ) || 1;
     const rx       = ( bz - az ) / len, rz = -( bx - ax ) / len; // right-hand side
     const side     = ( o: number ) =>
@@ -374,7 +415,13 @@ export class ShapeTool {
 
   private handlePoints( s: Shape ): [Handle, [number, number]][] {
     if ( s.kind === "formation" ) return s.points.map( ( p, i ) => [i, p] );
-    if ( s.kind === "curve" ) return [["start", s.start], ["end", s.end]];
+    if ( s.kind === "skiline" ) return [];
+    if ( s.kind === "curve" ) {
+      // ( and its arms, out from its ends: dragged, they bend it )
+      const [a0, a1] = rampArms( s );
+      return [["start", s.start], ["end", s.end], ["startArm", [s.start[0] + a0[0], s.start[1] + a0[1]]], ["endArm", [s.end[0] + a1[0], s.end[1] + a1[1]]]];
+    }
+    if ( s.kind === "paint" ) return [["start", s.start], ["end", s.end]];
     if ( s.kind === "stamp" ) {
       const a = ( s.rotation * Math.PI ) / 180, r = ( ( s.grid.h - 1 ) * s.grid.spacing ) / 2 + 1.5;
       return [["center", s.center], ["rotate", [s.center[0] + Math.sin( a ) * r, s.center[1] + Math.cos( a ) * r]]];
@@ -384,15 +431,18 @@ export class ShapeTool {
 
   private handleSize( s: Shape ) {
     return s.kind === "formation" ? Math.max( 0.5, ( Math.max( ...s.points.map( ( p ) => p[0] ) ) - Math.min( ...s.points.map( ( p ) => p[0] ) ) ) * 0.015 )
-      : s.kind === "curve" ? Math.max( 0.35, s.width * 0.06 )
+      : s.kind === "curve" || s.kind === "paint" ? Math.max( 0.35, s.width * 0.06 )
       : s.kind === "circle" ? Math.max( 0.35, s.radius * 0.05 )
-      : Math.max( 0.35, s.grid.w * s.grid.spacing * 0.03 );
+      : s.kind === "stamp" ? Math.max( 0.35, s.grid.w * s.grid.spacing * 0.03 )
+      : 0.5;
   }
 
   private addHandle( h: Handle, [x, z]: [number, number], s: Shape ) {
     const size = this.handleSize( s );
     const m    = new THREE.Mesh( this.handleGeo, this.picked?.uid === s.uid && this.picked.i === h ? this.pickedMat : this.handleMat );
-    m.position.copy( toThree( [x, ground( x, z ) + size, z] ) );
+    // ( a ramp's arm level with its end's handle )
+    const at   = s.kind === "curve" && h === "startArm" ? s.start : s.kind === "curve" && h === "endArm" ? s.end : [x, z];
+    m.position.copy( toThree( [x, ground( at[0], at[1] ) + size, z] ) );
     m.scale.setScalar( size );
     m.renderOrder = 11;
     m.userData    = { handle: h, uid: s.uid };
@@ -417,11 +467,11 @@ export class ShapeTool {
         return true;
       }
       if ( s ) {
-        this.drag = { kind: "handle", handle: h, shape: s };
+        this.drag = { kind: "handle", handle: h, shape: s, level: h === "startArm" || h === "endArm" ? hit.object.position.y : undefined };
         return true;
       }
     }
-    if ( st.tool !== "shape" ) return false;
+    if ( st.tool !== "shape" || st.shapeKind === "skiline" ) return false;
     const p = this.pickTerrain( x, y );
     if ( !p ) return false;
     const u                    = toUnity( p );
@@ -430,7 +480,11 @@ export class ShapeTool {
       // near an outline: a point put in it there; the ground, with a formation picked: a point put into its side
       // nearest the click ( under three points, on after the picked one ); else a new formation begun
       const edge = this.edgeNear( at ), from = this.picked && this.formation( this.picked.uid );
-      const into = ( s: FormationShape, k: number, p: [number, number] ) => this.grabPoint( { ...s, points: [...s.points.slice( 0, k ), p, ...s.points.slice( k )] }, k, "Add point" );
+      // ( a point put in: the formation fitted to its outline again, as Map-Tools does while points are added )
+      const into = ( s: FormationShape, k: number, p: [number, number] ) => {
+        const next = { ...s, points: [...s.points.slice( 0, k ), p, ...s.points.slice( k )] };
+        this.grabPoint( next.points.length >= 3 ? fitFormation( next ) : next, k, "Add point" );
+      };
       if ( edge ) into( edge.s, edge.i + 1, edge.p );
       else if ( from ) into( from, from.points.length >= 3 ? nearestSide( from.points, at ) + 1 : this.picked!.i + 1, at );
       else this.grabPoint( newFormation( [at] ), 0, "Add formation" );
@@ -465,15 +519,21 @@ export class ShapeTool {
   move( x: number, y: number ): boolean {
     const d = this.drag;
     if ( !d ) return false;
-    const p = this.pick( x, y, d.shape );
+    // ( a ramp's arm: over the level its handle's at, so it stays under the mouse whatever the ground does )
+    const p = d.kind === "handle" && d.level !== undefined
+      ? this.raycast( x, y ).ray.intersectPlane( new THREE.Plane( new THREE.Vector3( 0, 1, 0 ), -d.level ), new THREE.Vector3() )
+      : this.pick( x, y, d.shape );
     if ( !p ) return true;
     const u                    = toUnity( p );
     const at: [number, number] = [u[0], u[2]];
     if ( d.kind === "handle" ) {
       const s = d.shape;
       let next: Shape;
+      if ( s.kind === "skiline" ) return true;
       if ( s.kind === "formation" ) next = { ...s, points: s.points.map( ( p, i ) => ( i === d.handle ? at : p ) ) };
-      else if ( s.kind === "curve" ) next = d.handle === "start" ? { ...s, start: at } : { ...s, end: at };
+      else if ( s.kind === "curve" && d.handle === "startArm" ) next = { ...s, startArm: [at[0] - s.start[0], at[1] - s.start[1]] };
+      else if ( s.kind === "curve" && d.handle === "endArm" ) next = { ...s, endArm: [at[0] - s.end[0], at[1] - s.end[1]] };
+      else if ( s.kind === "curve" || s.kind === "paint" ) next = d.handle === "start" ? { ...s, start: at } : { ...s, end: at };
       else if ( d.handle === "center" ) next = { ...s, center:   at };
       else if ( s.kind   === "stamp"  ) next = { ...s, rotation: ( Math.atan2( at[0] - s.center[0], at[1] - s.center[1] ) * 180 ) / Math.PI };
       else next = { ...s, radius: Math.max( 1, Math.hypot( at[0] - s.center[0], at[1] - s.center[1] ) ) };
@@ -546,7 +606,7 @@ export class ShapeTool {
     if ( d.kind === "draw" && d.shape ) {
       const s = d.shape;
       const tooSmall =
-        s.kind === "curve" ? Math.hypot( s.end[0] - s.start[0], s.end[1] - s.start[1] ) < 1.5 : s.kind === "circle" ? s.radius < 1.5 : false;
+        s.kind === "curve" ? rampLength( s ) < 1.5 : s.kind === "circle" ? s.radius < 1.5 : false;
       if ( tooSmall ) return cancelShape();
       commitShape();
       useEditor.getState().setSelection( [{ kind: "shape", uid: s.uid }] );

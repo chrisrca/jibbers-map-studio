@@ -48,12 +48,9 @@ export class TerrainRenderer {
   private unsub: () => void;
   private frustum    = new THREE.Frustum();
   private projScreen = new THREE.Matrix4();
-  // metres of triangle edge allowed per metre of distance; lower = more detail
-  detail = 0.0025;
-  // repeated chunks' copies to show ( Preview Repeats ): each one's offsets from it ( Unity space ), by chunk
-  private repeats = new Map<string, [number, number, number][]>();
-  // each tile's ghost copies ( its own geometry and material, put where the copies are )
-  private ghosts  = new Map<Tile,   THREE.Mesh[]>();
+  // screen pixels a triangle's edge may cover; lower = more detail ( finer than a few pixels shows nothing more, and
+  // holds a busy map's view to half its frame rate: a 1080p view was ~3 )
+  pixelsPerEdge = 5;
 
   /**
    * The tiles' shader made ahead, off the page's thread ( a tile of flat ground, compiled and kept ): the first
@@ -121,48 +118,14 @@ export class TerrainRenderer {
     }
   }
 
-  /**
-   * The chunks whose copies are shown as ghosts ( Preview Repeats ), with their offsets; none to show none.
-  **/
-  setRepeats( list: { key: string; offsets: [number, number, number][] }[] ) {
-    this.repeats = new Map( list.map( ( r ) => [r.key, r.offsets] ) );
-    for ( const ms of this.ghosts.values() ) for ( const m of ms ) this.group.remove( m );
-    this.ghosts.clear();
-  }
-
-  /**
-   * A tile's ghosts where its chunk's copies are ( the ones in view shown ): how many are, and the nearest one's
-   * distance ( its detail goes by the nearest of it and its copies ).
-  **/
-  private showGhosts( t: Tile, cam: THREE.Vector3 ): { n: number; near: number } {
-    const offs = this.repeats.get( t.chunk.key );
-    if ( !offs ) return { n: 0, near: Infinity };
-    let ms = this.ghosts.get( t );
-    if ( !ms ) {
-      ms = offs.map( () => {
-        const m         = new THREE.Mesh( t.mesh.geometry, t.mesh.material );
-        m.castShadow    = t.mesh.castShadow;
-        m.receiveShadow = t.mesh.receiveShadow;
-        // ( not the map's ground: nothing picks it )
-        m.raycast       = () => {};
-        this.group.add( m );
-        return m;
-      } );
-      this.ghosts.set( t, ms );
-    }
-    let shown = 0, near = Infinity;
-    offs.forEach( ( [x, y, z], k ) => {
-      const m    = ms![k], box = t.box.clone().translate( new THREE.Vector3( x, y, -z ) );
-      m.material = t.mesh.material;
-      m.position.set( t.mesh.position.x + x, t.mesh.position.y + y, t.mesh.position.z - z );
-      m.quaternion.copy( t.mesh.quaternion );
-      m.scale.copy( t.mesh.scale );
-      m.visible = this.frustum.intersectsBox( box );
-      if ( m.visible ) { shown++; near = Math.min( near, box.distanceToPoint( cam ) ); }
-    } );
-    return { n: shown, near };
-  }
   stats = { tiles: 0, visible: 0, triangles: 0 };
+  /**
+   * The tiles near `centre` ( within `reach` ) cast the sun's shadows; the rest don't ( each drawn into the shadow map
+   * is drawn a second time ).
+  **/
+  shadowsAbout( centre: THREE.Vector3, reach: number ) {
+    for ( const row of this.tiles ) for ( const t of row ) t.mesh.castShadow = t.box.distanceToPoint( centre ) < reach;
+  }
 
   constructor( private terrain: Terrain, private loadMask: ( path: string ) => Promise<THREE.Texture | null> ) {
     this.group.name = "terrain";
@@ -281,7 +244,7 @@ export class TerrainRenderer {
           made.push( t );
           t.upload( this.terrain );
           if ( performance.now() - slice > 12 ) {
-            await this.show( made.splice( 0 ), gen );
+            await this.replace( made.splice( 0 ), gen );
             redraw();
             await new Promise( ( r ) => requestAnimationFrame( r ) );
             if ( gen !== this.generation ) return;
@@ -289,7 +252,7 @@ export class TerrainRenderer {
           }
         }
     }
-    await this.show( made, gen );
+    await this.replace( made, gen );
     if ( gen !== this.generation ) return;
     letGo( this.leftover.splice( 0 ) );
     redraw();
@@ -313,6 +276,17 @@ export class TerrainRenderer {
   private markingsOf: boolean[] = [];
   // every tile to be made afresh on the next rebuild, and the ones it's to replace once it's done
   private anew                = false;
+
+  /**
+   * New tiles shown, and the old ones they're made to replace ( leftover: the game's textures come in ) hidden as
+   * they are: both drawn in the same place fought, stripes over the ground as it loaded.
+  **/
+  private async replace( made: Tile[], gen: number ) {
+    await this.show( made, gen );
+    if ( gen !== this.generation || !this.leftover.length ) return;
+    const at = new Set( made.map( ( t ) => `${t.chunk.key}|${t.tx}|${t.tz}` ) );
+    for ( const row of this.leftover ) for ( const t of row ) if ( at.has( `${t.chunk.key}|${t.tx}|${t.tz}` ) ) t.mesh.visible = false;
+  }
   private leftover: Tile[][]  = [];
 
   /**
@@ -320,9 +294,10 @@ export class TerrainRenderer {
    * new map's first ground, at start ) are made again with them: swapped into a tile already drawn ( its shader made
    * for the plain stand-in, a texture of another kind ), it went on showing the stand-in, or the rock, in places.
   **/
-  useGameSnow( snow: THREE.Texture, rock: THREE.Texture ) {
+  useGameSnow( snow: THREE.Texture, rock: THREE.Texture, bumps: THREE.Texture | null ) {
     gameTex.snow            = snow;
     gameTex.rock            = rock;
+    gameTex.snowNormal      = bumps;
     snowLook.gameSnow.value = 1;
     if ( this.tiles.some( ( row ) => row.length ) ) {
       this.anew = true;
@@ -504,7 +479,7 @@ export class TerrainRenderer {
     else pt.flow?.dispose();
   }
 
-  update( camera: THREE.PerspectiveCamera ) {
+  update( camera: THREE.PerspectiveCamera, height: number ) {
     if ( this.uploads.size ) this.sendUploads( UPLOAD_SHARE );
     if ( this.paintPending.size ) {
       for ( const k of this.paintPending ) this.applyPaint( k );
@@ -514,26 +489,17 @@ export class TerrainRenderer {
     this.projScreen.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse );
     this.frustum.setFromProjectionMatrix( this.projScreen );
     const cam   = camera.position;
-    let visible = 0, tris = 0;
-    // ( ghosts of tiles that have gone, let go )
-    if ( this.ghosts.size ) {
-      const live = new Set( this.tiles.flat() );
-      for ( const [t, ms] of this.ghosts )
-        if ( !live.has( t ) ) {
-          for ( const m of ms ) this.group.remove( m );
-          this.ghosts.delete( t );
-        }
-    }
+    // ( metres of triangle edge allowed per metre of distance, for that many pixels on a screen this tall )
+    const detail = ( ( 2 * Math.tan( THREE.MathUtils.degToRad( camera.fov ) / 2 ) ) / Math.max( 1, height ) ) * this.pixelsPerEdge;
+    let visible  = 0, tris = 0;
     for ( const row of this.tiles )
       for ( const t of row ) {
         const vis      = this.frustum.intersectsBox( t.box );
         t.mesh.visible = vis;
-        // ( its copies: shown wherever they're in view, the tile itself or not; its detail the nearest one's )
-        const g        = this.repeats.size ? this.showGhosts( t, cam ) : { n: 0, near: Infinity };
-        if ( !vis && !g.n ) continue;
-        if ( vis  ) visible++;
-        const d       = Math.max( 1, Math.min( vis ? t.box.distanceToPoint( cam ) : Infinity, g.near ) );
-        const desired = d * this.detail;
+        if ( !vis ) continue;
+        visible++;
+        const d       = Math.max( 1, t.box.distanceToPoint( cam ) );
+        const desired = d * detail;
         const q       = t.chunk.tileQuads;
         let step      = 1;
         while ( step < q / 4 && t.chunk.spacing * step * 2 <= desired ) step *= 2;
@@ -541,16 +507,14 @@ export class TerrainRenderer {
           t.step          = step;
           t.mesh.geometry = this.geoms.get( q, step );
         }
-        for ( const m of this.ghosts.get( t ) ?? [] ) m.geometry = t.mesh.geometry;
         const n = q / step;
-        tris   += n * n * 2 * ( ( vis ? 1 : 0 ) + g.n );
+        tris   += n * n * 2;
       }
     this.stats.visible   = visible;
     this.stats.triangles = tris;
   }
 
   clear() {
-    this.setRepeats( [...this.repeats].map( ( [key, offsets] ) => ( { key, offsets } ) ) );
     for ( const row of this.tiles ) for ( const t of row ) {
       this.group.remove( t.mesh );
       t.dispose();

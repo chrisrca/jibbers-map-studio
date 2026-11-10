@@ -77,6 +77,30 @@ pub async fn import_jbrmap(map_path: String, project_dir: String) -> CmdResult<p
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UnityImport {
+    pub project: project::Project,
+    pub notes: Vec<String>,
+}
+
+/// A Unity scene ( made with Map-Tools ) made a new project.
+#[tauri::command]
+pub async fn import_unity(scene_path: String, project_dir: String) -> CmdResult<UnityImport> {
+    tauri::async_runtime::spawn_blocking(move || crate::unity::import(&PathBuf::from(scene_path), &PathBuf::from(project_dir)))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|(project, notes)| UnityImport { project, notes })
+        .map_err(err)
+}
+
+/// A .unitypackage unpacked into a Unity project of its own (Map-Tools put in when it hasn't it): its scenes, its
+/// models (crate::unity::package).
+#[tauri::command]
+pub async fn open_unity_package(path: String) -> CmdResult<crate::unity::package::Unpacked> {
+    tauri::async_runtime::spawn_blocking(move || crate::unity::package::open(&PathBuf::from(path))).await.map_err(|e| e.to_string())?.map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExportResult {
     path: String,
     bytes: u64,
@@ -230,7 +254,7 @@ pub async fn add_texture_to_project(project_dir: String, file: String, linear: b
 #[tauri::command]
 pub async fn copy_piece_assets(from_project: String, to_project: String, objects: Vec<crate::jbrmap::CustomObject>) -> CmdResult<String> {
     tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<String> {
-        let lib = crate::jbrmap::load(PathBuf::from(&from_project).join(crate::library::userassets::PROJECT_LIBRARY))?;
+        let lib = crate::library::userassets::load_project_library(&PathBuf::from(&from_project).join(crate::library::userassets::PROJECT_LIBRARY))?;
         let (mut meshes, mut textures) = (indexmap::IndexMap::new(), indexmap::IndexMap::new());
         for o in &objects {
             let (m, t) = library::uses(o);
@@ -255,8 +279,8 @@ pub async fn copy_piece_assets(from_project: String, to_project: String, objects
 
 /// Real-world maps: the land around the play area as one untouchable, always-visible object (see project/scenery.rs).
 #[tauri::command]
-pub async fn add_scenery(project_dir: String, name: String, strips: Vec<String>, texture: String) -> CmdResult<crate::jbrmap::CustomObject> {
-    tauri::async_runtime::spawn_blocking(move || crate::project::scenery::add(&PathBuf::from(project_dir), &name, &strips, &texture))
+pub async fn add_scenery(project_dir: String, name: String, strips: Vec<String>, texture: String, rings: Vec<crate::project::scenery::Ring>) -> CmdResult<crate::jbrmap::CustomObject> {
+    tauri::async_runtime::spawn_blocking(move || crate::project::scenery::add(&PathBuf::from(project_dir), &name, &strips, &texture, &rings))
         .await
         .map_err(|e| e.to_string())?
         .map_err(err)

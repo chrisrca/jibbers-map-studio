@@ -18,7 +18,7 @@ import { usePreview, materialSpherePreview } from "../previews";
 import { getEngine } from "../Viewport";
 import { Dropdown, MenuButton, NumSlider, PanelGroups, type MenuItem } from "../widgets/widgets";
 import { BlIcon } from "./BlIcon";
-import { paintRows } from "../panels/MaterialEditor";
+import { AdjustRows, paintRows } from "../panels/MaterialEditor";
 import { useWeather } from "./WeatherPanels";
 
 type Socket = "base_tex" | "normal_tex" | "metallic_tex" | "roughness_tex" | "emission_tex";
@@ -398,7 +398,15 @@ export function MaterialTab( { o, live }: { o: CustomObjectEntry; live: Live } )
       <label>Surface</label>
       <div className="bl-node"><BlIcon name="shading_rendered" size={14} />Principled BSDF</div>
       <label>Base Color</label>
-      <div><ColourChip value={[m.base_color.r, m.base_color.g, m.base_color.b]} onChange={( [r, g, b] ) => { field( "base_color", { r, g, b, a: m.base_color.a } ); commit(); }} /></div>
+      <div>
+        <ColourChip value={[m.base_color.r, m.base_color.g, m.base_color.b]} onChange={( [r, g, b] ) => { field( "base_color", { r, g, b, a: m.base_color.a } ); commit(); }}>
+          <AdjustRows
+            o={o}
+            set={( f ) => { live.begin(); useEditor.setState( ( s ) => ( { customObjects: s.customObjects.map( ( x ) => ( x.uid === o.uid ? f( x ) : x ) ) } ) ); }}
+            commit={() => commit( "Adjust colour" )}
+          />
+        </ColourChip>
+      </div>
       {image( "base_tex" )}
       <label>Metallic</label>
       <NumSlider value={m.metallic} min={0} max={1} onChange={( v ) => field( "metallic", v )} onCommit={commit} />

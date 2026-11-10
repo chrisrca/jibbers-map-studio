@@ -1,12 +1,13 @@
 // The 3D view's mouse and pen: clicks and drags handed to the tool that's out, brush strokes, and the brush's ring.
 
 import * as THREE from "three/webgpu";
-import { toThree, toUnity } from "../../core/coords";
+import { toThree, toUnity, type V3 } from "../../core/coords";
 import { history } from "../../map/history";
-import { useEditor } from "../../map/store";
+import { type Selection, useEditor } from "../../map/store";
 import { ensureLayer, PaintStroke } from "../../paint/ground";
 import { BrushStroke } from "../../sculpt/stroke/stroke";
-import { settleShapes } from "../../terrain/shapes/shapes";
+import { settleShapes, shapesBusy, whenShapesSettled } from "../../terrain/shapes/shapes";
+import { shapeAt } from "../../terrain/shapes/shapes/height";
 import { terrain } from "../../terrain/terrain";
 import { brushLook, snowLook } from "../render/terrainRenderer";
 import { ScatterStroke, scatterTemplates } from "../tools/scatter";
@@ -36,7 +37,8 @@ export class ViewportInput {
   // the map whose paint has been loaded for Paint Mode
   private paintLoaded = "";
   // the object brush's stroke under way ( "starting": the pieces still coming into the map )
-  scatterStroke: ScatterStroke | "starting" | null = null;
+  // ( starting: where the brush went while the picked pieces' meshes come in, and whether it's been let go )
+  scatterStroke: ScatterStroke | { starting: [number, number][]; done: boolean } | null = null;
 
   /**
    * A sculpt stroke under way, or let go and still being laid down.
@@ -85,6 +87,7 @@ export class ViewportInput {
       this.engine.meshPainter.settle();
       settleShapes();
     };
+    history.wait                = () => ( shapesBusy() ? new Promise<void>( ( r ) => whenShapesSettled( r ) ) : null );
     dom.addEventListener( "pointerdown",  this.onDown                              );
     dom.addEventListener( "pointermove",  this.onMove                              );
     dom.addEventListener( "pointerenter", () => ( this.engine.mouseInside = true ) );
@@ -102,6 +105,7 @@ export class ViewportInput {
   detach() {
     this.settleStrokes();
     history.settle = () => {};
+    history.wait   = () => null;
     window.removeEventListener( "pointerup", this.onUp       );
     window.removeEventListener( "keydown",   this.mods, true );
     window.removeEventListener( "keyup",     this.mods, true );
@@ -146,6 +150,48 @@ export class ViewportInput {
       if ( at ) useEditor.setState( { cursor3d: toUnity( at ) } );
       return;
     }
+    // Design's Select Box and Cursor, over whatever mode it is: a click picks ( Shift adds or takes, Ctrl takes ), a drag
+    // from nothing boxes; the 3D cursor put down where it's clicked
+    const pick = useEditor.getState().designPick;
+    if ( e.button === 0 && pick && !this.engine.stage.shown && !this.engine.controls.flying && !this.engine.blGizmo.dragging ) {
+      const st = useEditor.getState();
+      if ( pick === "cursor" ) {
+        const at = this.engine.pointAt( p.x, p.y );
+        if ( at ) useEditor.setState( { cursor3d: toUnity( at ), cursorDown: true } );
+        return;
+      }
+      const extend = e.shiftKey || st.selectOp === "extend", subtract = e.ctrlKey || st.selectOp === "subtract";
+      // what's picked shows its handles, and they're still there to take hold of: a trail's points, a shape's, a ski
+      // line's, a lift's or a fence's ( as with their own tools )
+      const grab = ( down: () => boolean | undefined ) => {
+        if ( !down() ) return false;
+        this.engine.renderer.domElement.setPointerCapture( e.pointerId );
+        return true;
+      };
+      if ( this.engine.trailTool.hints.markUnder( p.x, p.y ) && grab( () => this.engine.trailTool.mouse.down( p.x, p.y, e ) ) ) return;
+      if ( this.engine.shapeTool?.handleUnder( p.x, p.y ) && grab( () => this.engine.shapeTool?.down( p.x, p.y, e ) ) ) return;
+      if ( this.engine.skiLineTool?.markUnder( p.x, p.y ) && grab( () => this.engine.skiLineTool?.down( p.x, p.y, e ) ) ) return;
+      if ( st.tool === "select" && this.engine.liftTool.markUnder( p.x, p.y, e.ctrlKey ) && grab( () => this.engine.liftTool.down( p.x, p.y, e ) ) ) return;
+      if ( st.tool === "select" && this.engine.fenceTool.markUnder( p.x, p.y, e.ctrlKey ) && grab( () => this.engine.fenceTool.down( p.x, p.y, e ) ) ) return;
+      // a piece; else in Terrain Mode a trail under the mouse ( with the Trails tool out ) or a shape's ground
+      const sel    = this.engine.pickObject( p.x, p.y ) ?? this.terrainThingAt( p.x, p.y );
+      if ( !sel ) {
+        this.objBox = { x0: p.x, y0: p.y, extend, subtract };
+        this.engine.renderer.domElement.setPointerCapture( e.pointerId );
+        return;
+      }
+      const had = st.selection.some( ( s ) => s.uid === sel.uid ), rest = st.selection.filter( ( s ) => s.uid !== sel.uid );
+      st.setSelection( subtract ? rest : extend ? ( had && e.shiftKey ? rest : [...rest, sel] ) : [sel] );
+      return;
+    }
+    // an Edit Mode operator under way ( G, E, I, Loop Cut… ): a right click is its ( cancel, or keep a slide ), not the
+    // camera's fly ( which took the press first )
+    if ( e.button === 2 && this.engine.editing?.modal && this.engine.editing.down( e, p.x, p.y ) ) {
+      this.engine.controls.letGo();
+      this.rightDown = null;
+      e.stopImmediatePropagation();
+      return;
+    }
     // G / R / S under way: a click keeps it, a right click puts things back
     if ( this.engine.blGizmo.dragging && ( e.button === 0 || e.button === 2 ) ) {
       if ( e.button === 0 ) this.engine.blGizmo.up();
@@ -158,7 +204,7 @@ export class ViewportInput {
     // ( Blender's gizmo, in the Assets workspace )
     // ( the Trails tool: a press on a point moves the point along the snow, the gizmo on it being for its arrows )
     // ( a lift's handles too: its stations and masts, over the gizmo on its base; the pieces themselves after it )
-    if ( e.button === 0 && !( useEditor.getState().tool === "trail" && this.engine.trailTool.hints.markUnder( p.x, p.y ) ) && !this.engine.liftTool.markUnder( p.x, p.y, e.ctrlKey ) && !this.engine.fenceTool.markUnder( p.x, p.y, e.ctrlKey ) && !this.engine.shapeTool?.markUnder( p.x, p.y ) && this.engine.blGizmo.down( p.x, p.y ) ) {
+    if ( e.button === 0 && !( useEditor.getState().tool === "trail" && this.engine.trailTool.hints.markUnder( p.x, p.y ) ) && !this.engine.liftTool.markUnder( p.x, p.y, e.ctrlKey ) && !this.engine.fenceTool.markUnder( p.x, p.y, e.ctrlKey ) && !this.engine.shapeTool?.markUnder( p.x, p.y ) && !this.engine.skiLineTool?.markUnder( p.x, p.y ) && this.engine.blGizmo.down( p.x, p.y ) ) {
       this.engine.renderer.domElement.setPointerCapture( e.pointerId );
       return;
     }
@@ -210,6 +256,11 @@ export class ViewportInput {
       this.engine.renderer.domElement.setPointerCapture( e.pointerId );
       return;
     }
+    // the Ski Line tool: its points and features, and the ground
+    if ( this.engine.skiLineTool?.down( p.x, p.y, e ) ) {
+      this.engine.renderer.domElement.setPointerCapture( e.pointerId );
+      return;
+    }
     // shape handles ( when a shape is selected ) and the Shapes tool
     if ( st.tool !== "sculpt" && this.engine.shapeTool?.down( p.x, p.y, e ) ) {
       this.engine.renderer.domElement.setPointerCapture( e.pointerId );
@@ -217,17 +268,24 @@ export class ViewportInput {
     }
     const hit = this.engine.pickTerrain( p.x, p.y );
     switch ( st.tool ) {
+      case "collider": {
+        if ( e.button === 0 && this.engine.colliderTool.down( p.x, p.y, e ) ) this.engine.renderer.domElement.setPointerCapture( e.pointerId );
+        return;
+      }
       case "model":
       case "material":
       case "select": {
         if ( st.railEdit ) {
           const i = this.engine.railTool.hit( this.engine.ray( p.x, p.y ) );
-          if ( i !== null ) return void useEditor.setState( { railEdit: { ...st.railEdit, point: i } } );
+          if ( i !== null ) return void useEditor.setState( { railEdit: { ...st.railEdit, point: i, collider: null } } );
           const on = this.engine.pickObject( p.x, p.y );
           if ( e.ctrlKey && on?.uid === st.railEdit.uid ) return void this.engine.rails.addPointAt( p.x, p.y );
-          // on the piece ( not a point ): no point picked; off it: a click as any other ( deselects, or picks
-          // what's there ), which ends editing
-          if ( on?.uid === st.railEdit.uid ) return void useEditor.setState( { railEdit: { ...st.railEdit, point: null } } );
+          // one of its colliders: that picked ( the gizmo then on it )
+          const c = this.engine.railTool.colliderHit( this.engine.ray( p.x, p.y ) );
+          if ( c !== null ) return void useEditor.setState( { railEdit: { ...st.railEdit, point: null, collider: c } } );
+          // on the piece ( not a point ): nothing picked; off it: a click as any other ( deselects, or picks what's
+          // there ), which ends editing
+          if ( on?.uid === st.railEdit.uid ) return void useEditor.setState( { railEdit: { ...st.railEdit, point: null, collider: null } } );
         }
         const sel = this.engine.pickObject( p.x, p.y );
         // the Assets workspace: Blender's Select Box ( a drag from nothing boxes pieces; the header's mode adds or takes )
@@ -299,26 +357,52 @@ export class ViewportInput {
       case "scatter": {
         if ( !hit ) return;
         const u            = toUnity( hit ), erase = e.ctrlKey;
-        // ( the picked pieces' meshes come into the map first: the stroke starts once they're here )
-        this.scatterStroke = "starting";
+        // ( the picked pieces' meshes come into the map first: the stroke starts once they're here, catching up with
+        // where the brush went meanwhile )
+        const pending      = { starting: [[u[0], u[2]]] as [number, number][], done: false };
+        this.scatterStroke = pending;
         try {
           this.engine.renderer.domElement.setPointerCapture( e.pointerId );
         } catch {
           // ( a pointer that's gone: the stroke works without )
         }
         void scatterTemplates( () => this.engine.customR.reloadLibrary() ).then( ( t ) => {
-          if ( this.scatterStroke !== "starting" ) return;
           if ( !t.length ) {
-            this.scatterStroke = null;
+            if ( this.scatterStroke === pending ) this.scatterStroke = null;
             return useEditor.getState().toast( "No pieces picked", "info" );
           }
-          this.scatterStroke = new ScatterStroke( t, erase );
-          this.scatterStroke.dab( u[0], u[2] );
+          const stroke = new ScatterStroke( t, erase );
+          for ( const [x, z] of pending.starting ) stroke.dab( x, z );
+          if ( pending.done ) stroke.end();
+          else if ( this.scatterStroke === pending ) this.scatterStroke = stroke;
+        } ).catch( ( err ) => {
+          if ( this.scatterStroke === pending ) this.scatterStroke = null;
+          console.error( "scatter: the pieces didn't come in", err );
+          useEditor.getState().toast( `Couldn't bring the pieces in: ${err}`, "error" );
         } );
         return;
       }
     }
   };
+
+  /**
+   * The Terrain Mode thing under a screen point, for Design's Select Box: a trail's run ( the Trails tool out, its
+   * ribbons drawn ), else the topmost shape whose ground it is.
+  **/
+  private terrainThingAt( x: number, y: number ): Selection | null {
+    const st = useEditor.getState();
+    if ( st.tool === "trail" && this.engine.trailTool.ribbons.visible ) {
+      const hit = this.engine.ray( x, y ).intersectObjects( this.engine.trailTool.ribbons.children, true ).find( ( h ) => h.object.userData.pickRun );
+      if ( hit ) return { kind: "trailRun", uid: hit.object.userData.pickRun as string };
+    }
+    if ( st.tool === "sculpt" ) return null;
+    const p = this.engine.pickTerrain( x, y );
+    if ( !p ) return null;
+    const [ux, , uz] = toUnity( p );
+    const ground     = ( gx: number, gz: number ) => terrain.heightAt( gx, gz );
+    const s          = [...st.shapes].reverse().find( ( q ) => !st.hiddenInView[q.uid] && ( shapeAt( q, ux, uz, ground )?.blend ?? 0 ) > 0 );
+    return s ? { kind: "shape", uid: s.uid } : null;
+  }
 
   onMove = ( e: PointerEvent ) => {
     const p = this.engine.local( e );
@@ -344,6 +428,10 @@ export class ViewportInput {
       window.dispatchEvent( new CustomEvent( "model-box", { detail: this.engine.editing.boxRect } ) );
       return;
     }
+    if ( this.engine.skiLineTool?.dragging ) {
+      this.engine.skiLineTool.move( p.x, p.y );
+      return;
+    }
     if ( this.engine.shapeTool?.dragging ) {
       this.engine.shapeTool.move( p.x, p.y );
       return;
@@ -360,25 +448,30 @@ export class ViewportInput {
       this.engine.fenceTool.move( p.x, p.y );
       return;
     }
+    if ( this.engine.colliderTool.dragging ) return this.engine.colliderTool.move( p.x, p.y );
+    if ( !e.buttons && useEditor.getState().tool === "collider" ) this.engine.colliderTool.hover( p.x, p.y );
     if ( !e.buttons ) this.engine.trailTool?.hints.hover( p.x, p.y, e.ctrlKey );
     const st                = useEditor.getState();
     const hit               = this.engine.pickTerrain( p.x, p.y );
     this.engine.cursorWorld = hit;
     if ( !e.buttons ) this.engine.shapeTool?.hover( hit );
-    if ( this.scatterStroke instanceof ScatterStroke && hit ) {
+    if ( this.scatterStroke && hit ) {
       const u = toUnity( hit );
-      this.scatterStroke.dab( u[0], u[2] );
+      if ( this.scatterStroke instanceof ScatterStroke ) this.scatterStroke.dab( u[0], u[2] );
+      else this.scatterStroke.starting.push( [u[0], u[2]] );
     }
 
+    // ( what's being placed shown under the mouse: not while Select Box or Cursor is the tool )
+    const placing = st.tool === "place" && !st.designPick;
     if ( this.engine.placing.libGhost ) {
-      this.engine.placing.libGhost.visible = st.tool === "place" && !!hit;
+      this.engine.placing.libGhost.visible = placing && !!hit;
       if ( hit ) {
         const pl = this.engine.placing.libraryPlacement( hit );
         this.engine.placing.libGhost.position.copy( pl.p );
         this.engine.placing.libGhost.quaternion.copy( pl.q );
       }
     }
-    if ( st.tool === "place" && st.placeId && !st.placeEntry && hit ) {
+    if ( placing && st.placeId && !st.placeEntry && hit ) {
       this.engine.placing.ghost.visible = true;
       this.engine.placing.ghost.position.copy( hit );
       this.engine.placing.ghost.quaternion.copy( this.engine.placing.placementRotation( hit ) );
@@ -430,7 +523,7 @@ export class ViewportInput {
     const st                = useEditor.getState();
     const sc                = st.sculpt, b = sc.brushes[sc.brush];
     const painting          = st.tool === "paint", scattering = st.tool === "scatter";
-    const show              = ( st.tool === "sculpt" || painting || scattering ) && ( !!this.stroke || !!this.paintStroke || ( this.engine.mouseInside && !!this.engine.cursorWorld ) ) && !this.engine.controls.riderMode && !this.engine.controls.flying;
+    const show              = ( st.tool === "sculpt" || painting || scattering ) && !st.designPick && ( !!this.stroke || !!this.paintStroke || ( this.engine.mouseInside && !!this.engine.cursorWorld ) ) && !this.engine.controls.riderMode && !this.engine.controls.flying;
     snowLook.showFlow.value = painting && st.paint.tool === "flow" ? 1 : 0;
     // ( every chunk's paint loaded on entering Paint Mode, not under the first dab: a 4096² mask held a stroke 0.4 s;
     // and its texture made, filled over a few frames, ready for that dab )
@@ -444,6 +537,9 @@ export class ViewportInput {
       snowLook.showGrip.value = grip;
       if ( grip ) void Promise.all( terrain.chunks.map( ( c ) => ensureLayer( c ) ) ).then( () => this.engine.terrainR.refreshGrip() );
     }
+    // the sculpt brush's size and strength by the mouse ( drawn in the view: render/brushLabel.ts )
+    const at = st.tool === "sculpt" && st.cameraMode !== "rider" && this.engine.cursorOnTerrain() ? this.engine.cursorWorld : null;
+    this.engine.brushLabel.show( at, `${sc.radius < 10 ? sc.radius.toFixed( 1 ) : Math.round( sc.radius )} m`, ` · ${Math.round( b.strength * 100 )}%`, this.engine.camera, this.engine.viewH );
     brushLook.visible.value  = show ? 1 : 0;
     brushLook.showMask.value = sc.showMask ? 1 : 0;
     if ( !show ) return;
@@ -481,35 +577,50 @@ export class ViewportInput {
   }
 
   /**
+   * The brush out ( Sculpt's, Paint's or Scatter's ): its size or strength, read and set within its range; null when
+   * there's none ( Scatter has no strength ).
+  **/
+  brushValue( what: "radius" | "strength" ): { get: () => number; set: ( v: number ) => void } | null {
+    const st = useEditor.getState(), clamp = ( v: number, lo: number, hi: number ) => Math.min( hi, Math.max( lo, v ) );
+    if ( st.tool === "sculpt" )
+      return what === "radius"
+        ? { get: () => useEditor.getState().sculpt.radius, set: ( v ) => useEditor.getState().setSculpt( { radius: clamp( v, 0.25, 500 ) } ) }
+        : { get: () => { const s = useEditor.getState().sculpt; return s.brushes[s.brush].strength; }, set: ( v ) => useEditor.getState().setBrush( { strength: clamp( v, 0.005, 1 ) } ) };
+    if ( st.tool === "paint" )
+      return what === "radius"
+        ? { get: () => useEditor.getState().paint.radius, set: ( v ) => useEditor.getState().setPaint( { radius: clamp( v, 0.25, 500 ) } ) }
+        : { get: () => useEditor.getState().paint.strength, set: ( v ) => useEditor.getState().setPaint( { strength: clamp( v, 0.005, 1 ) } ) };
+    if ( st.tool === "scatter" && what === "radius" )
+      return { get: () => useEditor.getState().scatter.radius, set: ( v ) => useEditor.setState( { scatter: { ...useEditor.getState().scatter, radius: clamp( v, 0.5, 200 ) } } ) };
+    return null;
+  }
+
+  /**
    * F / Shift+F: move the mouse to resize the brush ( or change its strength ), click to keep, Esc to cancel.
   **/
   startSizeDrag( what: "radius" | "strength" ) {
-    const st      = useEditor.getState();
-    const v0      = what === "radius" ? st.sculpt.radius : st.sculpt.brushes[st.sculpt.brush].strength;
+    const b = this.brushValue( what );
+    if ( !b ) return;
     const at      = this.engine.cursorWorld;
-    this.sizeDrag = { what, x0: this.engine.mouse.x, v0, perPx: what === "radius" ? ( at ? this.metresPerPixel( at ) : 0.1 ) : 1 / 300 };
-    st.toast( `${what === "radius" ? "Brush size" : "Strength"}: move the mouse, click to keep, Esc to cancel`, "info" );
+    this.sizeDrag = { what, x0: this.engine.mouse.x, v0: b.get(), perPx: what === "radius" ? ( at ? this.metresPerPixel( at ) : 0.1 ) : 1 / 300 };
+    useEditor.getState().toast( `${what === "radius" ? "Brush size" : "Strength"}: move the mouse, click to keep, Esc to cancel`, "info" );
   }
 
   private moveSizeDrag( x: number ) {
-    const d  = this.sizeDrag!;
-    const st = useEditor.getState();
-    if ( d.what === "radius" ) st.setSculpt( { radius: Math.min( 500, Math.max( 0.25, d.v0 + ( x - d.x0 ) * d.perPx ) ) } );
-    else st.setBrush( { strength: Math.min( 1, Math.max( 0.005, d.v0 + ( x - d.x0 ) * d.perPx ) ) } );
+    const d = this.sizeDrag!;
+    this.brushValue( d.what )?.set( d.v0 + ( x - d.x0 ) * d.perPx );
   }
 
   endSizeDrag( keep: boolean ) {
     const d = this.sizeDrag;
     if ( !d ) return;
     this.sizeDrag = null;
-    if ( keep ) return;
-    const st = useEditor.getState();
-    if ( d.what === "radius" ) st.setSculpt( { radius: d.v0 } );
-    else st.setBrush( { strength: d.v0 } );
+    if ( !keep ) this.brushValue( d.what )?.set( d.v0 );
   }
 
   onUp = ( e: PointerEvent ) => {
     if ( e.button === 0 && this.engine.meshPainter.painting ) return this.engine.meshPainter.up();
+    if ( e.button === 0 && this.engine.colliderTool.dragging ) return this.engine.colliderTool.up();
     if ( e.button === 0 && this.engine.blGizmo.up() ) return;
     if ( e.button === 0 && this.objBox ) {
       const b     = this.objBox, p = this.engine.local( e );
@@ -519,11 +630,11 @@ export class ViewportInput {
       if ( Math.hypot( p.x - b.x0, p.y - b.y0 ) < 4 ) return void ( !b.extend && !b.subtract && st.setSelection( [] ) );
       const [x0, y0, x1, y1] = [Math.min( b.x0, p.x ), Math.min( b.y0, p.y ), Math.max( b.x0, p.x ), Math.max( b.y0, p.y )];
       const r                = this.engine.host.getBoundingClientRect();
-      // a piece is in the box when any corner of its bounds is
-      const inBox            = ( uid: string ) => {
-        const g = this.engine.customR.objectGroup( uid );
-        if ( !g?.children.length ) return false;
+      // a thing is in the box when any corner of its bounds is
+      const inBox            = ( g: THREE.Object3D | null | undefined ) => {
+        if ( !g ) return false;
         const box = new THREE.Box3().setFromObject( g );
+        if ( box.isEmpty() ) return false;
         for ( let k = 0; k < 8; k++ ) {
           const v  = new THREE.Vector3( k & 1 ? box.max.x : box.min.x, k & 2 ? box.max.y : box.min.y, k & 4 ? box.max.z : box.min.z ).project( this.engine.camera );
           const sx = ( v.x * 0.5 + 0.5 ) * r.width, sy = ( -v.y * 0.5 + 0.5 ) * r.height;
@@ -531,7 +642,22 @@ export class ViewportInput {
         }
         return false;
       };
-      const hit = st.customObjects.filter( ( o ) => !st.locked[o.uid] && !st.hiddenInView[o.uid] && inBox( o.uid ) ).map( ( o ) => ( { kind: "custom" as const, uid: o.uid } ) );
+      const free  = ( uid: string ) => !st.locked[uid] && !st.hiddenInView[uid];
+      const piece = ( uid: string ) => {
+        const g = this.engine.customR.objectGroup( uid );
+        return g?.children.length ? g : null;
+      };
+      const at    = ( u: V3 ) => {
+        const v = toThree( u ).project( this.engine.camera ), sx = ( v.x * 0.5 + 0.5 ) * r.width, sy = ( -v.y * 0.5 + 0.5 ) * r.height;
+        return v.z <= 1 && sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1;
+      };
+      const hit: Selection[] = st.customObjects.filter( ( o ) => free( o.uid ) && inBox( piece( o.uid ) ) ).map( ( o ) => ( { kind: "custom" as const, uid: o.uid } ) );
+      // ( Design's Select Box: the map's features and spawns too, and the trails' points in Terrain Mode )
+      if ( !this.engine.stage.shown ) {
+        for ( const o of st.objects ) if ( free( o.uid ) && ( inBox( this.engine.objectsR.objects.get( o.uid ) ) || at( o.position ) ) ) hit.push( { kind: "object", uid: o.uid } );
+        for ( const s of st.spawns ) if ( free( s.uid ) && at( s.position ) ) hit.push( { kind: "spawn", uid: s.uid } );
+        if ( st.tool === "trail" || st.tool === "shape" || st.tool === "sculpt" ) for ( const n of st.trails.nodes ) if ( at( n.p ) ) hit.push( { kind: "trailNode", uid: n.id } );
+      }
       const ids = new Set( hit.map( ( h ) => h.uid ) );
       st.setSelection( b.subtract ? st.selection.filter( ( s ) => !ids.has( s.uid ) ) : b.extend ? [...st.selection.filter( ( s ) => !ids.has( s.uid ) ), ...hit] : hit );
       return;
@@ -552,6 +678,7 @@ export class ViewportInput {
       const p = this.engine.local( e ), r = this.rightDown;
       if ( r && Math.hypot( p.x - r.x, p.y - r.y ) < 5 ) this.engine.menus.objectMenu();
     }
+    if ( e.button === 0 && this.engine.skiLineTool?.dragging ) return this.engine.skiLineTool.up();
     if ( e.button === 0 && this.engine.shapeTool?.dragging ) return this.engine.shapeTool.up();
     if ( e.button === 0 && this.engine.trailTool?.mouse.dragging ) return this.engine.trailTool.mouse.up();
     if ( e.button === 0 && this.engine.liftTool?.dragging ) return this.engine.liftTool.up();
@@ -559,7 +686,8 @@ export class ViewportInput {
     if ( e.button === 0 && this.scatterStroke ) {
       const s            = this.scatterStroke;
       this.scatterStroke = null;
-      if ( s !== "starting" ) s.end();
+      if ( s instanceof ScatterStroke ) s.end();
+      else s.done = true;
       return;
     }
     if ( e.button === 0 && this.paintStroke ) {

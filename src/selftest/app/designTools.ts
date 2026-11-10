@@ -21,15 +21,9 @@ export async function designToolsSelftest( dir: string ) {
     const key    = ( k: string, mods: KeyboardEventInit = {} ) => window.dispatchEvent( new KeyboardEvent( "keydown", { key: k, bubbles: true, cancelable: true, ...mods } ) );
     canvas.dispatchEvent( new PointerEvent( "pointerenter", { bubbles: true } ) );
     canvas.dispatchEvent( new PointerEvent( "pointermove", { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true } ) );
-    // the header's Add menu › Rail › Box Rail
-    const pull = [...document.querySelectorAll<HTMLElement>( ".vp-header .bpull" )].find( ( b ) => b.textContent?.trim() === "Add" );
-    pull?.dispatchEvent( new MouseEvent( "mousedown", { button: 0, bubbles: true, cancelable: true } ) );
-    await sleep( 300 );
-    const item = ( label: string ) => [...document.querySelectorAll<HTMLElement>( ".bmenu .bmenu-item" )].find( ( b ) => b.textContent?.trim() === label );
-    log( `Add menu: ${pull ? "opened" : "no Add button (FAIL)"}, Rail ${item( "Rail" ) ? "in it" : "missing (FAIL)"}` );
-    item( "Rail" )?.click();
-    await sleep( 300 );
-    item( "Box Rail" )?.click();
+    // a Box Rail, as Add › Rail made one ( not in the Add menu since 0.1.1 )
+    const { CURVE_PRESETS } = await import( "../../model/curve" );
+    eng.menus.addCurveInView( CURVE_PRESETS.find( ( p ) => p.label === "Box Rail" )! );
     await sleep( 800 );
     const rail = st().customObjects.find( ( o ) => o.model?.curve );
     log( `Add › Rail › Box Rail: ${rail ? `added, ${rail.surface_type}, points out to edit ${st().railEdit?.uid === rail.uid}, ${rail.colliders.filter( ( c ) => c.shape === "Box" ).length} box colliders, ${rail.colliders.filter( ( c ) => c.shape === "Capsule" ).length} capsules` : "nothing added (FAIL)"}` );

@@ -146,6 +146,19 @@ export function bridge( g0: Mesh, edges: Set<string> ): OpResult {
     g.m.push( nf !== undefined ? g0.m[nf] : 0 );
     g.s.push( nf !== undefined ? g0.s[nf] : false );
   }
+  // two loose loops ( no faces either side to follow ): facing out from the band's middle, as Blender's
+  if ( [...A, ...B].every( ( v, i, all ) => !info.get( ek( v, all[( i + 1 ) % all.length] ) )?.faces.length ) && [...edges].every( ( k ) => !info.get( k )?.faces.length ) ) {
+    let c: V3 = [0, 0, 0];
+    for ( const v of [...A, ...B] ) c = add( c, g.v[v] );
+    c             = mul( c, 1 / ( A.length + B.length ) );
+    const outward = faces.reduce( ( s, fi ) => {
+      const f = g.f[fi];
+      let m: V3 = [0, 0, 0];
+      for ( const v of f ) m = add( m, g.v[v] );
+      return s + dot( faceNormal( g, fi ), sub( mul( m, 1 / f.length ), c ) );
+    }, 0 );
+    if ( outward < 0 ) for ( const fi of faces ) g.f[fi] = [...g.f[fi]].reverse();
+  }
   g.w = g.w.filter( ( [a, b] ) => !edges.has( ek( a, b ) ) );
   return { mesh: g, sel: selFromFaces( g, faces ) };
 }

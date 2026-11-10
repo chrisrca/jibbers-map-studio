@@ -241,12 +241,14 @@ export function ViewOverlays() {
   const assets = useEditor( ( s ) => s.tool       === "model" || s.tool === "material" );
   // ( the navigator in Design too; not while riding )
   const riding = useEditor( ( s ) => s.cameraMode === "rider" );
+  // ( Design's 3D cursor once it's been put down, or while the Cursor is the tool )
+  const cursor = useEditor( ( s ) => s.cursorDown || s.designPick === "cursor" );
   if ( riding ) return null;
   return (
     <>
       <NavGizmo />
       <TransformLine />
-      {assets && <Cursor3D />}
+      {( assets || cursor ) && <Cursor3D />}
       {assets && <ViewText />}
       {assets && <AdjustLast />}
       {!assets && <AdjustLastOp />}

@@ -1,10 +1,11 @@
 // Custom objects ( imported maps' own meshes, e.g. Melon's MLNZ pieces ) drawn with their real geometry, textures
 // and material settings. Assets come from the Rust-side cache ( src-tauri/src/project/assets.rs ).
 
+import { positionWorld, step, uniform } from "three/tsl";
 import * as THREE from "three/webgpu";
 import { toThree, unityEulerToQuat } from "../../../core/coords";
 import { type AssetIndex, ipc, joinPath } from "../../../core/ipc";
-import { type CustomMaterial, type CustomObjectEntry, arr3 } from "../../../core/types";
+import { type CustomMaterial, type CustomObjectEntry, adjustOf, arr3, hasLook } from "../../../core/types";
 import { type Selection, type Shading, useEditor } from "../../../map/store";
 import type { ModelData } from "../../../model/build";
 import type { SourceMesh } from "../../../model/importMesh";
@@ -14,8 +15,10 @@ import { capture, cycleAngle, moved, movingPartsOf, turned, type MovingPart } fr
 import type { V3 } from "../../../core/coords";
 import type { BakeImage } from "../../../texture/bake";
 import { onPieceTexture } from "../../../texture/meshPaint";
-import { disposeGuide } from "../../tools/grindGuide";
+import { colliderShell, disposeGuide, shellObject } from "../../tools/grindGuide";
 import { withLamps } from "../lamps";
+import { redraw, sceneEdits } from "../../redraw";
+import { dropTree, treeLater } from "./pickTrees";
 import { type GpuAccess } from "../terrainRenderer";
 import { buildGeometry, worldSurface } from "./geometry";
 import { GrindGuides } from "./guides";
@@ -26,6 +29,54 @@ import { hidden, lookMaterial, wireLines } from "./shading";
 export { buildGeometry } from "./geometry";
 
 export type MaterialData = CustomMaterial;
+
+/**
+ * Whether piece `b` is `a` only moved, turned or sized: its parts the same but for where they are ( a part's settings
+ * carried over as they are, as a move does ).
+**/
+function onlyPlaced( a: CustomObjectEntry, b: CustomObjectEntry ): boolean {
+  if ( a.model !== b.model || a.hue !== b.hue || a.adjust !== b.adjust || a.parts.length !== b.parts.length ) return false;
+  // ( a piece of colliders only is drawn as them: built again as they move )
+  if ( !hasLook( a ) && a.colliders !== b.colliders ) return false;
+  return a.parts.every( ( p, i ) => {
+    const q = b.parts[i], keys = Object.keys( p );
+    return keys.length === Object.keys( q ).length && keys.every( ( k ) => k.startsWith( "local_" ) || p[k] === q[k] );
+  } );
+}
+
+// Colliders-only pieces' looks, by surface ( jib, snow, solid ): see-through, behind what's in front of them.
+const colliderLooks = new Map<string, THREE.MeshBasicNodeMaterial>();
+function colliderLook( surface: string ) {
+  let m = colliderLooks.get( surface );
+  if ( !m ) {
+    const colour = surface === "Jib" ? 0x1fb6ff : surface === "Snow" ? 0xe8f4ff : 0xff9f1a;
+    colliderLooks.set( surface, ( m = new THREE.MeshBasicNodeMaterial( { color: colour, transparent: true, opacity: 0.35, depthWrite: false } ) ) );
+  }
+  return m;
+}
+
+/**
+ * A mesh's attributes as a batch needs them alike ( null: it can't be batched: morphs, interleaved data ).
+**/
+function layout( g: THREE.BufferGeometry ) {
+  const a = Object.entries( g.attributes );
+  if ( Object.keys( g.morphAttributes ).length || a.some( ( [, x] ) => ( x as THREE.InterleavedBufferAttribute ).isInterleavedBufferAttribute ) ) return null;
+  return `${a.map( ( [n, x] ) => `${n}:${x.itemSize}:${x.normalized}:${( x.array as { constructor: { name: string } } ).constructor.name}` ).sort().join( "," )}|${!!g.index}`;
+}
+
+/**
+ * The one material a mesh is drawn with, all of it ( a part's list of one counts, its one group the whole mesh ); null
+ * when it's drawn with more.
+**/
+function oneMaterial( m: THREE.Mesh ): THREE.Material | null {
+  if ( !Array.isArray( m.material ) ) return m.material;
+  const gs = m.geometry.groups, n = m.geometry.index?.count ?? m.geometry.attributes.position.count;
+  if ( gs.length > 1 || ( gs[0] && ( gs[0].start !== 0 || gs[0].count < n ) ) ) return null;
+  return m.material[gs[0]?.materialIndex ?? 0] ?? null;
+}
+
+// ( how many pieces taken out are kept as they were drawn, and how many of their batches: see `parked` )
+const PARKED = 5000, PARKED_BATCHES = 400;
 
 export class CustomObjectsRenderer {
   // its parts, each in a file of its own beside this one
@@ -42,6 +93,12 @@ export class CustomObjectsRenderer {
   // `built` is the data the shown meshes are from ( the newest data may still be building )
   shown = new Map<string, { group: THREE.Group; data: CustomObjectEntry; build: number; built: CustomObjectEntry | null }>();
   private builds         = 0;
+  // ( pieces sharing a mesh and its materials, a map's trees above all: drawn instanced, one draw for every one of
+  // them, their own meshes hidden then but still picked; not the picked ones, outlined and moved as any piece is. By
+  // geometry and materials )
+  private batches        = new Map<string, { im: THREE.InstancedMesh; capacity: number }>();
+  private batchDue       = false;
+  private batchedFor     = "";
   // Resolves when the most recent sync has finished building.
   settled: Promise<void> = Promise.resolve();
   // pieces being built since none were ( counted for the loading veil ); `gen` drops builds of a project left behind
@@ -59,6 +116,9 @@ export class CustomObjectsRenderer {
   }
 
   constructor() {
+    // ( its pieces stand still unless they're changed here: their matrices worked out then, not on every frame, which
+    // took a busy map's thousand-odd meshes a millisecond a frame. See updateMatrices )
+    this.group.matrixWorldAutoUpdate = false;
     this.group.add( this.guides.group );
     // ( one renderer for the app's life: never let go )
     onPieceTexture( ( uid, ch ) => {
@@ -97,10 +157,13 @@ export class CustomObjectsRenderer {
     this.setProject( useEditor.getState().projectDir );
     const dir = this.dir;
     if ( !dir ) return;
-    this.index = ipc.prepareAssets( dir, useEditor.getState().library ).catch( ( e ) => {
+    const index = ipc.prepareAssets( dir, useEditor.getState().library ).catch( ( e ) => {
       console.error( "custom assets failed", e );
       return null;
     } );
+    this.index  = index;
+    // ( ready once the latest is: one asked for just before, by setProject, gives way to it and can't say so )
+    index.then( () => this.index === index && ( this.indexReady = true ) );
   }
 
   /**
@@ -113,13 +176,48 @@ export class CustomObjectsRenderer {
       if ( !live.has( uid ) ) {
         this.group.remove( s.group );
         this.shown.delete( uid );
+        this.park( uid, s );
+        this.batchLater();
       }
+    }
+    const picked = selection.filter( ( s ) => s.kind === "custom" ).map( ( s ) => s.uid ).join( "," );
+    if ( picked !== this.batchedFor ) {
+      this.batchedFor = picked;
+      this.batchLater();
     }
     const pending: Promise<void>[] = [];
     const gen                      = this.wave.gen;
     for ( const o of objects ) {
+      // ( a piece back as it went: as it was drawn then )
+      const back = this.shown.has( o.uid ) ? undefined : this.parked.get( o.uid );
+      if ( back && back.data === o && back.built === o ) {
+        this.parked.delete( o.uid );
+        this.shown.set( o.uid, back );
+        back.group.visible = !this.only || this.only.has( o.uid );
+        this.applyLook( back.group );
+        this.group.add( back.group );
+        this.batchLater();
+        continue;
+      }
       const cur = this.shown.get( o.uid );
       if ( cur && cur.data === o ) continue;
+      // ( only moved, turned or sized, as on the gizmo: its meshes put where its parts now are, not built again )
+      if ( cur?.built && cur.data === cur.built && onlyPlaced( cur.built, o ) ) {
+        for ( const m of cur.group.children ) {
+          const p = o.parts[( m.userData as { partIndex?: number } ).partIndex ?? -1];
+          if ( !p ) continue;
+          m.position.copy( toThree( arr3( p.local_position ) ) );
+          m.quaternion.copy( unityEulerToQuat( arr3( p.local_rotation ) ) );
+          m.scale.set( p.local_scale.x, p.local_scale.y, p.local_scale.z );
+        }
+        cur.group.updateMatrixWorld( true );
+        cur.data  = o;
+        cur.built = o;
+        cur.build = ++this.builds;
+        if ( !selection.some( ( s ) => s.uid === o.uid ) ) this.batchLater();
+        redraw();
+        continue;
+      }
       const build = ++this.builds;
       if ( cur ) { cur.data = o; cur.build = build; }
       else this.shown.set( o.uid, { group: new THREE.Group(), data: o, build, built: null } );
@@ -137,6 +235,8 @@ export class CustomObjectsRenderer {
             this.group.add( g );
             this.onBuilt?.( o.uid );
             this.updateSelected( this.selection ); // the selection now, not when this build started
+            // ( a picked piece is drawn on its own: built again as it's changed, nothing else to lay out )
+            if ( !this.selected.has( o.uid ) ) this.batchLater();
           } )
           .finally( () => {
             if ( gen !== this.wave.gen ) return;
@@ -151,8 +251,9 @@ export class CustomObjectsRenderer {
   /**
    * Meshes for click-picking; each carries `{ kind: "custom", uid }`.
   **/
-  pickables(): THREE.Object3D[] {
-    return [...this.shown.entries()].filter( ( [uid] ) => !this.only || this.only.has( uid ) ).flatMap( ( [, s] ) => s.group.children );
+  pickables( keep: ( uid: string ) => boolean = () => true ): THREE.Object3D[] {
+    this.updateMatrices();
+    return [...this.shown.entries()].filter( ( [uid] ) => ( !this.only || this.only.has( uid ) ) && keep( uid ) ).flatMap( ( [, s] ) => s.group.children );
   }
 
   // called when a piece's meshes are ( re )built
@@ -163,6 +264,7 @@ export class CustomObjectsRenderer {
   setLook( look: { shading: Shading; xray: boolean; faces: boolean } | null ) {
     this.look = look;
     for ( const s of this.shown.values() ) this.applyLook( s.group );
+    this.batchLater();
   }
   private applyLook( g: THREE.Group ) {
     const l = this.look;
@@ -182,15 +284,255 @@ export class CustomObjectsRenderer {
     }
   }
 
+  // Pieces taken out of the map, kept as they were drawn for a while: the map's all of them while the Assets workspace
+  // is open ( its own pieces in their place ), a piece deleted until it's undone. Coming back as they went, they're put
+  // back as they are, not built again ( and their batches with them ): back from Assets on a busy park held the view
+  // up over a second. The oldest let go past PARKED.
+  private parked        = new Map<string, { group: THREE.Group; data: CustomObjectEntry; build: number; built: CustomObjectEntry | null }>();
+  private parkedBatches = new Map<string, { im: THREE.InstancedMesh; capacity: number }>();
+  private parkedBatched = new Map<string, { bm: THREE.BatchedMesh; sig: string; ids: Map<string, number> }>();
+
+  private park( uid: string, s: { group: THREE.Group; data: CustomObjectEntry; build: number; built: CustomObjectEntry | null } ) {
+    this.parked.delete( uid );
+    this.parked.set( uid, s );
+    while ( this.parked.size > PARKED ) this.parked.delete( this.parked.keys().next().value! );
+  }
+
   // Only these pieces shown ( the stage's ), or all.
   private only: Set<string> | null = null;
   showOnly( uids: Set<string> | null ) {
     this.only = uids;
-    for ( const [uid, s] of this.shown ) s.group.visible = !uids || uids.has( uid );
+    // ( laid out again only when what's shown changed: asked on every change to the pieces, a drag laid every
+    // batch out again each step )
+    let changed = false;
+    for ( const [uid, s] of this.shown ) {
+      const on = !uids || uids.has( uid );
+      if ( s.group.visible !== on ) changed = true;
+      s.group.visible = on;
+    }
+    if ( changed ) this.batchLater();
+  }
+
+  private batchLater() {
+    if ( this.batchDue ) return;
+    this.batchDue = true;
+    queueMicrotask( () => {
+      this.batchDue = false;
+      this.layoutBatches();
+    } );
+  }
+
+  /**
+   * Pieces' meshes drawn instanced where they're alike ( see `batches` ): one with none like it, picked, hidden, faint,
+   * its moving parts going, or in the Assets workspace's shading drawn on its own.
+  **/
+  private layoutBatches() {
+    // every mesh that can be drawn with others ( not a faint one, nor a lamp's piece: its lamps' light is kept off it by
+    // which piece is drawn, which a batch can't say ), and whether it's to be drawn on its own now
+    const all: { m: THREE.Mesh; own: boolean }[] = [];
+    for ( const [uid, s] of this.shown ) {
+      if ( !s.built ) continue;
+      const own = !s.group.visible || this.look !== null || this.selected.has( uid ) || this.moving.has( uid );
+      const lit = !!s.data.lights?.length;
+      for ( const m of s.group.children ) {
+        if ( !( m instanceof THREE.Mesh ) ) continue;
+        m.visible = true;
+        if ( lit || ( m.userData as { solid?: unknown } ).solid ) continue;
+        all.push( { m, own } );
+      }
+    }
+    // alike ( one mesh, the same materials ): instanced
+    const by = new Map<string, { geo: THREE.BufferGeometry; mat: THREE.Material | THREE.Material[]; cast: boolean; take: boolean; meshes: THREE.Mesh[]; all: { m: THREE.Mesh; own: boolean }[] }>();
+    const keyOf = ( m: THREE.Mesh ) => `${m.geometry.uuid}|${( Array.isArray( m.material ) ? m.material : [m.material] ).map( ( x ) => x.uuid ).join( "," )}|${m.castShadow}|${m.receiveShadow}`;
+    for ( const { m, own } of all ) {
+      const key = keyOf( m );
+      let g     = by.get( key );
+      if ( !g ) by.set( key, ( g = { geo: m.geometry, mat: m.material, cast: m.castShadow, take: m.receiveShadow, meshes: [], all: [] } ) );
+      g.all.push( { m, own } );
+      if ( !own ) g.meshes.push( m );
+    }
+    // ( one of its kind: batched with others of its material, below, where it can be ( a few alike batched so as well
+    // were no quicker than instanced ) )
+    const single: { m: THREE.Mesh; own: boolean }[] = [];
+    for ( const [key, g] of by )
+      if ( g.all.length < 2 ) {
+        by.delete( key );
+        single.push( ...g.all );
+      }
+    for ( const [key, b] of this.batches )
+      if ( !by.has( key ) ) {
+        this.group.remove( b.im );
+        this.batches.delete( key );
+        this.parkedBatches.set( key, b );
+        while ( this.parkedBatches.size > PARKED_BATCHES ) {
+          const [k, old] = this.parkedBatches.entries().next().value!;
+          old.im.dispose();
+          this.parkedBatches.delete( k );
+        }
+      }
+    const toGroup = this.group.matrixWorld.clone().invert(), at = new THREE.Matrix4();
+    for ( const [key, g] of by ) {
+      let b = this.batches.get( key );
+      // ( one set aside, back again )
+      if ( !b && this.parkedBatches.has( key ) ) {
+        b = this.parkedBatches.get( key )!;
+        this.parkedBatches.delete( key );
+        this.batches.set( key, b );
+        this.group.add( b.im );
+      }
+      if ( !b || g.meshes.length > b.capacity ) {
+        if ( b ) {
+          this.group.remove( b.im );
+          b.im.dispose();
+        }
+        const capacity   = Math.max( 4, 2 ** Math.ceil( Math.log2( Math.max( 1, g.meshes.length ) ) ) );
+        const im         = new THREE.InstancedMesh( g.geo, g.mat, capacity );
+        im.castShadow    = g.cast;
+        im.receiveShadow = g.take;
+        // ( picked by each tree's own meshes, not this )
+        im.raycast       = () => {};
+        this.group.add( im );
+        this.batches.set( key, ( b = { im, capacity } ) );
+      }
+      b.im.count = g.meshes.length;
+      g.meshes.forEach( ( m, i ) => {
+        m.visible = false;
+        m.updateWorldMatrix( true, false );
+        b.im.setMatrixAt( i, at.multiplyMatrices( toGroup, m.matrixWorld ) );
+      } );
+      b.im.instanceMatrix.needsUpdate = true;
+      b.im.computeBoundingSphere();
+    }
+    this.layoutBatched( single, toGroup );
+    redraw();
+  }
+
+  // ( pieces of their own kind with a material in common: drawn as one, a draw each but a single object to three ( its
+  // cost a piece is the object's, not the draw's: a busy park's 69 such pieces were a frame's biggest part ). By
+  // material and the meshes' layout; each mesh's instance there, by its mesh )
+  private batched = new Map<string, { bm: THREE.BatchedMesh; sig: string; ids: Map<string, number> }>();
+
+  /**
+   * The one-of-a-kind meshes laid out in batches of their material ( see `batched` ): made again only when which meshes
+   * are in one changes ( a piece picked, moved or hidden is let out of its batch, drawn on its own, not made again ).
+  **/
+  private layoutBatched( list: { m: THREE.Mesh; own: boolean }[], toGroup: THREE.Matrix4 ) {
+    const by = new Map<string, { mat: THREE.Material; cast: boolean; take: boolean; list: { m: THREE.Mesh; own: boolean }[] }>();
+    for ( const x of list ) {
+      const m = x.m, mat = oneMaterial( m ), l = mat && layout( m.geometry );
+      if ( !mat || !l ) continue;
+      const key = `${mat.uuid}|${m.castShadow}|${m.receiveShadow}|${l}`;
+      let g     = by.get( key );
+      if ( !g ) by.set( key, ( g = { mat, cast: m.castShadow, take: m.receiveShadow, list: [] } ) );
+      g.list.push( x );
+    }
+    for ( const [key, g] of by ) if ( g.list.length < 2 ) by.delete( key );
+    for ( const [key, b] of this.batched )
+      if ( !by.has( key ) ) {
+        this.group.remove( b.bm );
+        this.batched.delete( key );
+        this.parkedBatched.set( key, b );
+        while ( this.parkedBatched.size > PARKED_BATCHES ) {
+          const [k, old] = this.parkedBatched.entries().next().value!;
+          old.bm.dispose();
+          this.parkedBatched.delete( k );
+        }
+      }
+    const at = new THREE.Matrix4();
+    for ( const [key, g] of by ) {
+      const sig = g.list.map( ( x ) => x.m.uuid ).sort().join( "," );
+      let b     = this.batched.get( key );
+      // ( one set aside, back again )
+      if ( !b && this.parkedBatched.get( key )?.sig === sig ) {
+        b = this.parkedBatched.get( key )!;
+        this.parkedBatched.delete( key );
+        this.batched.set( key, b );
+        this.group.add( b.bm );
+      }
+      if ( !b || b.sig !== sig ) {
+        if ( b ) {
+          this.group.remove( b.bm );
+          b.bm.dispose();
+        }
+        // ( each mesh once, however many are drawn of it )
+        const geos  = [...new Map( g.list.map( ( x ) => [x.m.geometry.uuid, x.m.geometry] ) ).values()];
+        const verts = geos.reduce( ( n, x ) => n + x.attributes.position.count, 0 );
+        const index = geos.reduce( ( n, x ) => n + ( x.index?.count ?? 0 ), 0 );
+        const bm    = new THREE.BatchedMesh( g.list.length, verts, index, g.mat );
+        bm.castShadow    = g.cast;
+        bm.receiveShadow = g.take;
+        // ( opaque: drawn in any order, not sorted every frame )
+        bm.sortObjects   = g.mat.transparent;
+        // ( picked by each piece's own meshes, not this )
+        bm.raycast       = () => {};
+        const ids = new Map<string, number>(), made = new Map<string, number>();
+        for ( const x of g.list ) {
+          let gid = made.get( x.m.geometry.uuid );
+          if ( gid === undefined ) made.set( x.m.geometry.uuid, ( gid = bm.addGeometry( x.m.geometry ) ) );
+          ids.set( x.m.uuid, bm.addInstance( gid ) );
+        }
+        this.group.add( bm );
+        this.batched.set( key, ( b = { bm, sig, ids } ) );
+      }
+      for ( const { m, own } of g.list ) {
+        const id = b.ids.get( m.uuid )!;
+        b.bm.setVisibleAt( id, !own );
+        if ( own ) continue;
+        m.visible = false;
+        m.updateWorldMatrix( true, false );
+        b.bm.setMatrixAt( id, at.multiplyMatrices( toGroup, m.matrixWorld ) );
+      }
+      b.bm.computeBoundingBox();
+      b.bm.computeBoundingSphere();
+    }
+  }
+
+  private matricesAt = -1;
+
+  /**
+   * The pieces' matrices worked out again, before a frame's drawn, when anything's been put in or taken out since ( a
+   * piece built, moved only: sync works its own out as it moves it ).
+  **/
+  updateMatrices() {
+    if ( this.matricesAt === sceneEdits ) return;
+    this.matricesAt = sceneEdits;
+    this.group.updateMatrixWorld( true );
   }
 
   objectGroup( uid: string ) {
     return this.shown.get( uid )?.group ?? null;
+  }
+
+  // ( the square left out of a faint piece: Unity x from, z from, x to, z to )
+  private cut = uniform( new THREE.Vector4( 0, 0, 0, 0 ) );
+
+  /**
+   * A piece drawn a little see-through, or as it is again: the surroundings while a new chunk is previewed, left out
+   * over the square `cut` ( Unity x, z from and to ), where the new ground goes, so they don't come up through it.
+  **/
+  setFaint( uid: string, on: boolean, cut: [number, number, number, number] | null = null ) {
+    this.cut.value.set( ...( cut ?? [0, 0, 0, 0] ) );
+    // ( three.js z is Unity's turned round )
+    const x = positionWorld.x, z = positionWorld.z.negate(), c = this.cut;
+    const outside = step( c.x, x ).mul( step( x, c.z ) ).mul( step( c.y, z ) ).mul( step( z, c.w ) ).lessThan( 0.5 );
+    this.shown.get( uid )?.group.traverse( ( m ) => {
+      if ( !( m instanceof THREE.Mesh ) ) return;
+      const ud = m.userData as { solid?: THREE.Material | THREE.Material[] };
+      if ( on && !ud.solid ) {
+        ud.solid    = m.material;
+        const faint = ( x: THREE.Material ) => {
+          const f = Object.assign( x.clone(), { transparent: true, opacity: 0.8 } );
+          if ( f instanceof THREE.NodeMaterial ) f.maskNode = outside;
+          return f;
+        };
+        m.material  = Array.isArray( m.material ) ? m.material.map( faint ) : faint( m.material );
+      } else if ( !on && ud.solid ) {
+        m.material = ud.solid;
+        delete ud.solid;
+      }
+    } );
+    this.batchLater();
+    redraw();
   }
 
   get partCount() {
@@ -285,15 +627,16 @@ export class CustomObjectsRenderer {
   **/
   async buildGroup( o: CustomObjectEntry ): Promise<THREE.Group> {
     const group = new THREE.Group();
-    if ( !isModel( o ) && !( await this.index ) ) return group;
+    if ( hasLook( o ) && !isModel( o ) && !( await this.index ) ) return group;
     const meshes = await Promise.all(
       o.parts
         .map( ( p, partIndex ) => ( { p, partIndex } ) )
-        .filter( ( { p } ) => p.lod_index <= 0 ) // highest detail only
+        .filter( ( { p } ) => p.lod_index <= 0 && !!p.mesh ) // highest detail only, and something to draw
         .map( async ( { p, partIndex } ) => {
           const geo = isModel( o ) && p.mesh === meshKey( o.uid ) ? this.modelGeometry( o ) : await this.geometry( p.mesh );
           if ( !geo ) return null;
-          let mats = await Promise.all( p.materials.map( ( m ) => this.materials.material( m ) ) );
+          // ( a map's surroundings lit as the ground they meet )
+          let mats = await Promise.all( p.materials.map( ( m ) => this.materials.material( m, adjustOf( o ), p.mesh.startsWith( "Scenery/" ) ) ) );
           if ( isModel( o ) && o.model.paint ) mats = mats.map( ( m, k ) => this.paint.material( o.uid, m, p.materials[k] ) );
           const mesh = new THREE.Mesh( geo, mats.length ? mats : this.fallback );
           mesh.position.copy( toThree( arr3( p.local_position ) ) );
@@ -308,6 +651,15 @@ export class CustomObjectsRenderer {
         } ),
     );
     for ( const m of meshes ) if ( m ) group.add( m );
+    // a piece of colliders only ( drawn with the Collider tool, nothing to see in the game ): its colliders, see-through,
+    // to pick and move it by
+    if ( !hasLook( o ) )
+      for ( const c of o.colliders ) {
+        if ( c.shape === "Mesh" ) continue;
+        const m    = shellObject( [colliderShell( c )], colliderLook( c.surface_type ) ).children[0] as THREE.Mesh;
+        m.userData = { kind: "custom", uid: o.uid, partIndex: -1 };
+        group.add( m );
+      }
     group.updateMatrixWorld( true );
     return group;
   }
@@ -401,6 +753,7 @@ export class CustomObjectsRenderer {
       } ),
     };
     this.moving.set( uid, mv );
+    this.batchLater();
     return mv;
   }
 
@@ -415,23 +768,40 @@ export class CustomObjectsRenderer {
       mesh.geometry = shared;
     }
     this.moving.delete( uid );
+    this.batchLater();
   }
 
   clear() {
     for ( const uid of [...this.moving.keys()] ) this.restore( uid );
     for ( const s of this.shown.values() ) this.group.remove( s.group );
     this.shown.clear();
+    for ( const b of this.batches.values() ) {
+      this.group.remove( b.im );
+      b.im.dispose();
+    }
+    this.batches.clear();
+    for ( const b of this.batched.values() ) {
+      this.group.remove( b.bm );
+      b.bm.dispose();
+    }
+    this.batched.clear();
+    for ( const b of this.parkedBatches.values() ) b.im.dispose();
+    for ( const b of this.parkedBatched.values() ) b.bm.dispose();
+    this.parkedBatches.clear();
+    this.parkedBatched.clear();
+    this.parked.clear();
     this.wave = { total: 0, done: 0, gen: this.wave.gen + 1 };
     for ( const c of this.guides.cache.values() ) if ( c.obj ) { this.guides.group.remove( c.obj ); disposeGuide( c.obj ); }
     this.guides.cache.clear();
     // everything let go on the GPU ( and the decoded pictures ): a big map's pieces, or a preview's, hold gigabytes
-    for ( const g of this.geos.values() ) g.then( ( x ) => x?.dispose() );
+    for ( const g of this.geos.values() ) g.then( ( x ) => ( dropTree( x ), x?.dispose() ) );
     for ( const m of this.materials.mats.values() ) m.dispose();
     for ( const t of this.materials.texs.values() ) t.dispose();
     for ( const b of this.materials.images.values() ) b.then( ( x ) => x?.close() );
     this.geos.clear();
     this.materials.images.clear();
     this.materials.mats.clear();
+    this.materials.making.clear();
     this.materials.texs.clear();
   }
 
@@ -446,6 +816,7 @@ export class CustomObjectsRenderer {
         p = ipc
           .readBinary( joinPath( index!.dir, e.file ) )
           .then( ( buf ) => buildGeometry( buf, e.vertexCount, e.hasNormals, e.submeshes ) )
+          .then( ( g ) => ( treeLater( g ), g ) )
           .catch( ( err ) => {
             console.warn( "custom mesh failed", key, err );
             return null;

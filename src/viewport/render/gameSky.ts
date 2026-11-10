@@ -64,6 +64,8 @@ export interface GameSkyData {
     ambientIntensity:         number;
     ambientSaturation:        number;
     ambientMin:               number;
+    // the light let through the clouds ( 1 − this; the game's sun and its shadows both dimmed by it )
+    cloudDimLight?:           number;
   };
 }
 

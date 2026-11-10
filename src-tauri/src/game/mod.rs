@@ -40,6 +40,30 @@ fn steam_libraries() -> Vec<PathBuf> {
     libs
 }
 
+/// The maps the game comes with (`Jibbers_Data\StreamingAssets\Maps`), as (id, name). The game skips a map of
+/// yours with one of their ids ("uses the id of the built-in map") and loads its own: a map made from one of them
+/// has to go into the game under an id of its own. Read from the start of each file, where its id and name are.
+pub fn builtin_maps() -> Vec<(String, String)> {
+    let Some(dir) = find_game().and_then(|exe| Some(exe.parent()?.join("Jibbers_Data").join("StreamingAssets").join("Maps"))) else { return vec![] };
+    let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
+    let field = |head: &str, key: &str| -> Option<String> {
+        let at = head.find(&format!("\"{key}\":"))? + key.len() + 3;
+        let rest = head[at..].trim_start().strip_prefix('"')?;
+        Some(rest[..rest.find('"')?].to_string())
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "jbrmap"))
+        .filter_map(|e| {
+            use std::io::Read;
+            let mut head = vec![0u8; 4096];
+            let n = std::fs::File::open(e.path()).ok()?.read(&mut head).ok()?;
+            let head = String::from_utf8_lossy(&head[..n]);
+            Some((field(&head, "id")?, field(&head, "name").unwrap_or_default()))
+        })
+        .collect()
+}
+
 pub fn find_game() -> Option<PathBuf> {
     steam_libraries().into_iter().map(|l| l.join(GAME_DIR).join(GAME_EXE)).find(|p| p.exists())
 }
@@ -426,5 +450,18 @@ mod tests {
         if super::find_game().is_some() {
             assert_eq!(super::steam_app_id().as_deref(), Some("4397910"));
         }
+    }
+}
+
+#[cfg(test)]
+mod builtin_tests {
+    /// The game's own maps read with their ids, where the game's installed: MLNZ Park's the one a map made from it kept.
+    #[test]
+    fn the_games_own_maps_and_their_ids() {
+        if super::find_game().is_none() {
+            return;
+        }
+        let maps = super::builtin_maps();
+        assert!(maps.iter().any(|(id, name)| id == "a2d4a3e1-9fdc-4c4c-8511-c3cdeecce638" && name == "MLNZ Park"), "{maps:?}");
     }
 }

@@ -3,7 +3,7 @@
 
 import { useEditor, workspaceOf, type EditorState } from "../../map/store";
 import { pieceTexture, prepare } from "../../texture/meshPaint";
-import { redraw } from "../redraw";
+import { contentChanged } from "../redraw";
 import type { Engine } from "./engine";
 
 export class StoreSync {
@@ -13,14 +13,13 @@ export class StoreSync {
    * The editor's state changed from `prev` to `s`.
   **/
   onChange( s: EditorState, prev: EditorState ) {
-    redraw();
+    contentChanged();
     if ( s.objects       !== prev.objects       || s.spawns !== prev.spawns || s.selection !== prev.selection || s.chunkExtras !== prev.chunkExtras || s.hiddenInView !== prev.hiddenInView ) this.engine.syncObjects();
-    if ( s.chunkExtras   !== prev.chunkExtras   ) this.engine.syncRepeats();
     if ( s.objects       !== prev.objects       || s.customObjects !== prev.customObjects ) this.engine.lights.sync();
     if ( s.map           !== prev.map           || s.tool !== prev.tool ) this.engine.daylight.applyTime();
     // ( the game's look read again, with the asset list: its lights too )
     if ( s.assetLibrary  !== prev.assetLibrary  ) this.engine.lights.reload();
-    if ( s.selection     !== prev.selection     || s.tool !== prev.tool || s.locked !== prev.locked || s.modelTool !== prev.modelTool || s.modelEdit !== prev.modelEdit || s.materialMode !== prev.materialMode || s.view3d !== prev.view3d || ( ( s.customObjects !== prev.customObjects || s.trails !== prev.trails || s.trailHandle !== prev.trailHandle ) && !this.engine.blGizmo?.dragging ) ) this.engine.gizmo.sync();
+    if ( s.selection     !== prev.selection     || s.tool !== prev.tool || s.locked !== prev.locked || s.modelTool !== prev.modelTool || s.designPick !== prev.designPick || s.shapeKind !== prev.shapeKind || ( s.shapes !== prev.shapes && !this.engine.blGizmo?.dragging ) || s.modelEdit !== prev.modelEdit || s.colliderPick !== prev.colliderPick || s.gizmoMode !== prev.gizmoMode || s.materialMode !== prev.materialMode || s.view3d !== prev.view3d || ( ( s.customObjects !== prev.customObjects || s.trails !== prev.trails || s.trailHandle !== prev.trailHandle ) && !this.engine.blGizmo?.dragging ) ) this.engine.gizmo.sync();
     // a painted piece whose shape changed: its paint carried across to the new shape
     if ( s.customObjects !== prev.customObjects )
       for ( const o of s.customObjects ) {
@@ -43,7 +42,7 @@ export class StoreSync {
     if ( s.placeId       !== prev.placeId       ) this.engine.placing.updateGhostGeometry();
     if ( s.projectDir    !== prev.projectDir    && s.projectDir ) this.engine.veil.arm();
     // ( another map: nothing picked or being drawn from the last one )
-    if ( s.projectDir    !== prev.projectDir    ) this.engine.shapeTool?.reset();
+    if ( s.projectDir    !== prev.projectDir    ) { this.engine.shapeTool?.reset(); this.engine.skiLineTool?.reset(); }
     if ( s.customObjects !== prev.customObjects || s.projectDir !== prev.projectDir || s.selection !== prev.selection ) this.engine.syncCustom();
     if ( s.tool          !== prev.tool          ) this.engine.look.syncStage( s );
     // ( the Assets workspace navigates as Blender does )
@@ -54,17 +53,26 @@ export class StoreSync {
     if ( s.view3d      !== prev.view3d      || s.materialMode !== prev.materialMode ) this.engine.look.apply();
     if ( s.terrainView !== prev.terrainView ) this.engine.ground.applyTerrainView();
     if ( s.shapes      !== prev.shapes      || s.selection !== prev.selection || s.tool !== prev.tool || s.locked !== prev.locked || s.showPaths !== prev.showPaths ) this.engine.shapeTool?.sync();
+    if ( s.shapes      !== prev.shapes      || s.selection !== prev.selection || s.tool !== prev.tool || s.shapeKind !== prev.shapeKind || s.locked !== prev.locked || s.showPaths !== prev.showPaths ) this.engine.skiLineTool?.sync();
     if ( s.trails      !== prev.trails      || s.selection !== prev.selection || s.tool !== prev.tool || s.trailHandle !== prev.trailHandle || s.showPaths !== prev.showPaths ) this.engine.trailTool?.sync();
     if ( s.objects     !== prev.objects     || s.selection !== prev.selection || s.tool !== prev.tool ) this.engine.liftTool?.sync();
     if ( s.customObjects !== prev.customObjects || s.selection !== prev.selection || s.tool !== prev.tool ) this.engine.fenceTool?.sync();
+    // Select Box or Cursor picked: what was being placed no longer shown under the mouse
+    if ( s.designPick && s.designPick !== prev.designPick ) {
+      this.engine.placing.ghost.visible = false;
+      if ( this.engine.placing.libGhost ) this.engine.placing.libGhost.visible = false;
+    }
+    // the Collider tool: the picked piece's colliders shown, a collider picked let go of with another piece or tool
+    if ( s.colliderPick !== null && ( s.selection !== prev.selection || s.tool !== prev.tool ) ) useEditor.setState( { colliderPick: null } );
+    if ( s.customObjects !== prev.customObjects || s.selection !== prev.selection || s.tool !== prev.tool || s.colliderPick !== prev.colliderPick ) this.engine.colliderTool?.sync();
     // ( a handle's for the gizmo while its point or run is picked )
     if ( s.trailHandle && ( s.selection !== prev.selection || s.tool !== "trail" ) ) useEditor.setState( { trailHandle: null } );
     // ( into Terrain Mode: the trails' looks made ready before the Trails tool is picked )
     if ( workspaceOf( s.tool ) === "sculpting" && workspaceOf( prev.tool ) !== "sculpting" ) this.engine.trailTool?.warmUp( this.engine.renderer, this.engine.camera, this.engine.scene );
     // picking something else ends editing a rail
-    // editing a rail's points: scale does nothing to a point, so it's Move; the gizmo set up for Move or Rotate
-    // ( the switch comes back through here )
-    if ( s.railEdit && s.gizmoMode === "scale" ) useEditor.setState( { gizmoMode: "translate" } );
+    // editing a rail's points: scale does nothing to a point, so it's Move ( a collider picked sizes ); the gizmo set
+    // up for Move or Rotate ( the switch comes back through here )
+    if ( s.railEdit && ( s.railEdit.collider ?? null ) === null && s.gizmoMode === "scale" ) useEditor.setState( { gizmoMode: "translate" } );
     else if ( s.gizmoMode !== prev.gizmoMode ) {
       if ( s.railEdit ) this.engine.rails.sync();
       else this.engine.gizmo.sync();

@@ -1,0 +1,247 @@
+{
+  "about": "Edit Mode operations done the same way in Blender ( make_reference.py, headless ) and in the studio ( parity.test.ts ). Coordinates are the studio's ( Y up: Blender's Z ). A `where` picks elements by their position ( a vertex's, an edge's middle, a face's centre ), every condition holding.",
+  "cases": [
+    { "name": "plane",     "prim": "plane",     "steps": [] },
+    { "name": "cube",      "prim": "cube",      "steps": [] },
+    { "name": "circle",    "prim": "circle",    "steps": [] },
+    { "name": "uvsphere",  "prim": "uvsphere",  "steps": [] },
+    { "name": "icosphere", "prim": "icosphere", "steps": [] },
+    { "name": "cylinder",  "prim": "cylinder",  "steps": [] },
+    { "name": "cone",      "prim": "cone",      "steps": [] },
+    { "name": "torus",     "prim": "torus",     "steps": [] },
+    { "name": "grid",      "prim": "grid",      "steps": [] },
+
+    { "name": "extrude top face up 1", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "extrude" }, { "op": "move", "by": [0, 1, 0] } ] },
+    { "name": "extrude two faces as a region", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "add": "faces", "where": [["x", ">", 0.99]] }, { "op": "extrude" }, { "op": "move", "by": [0.5, 0.5, 0] } ] },
+    { "name": "extrude a plane's edge", "prim": "plane", "steps": [
+      { "sel": "edges", "where": [["x", ">", 0.99]] }, { "op": "extrude" }, { "op": "move", "by": [1, 0, 0] } ] },
+    { "name": "extrude a vertex", "prim": "plane", "steps": [
+      { "sel": "verts", "where": [["x", ">", 0.99], ["z", ">", 0.99]] }, { "op": "extrude" }, { "op": "move", "by": [0.5, 0.5, 0.5] } ] },
+    { "name": "extrude a cube's top edge", "prim": "cube", "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "op": "extrude" }, { "op": "move", "by": [0.5, 0.5, 0] } ] },
+
+    { "name": "inset top 0.2", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "inset", "thickness": 0.2 } ] },
+    { "name": "inset top 0.2 depth 0.1", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "inset", "thickness": 0.2, "depth": 0.1 } ] },
+    { "name": "inset two faces as a region", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "add": "faces", "where": [["x", ">", 0.99]] }, { "op": "inset", "thickness": 0.2 } ] },
+    { "name": "inset two faces each", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "add": "faces", "where": [["x", ">", 0.99]] }, { "op": "inset", "thickness": 0.2, "individual": true } ] },
+    { "name": "inset a grid's middle", "prim": "grid", "steps": [
+      { "sel": "faces", "where": [["x", ">", -0.41], ["x", "<", 0.41], ["z", ">", -0.41], ["z", "<", 0.41]] }, { "op": "inset", "thickness": 0.05 } ] },
+
+    { "name": "bevel one edge", "prim": "cube", "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "op": "bevel", "width": 0.2, "segments": 1 } ] },
+    { "name": "bevel one edge 3 segments", "prim": "cube", "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "op": "bevel", "width": 0.2, "segments": 3 } ] },
+    { "name": "bevel the top's edges", "prim": "cube", "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99]] }, { "op": "bevel", "width": 0.2, "segments": 1 } ] },
+    { "name": "bevel the top's edges 2 segments", "prim": "cube", "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99]] }, { "op": "bevel", "width": 0.2, "segments": 2 } ] },
+    { "name": "bevel every edge", "prim": "cube", "steps": [
+      { "sel": "edges", "where": [] }, { "op": "bevel", "width": 0.1, "segments": 1 } ] },
+    { "name": "bevel every edge 3 segments", "prim": "cube", "tolerance": 0.003, "why": "an odd count's corner: Blender's comes from its cubic-subdivided grid, ours is filled between its sides; its middle points 2.5% of the width apart", "steps": [
+      { "sel": "edges", "where": [] }, { "op": "bevel", "width": 0.1, "segments": 3 } ] },
+    { "name": "bevel a vertex", "prim": "cube", "steps": [
+      { "sel": "verts", "where": [["x", ">", 0.99], ["y", ">", 0.99], ["z", ">", 0.99]] }, { "op": "bevel", "width": 0.3, "segments": 1, "verts": true } ] },
+
+    { "name": "loop cut round a cube", "prim": "cube", "steps": [
+      { "op": "loopcut", "edge": [["y", ">", 0.99], ["x", ">", 0.99]], "cuts": 1 } ] },
+    { "name": "loop cut 3 round a cube", "prim": "cube", "steps": [
+      { "op": "loopcut", "edge": [["y", ">", 0.99], ["x", ">", 0.99]], "cuts": 3 } ] },
+    { "name": "loop cut round a cylinder", "prim": "cylinder", "steps": [
+      { "op": "loopcut", "edge": [["y", ">", -0.5], ["y", "<", 0.5], ["x", ">", -0.1], ["x", "<", 0.1], ["z", ">", 0]], "cuts": 1 } ] },
+
+    { "name": "subdivide the top", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "subdivide" } ] },
+    { "name": "subdivide every face", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [] }, { "op": "subdivide" } ] },
+
+    { "name": "merge the top at centre", "prim": "cube", "steps": [
+      { "sel": "verts", "where": [["y", ">", 0.99]] }, { "op": "merge", "kind": "center" } ] },
+    { "name": "collapse the top's two edges", "prim": "cube", "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "add": "edges", "where": [["y", ">", 0.99], ["x", "<", -0.99]] }, { "op": "merge", "kind": "collapse" } ] },
+    { "name": "merge by distance after a duplicate", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "duplicate" }, { "sel": "verts", "where": [] }, { "op": "merge", "kind": "distance", "distance": 0.001 } ] },
+
+    { "name": "delete a vertex", "prim": "cube", "steps": [
+      { "sel": "verts", "where": [["x", ">", 0.99], ["y", ">", 0.99], ["z", ">", 0.99]] }, { "op": "delete", "kind": "verts" } ] },
+    { "name": "delete an edge", "prim": "cube", "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "op": "delete", "kind": "edges" } ] },
+    { "name": "delete the top face", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "delete", "kind": "faces" } ] },
+    { "name": "delete only the top's face", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "delete", "kind": "onlyFaces" } ] },
+    { "name": "delete two faces", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "add": "faces", "where": [["x", ">", 0.99]] }, { "op": "delete", "kind": "faces" } ] },
+    { "name": "dissolve a grid's middle faces", "prim": "grid", "steps": [
+      { "sel": "faces", "where": [["x", ">", -0.41], ["x", "<", 0.41], ["z", ">", -0.41], ["z", "<", 0.41]] }, { "op": "delete", "kind": "dissolveFaces" } ] },
+    { "name": "dissolve a loop cut's edges", "prim": "cube", "steps": [
+      { "op": "loopcut", "edge": [["y", ">", 0.99], ["x", ">", 0.99]], "cuts": 1 },
+      { "sel": "edges", "where": [["z", ">", -0.01], ["z", "<", 0.01]] }, { "op": "delete", "kind": "dissolveEdges" } ] },
+    { "name": "dissolve a grid's middle vertex", "prim": "grid", "steps": [
+      { "sel": "verts", "where": [["x", ">", -0.01], ["x", "<", 0.01], ["z", ">", -0.01], ["z", "<", 0.01]] }, { "op": "delete", "kind": "dissolveVerts" } ] },
+    { "name": "dissolve one of a loop cut's vertices", "prim": "cube", "steps": [
+      { "op": "loopcut", "edge": [["y", ">", 0.99], ["x", ">", 0.99]], "cuts": 1 },
+      { "sel": "verts", "where": [["x", ">", 0.99], ["y", ">", 0.99], ["z", ">", -0.01], ["z", "<", 0.01]] }, { "op": "delete", "kind": "dissolveVerts" } ] },
+
+    { "name": "fill the top back in", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "delete", "kind": "onlyFaces" }, { "sel": "verts", "where": [["y", ">", 0.99]] }, { "op": "fill" } ] },
+    { "name": "an edge between two vertices", "prim": "cube", "steps": [
+      { "sel": "verts", "where": [["x", ">", 0.99], ["y", ">", 0.99], ["z", ">", 0.99]] }, { "add": "verts", "where": [["x", "<", -0.99], ["y", ">", 0.99], ["z", "<", -0.99]] }, { "op": "fill" } ] },
+    { "name": "bridge two rings", "prim": "cylinder", "steps": [
+      { "sel": "faces", "where": [["y", ">", -0.99], ["y", "<", 0.99]] }, { "op": "delete", "kind": "faces" },
+      { "sel": "faces", "where": [] }, { "op": "delete", "kind": "onlyFaces" },
+      { "sel": "edges", "where": [] }, { "op": "bridge" } ] },
+    { "name": "bridge two faces' edges", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", -0.99], ["y", "<", 0.99]] }, { "op": "delete", "kind": "faces" },
+      { "sel": "faces", "where": [] }, { "op": "delete", "kind": "onlyFaces" },
+      { "sel": "edges", "where": [] }, { "op": "bridge" } ] },
+
+    { "name": "spin a plane's edge a quarter", "prim": "plane", "steps": [
+      { "sel": "edges", "where": [["x", ">", 0.99]] }, { "op": "spin", "deg": 90, "steps": 4, "axis": [0, 0, 1], "center": [0, 0, 0] } ] },
+    { "name": "spin a vertex all the way", "prim": "plane", "steps": [
+      { "sel": "verts", "where": [["x", ">", 0.99], ["z", ">", 0.99]] }, { "op": "spin", "deg": 360, "steps": 8, "axis": [0, 1, 0], "center": [0, 0, 0] } ] },
+
+    { "name": "smooth a corner", "prim": "cube", "steps": [
+      { "op": "loopcut", "edge": [["y", ">", 0.99], ["x", ">", 0.99]], "cuts": 1 },
+      { "sel": "verts", "where": [["x", ">", 0.99], ["y", ">", 0.99], ["z", ">", 0.99]] }, { "op": "smooth", "factor": 0.5, "repeat": 1 } ] },
+    { "name": "shrink fatten every vertex", "prim": "cube", "steps": [
+      { "sel": "verts", "where": [] }, { "op": "shrinkfatten", "d": 0.1 } ] },
+    { "name": "flip the top", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "flip" } ] },
+    { "name": "flip the top then recalculate", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "flip" }, { "sel": "faces", "where": [] }, { "op": "recalc" } ] },
+    { "name": "duplicate the top up", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "duplicate" }, { "op": "move", "by": [0, 1, 0] } ] },
+
+    { "name": "select more from a grid's middle", "prim": "grid", "selection": true, "steps": [
+      { "sel": "verts", "where": [["x", ">", -0.01], ["x", "<", 0.01], ["z", ">", -0.01], ["z", "<", 0.01]] }, { "op": "selmore" } ] },
+    { "name": "select more twice", "prim": "grid", "selection": true, "steps": [
+      { "sel": "verts", "where": [["x", ">", -0.01], ["x", "<", 0.01], ["z", ">", -0.01], ["z", "<", 0.01]] }, { "op": "selmore" }, { "op": "selmore" } ] },
+    { "name": "select more from the top face", "prim": "cube", "selection": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "selmore" } ] },
+    { "name": "select more along edges", "prim": "grid", "selection": true, "steps": [
+      { "sel": "edges", "where": [["x", ">", 0.01], ["x", "<", 0.39], ["z", ">", -0.01], ["z", "<", 0.01]] }, { "op": "selmore" } ] },
+    { "name": "select less on a whole grid", "prim": "grid", "selection": true, "steps": [
+      { "sel": "verts", "where": [] }, { "op": "selless" } ] },
+    { "name": "select less on a grid's faces", "prim": "grid", "selection": true, "steps": [
+      { "sel": "faces", "where": [] }, { "op": "selless" } ] },
+    { "name": "select less on a whole cube", "prim": "cube", "selection": true, "steps": [
+      { "sel": "verts", "where": [] }, { "op": "selless" } ] },
+    { "name": "invert one edge", "prim": "cube", "selection": true, "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "op": "invert" } ] },
+    { "name": "invert a face", "prim": "cube", "selection": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "invert" } ] },
+    { "name": "invert a vertex", "prim": "cube", "selection": true, "steps": [
+      { "sel": "verts", "where": [["x", ">", 0.99], ["y", ">", 0.99], ["z", ">", 0.99]] }, { "op": "invert" } ] },
+    { "name": "select linked", "prim": "cube", "selection": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "duplicate" }, { "op": "move", "by": [0, 2, 0] },
+      { "sel": "verts", "where": [["x", ">", 0.99], ["y", "<", -0.99], ["z", ">", 0.99]] }, { "op": "linked" } ] },
+    { "name": "edge loop along a grid", "prim": "grid", "selection": true, "steps": [
+      { "sel": "edges", "where": [["x", ">", 0.01], ["x", "<", 0.39], ["z", ">", -0.01], ["z", "<", 0.01]] }, { "op": "edgeloop" } ] },
+    { "name": "edge ring across a grid", "prim": "grid", "selection": true, "steps": [
+      { "sel": "edges", "where": [["x", ">", 0.01], ["x", "<", 0.39], ["z", ">", -0.01], ["z", "<", 0.01]] }, { "op": "edgering" } ] },
+    { "name": "edge loop round a cube's top", "prim": "cube", "selection": true, "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "op": "edgeloop" } ] },
+    { "name": "edge ring round a cube", "prim": "cube", "selection": true, "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "op": "edgering" } ] },
+    { "name": "edge loop round a cylinder", "prim": "cylinder", "selection": true, "steps": [
+      { "op": "loopcut", "edge": [["y", ">", -0.5], ["y", "<", 0.5], ["x", ">", -0.1], ["x", "<", 0.1], ["z", ">", 0]], "cuts": 1 },
+      { "sel": "edges", "where": [["y", ">", -0.01], ["y", "<", 0.01], ["x", ">", 0.01], ["x", "<", 0.3], ["z", ">", 0]] }, { "op": "edgeloop" } ] },
+    { "name": "shortest path along a grid row", "prim": "grid", "selection": true, "steps": [
+      { "sel": "verts", "where": [["x", "<", -0.79], ["x", ">", -0.81], ["z", ">", -0.41], ["z", "<", -0.39]] }, { "add": "verts", "where": [["x", ">", 0.79], ["x", "<", 0.81], ["z", ">", -0.41], ["z", "<", -0.39]] }, { "op": "path" } ] },
+    { "name": "shortest path of faces", "prim": "grid", "selection": true, "steps": [
+      { "sel": "faces", "where": [["x", "<", -0.8], ["z", ">", -0.2], ["z", "<", 0]] }, { "add": "faces", "where": [["x", ">", 0.8], ["z", ">", -0.2], ["z", "<", 0]] }, { "op": "path" } ] },
+    { "name": "vertices to edges", "prim": "cube", "selection": true, "steps": [
+      { "sel": "verts", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "add": "verts", "where": [["y", ">", 0.99], ["x", "<", -0.99], ["z", ">", 0.99]] }, { "op": "mode", "to": "edges" } ] },
+    { "name": "vertices to faces", "prim": "cube", "selection": true, "steps": [
+      { "sel": "verts", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "add": "verts", "where": [["y", ">", 0.99], ["x", "<", -0.99], ["z", ">", 0.99]] }, { "op": "mode", "to": "faces" } ] },
+    { "name": "edges to faces", "prim": "cube", "selection": true, "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99]] }, { "op": "mode", "to": "faces" } ] },
+    { "name": "two edges to faces", "prim": "cube", "selection": true, "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "add": "edges", "where": [["y", ">", 0.99], ["x", "<", -0.99]] }, { "op": "mode", "to": "faces" } ] },
+    { "name": "faces to vertices", "prim": "cube", "selection": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "mode", "to": "verts" } ] },
+    { "name": "faces to edges", "prim": "cube", "selection": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "add": "faces", "where": [["x", ">", 0.99]] }, { "op": "mode", "to": "edges" } ] },
+
+    { "name": "rotate the top 30 about Z", "prim": "cube", "app": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "rotate", "axis": "z", "deg": 30 } ] },
+    { "name": "rotate the top 30 about X", "prim": "cube", "app": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "rotate", "axis": "x", "deg": 30 } ] },
+    { "name": "rotate the top 30 about Y", "prim": "cube", "app": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "rotate", "axis": "y", "deg": 30 } ] },
+    { "name": "scale the top 0.5", "prim": "cube", "app": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "scale", "by": 0.5 } ] },
+    { "name": "scale the top 2 along Y", "prim": "cube", "app": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "scale", "by": 2, "axis": "y" } ] },
+    { "name": "grab the top 1 along Y", "prim": "cube", "app": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "grab", "axis": "y", "by": 1 } ] },
+    { "name": "scale about the bounds' middle", "prim": "cube", "app": true, "steps": [
+      { "pivot": "bounds" }, { "sel": "verts", "where": [["y", ">", 0.99]] }, { "add": "verts", "where": [["x", ">", 0.99], ["y", "<", -0.99], ["z", ">", 0.99]] }, { "op": "scale", "by": 0.5 } ] },
+    { "name": "scale about the median", "prim": "cube", "app": true, "steps": [
+      { "sel": "verts", "where": [["y", ">", 0.99]] }, { "add": "verts", "where": [["x", ">", 0.99], ["y", "<", -0.99], ["z", ">", 0.99]] }, { "op": "scale", "by": 0.5 } ] },
+    { "name": "scale about the 3D cursor", "prim": "cube", "app": true, "steps": [
+      { "pivot": "cursor" }, { "cursor": [2, 0, 0] }, { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "scale", "by": 0.5 } ] },
+    { "name": "rotate about the 3D cursor", "prim": "cube", "app": true, "steps": [
+      { "pivot": "cursor" }, { "cursor": [2, 0, 0] }, { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "rotate", "axis": "z", "deg": 45 } ] },
+    { "name": "rotate each about its own middle", "prim": "cube", "app": true, "steps": [
+      { "pivot": "individual" }, { "sel": "faces", "where": [["x", ">", 0.99]] }, { "add": "faces", "where": [["x", "<", -0.99]] }, { "op": "rotate", "axis": "z", "deg": 30 } ] },
+    { "name": "scale to the active vertex", "prim": "cube", "app": true, "steps": [
+      { "pivot": "active" }, { "sel": "verts", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "active": "verts", "where": [["y", ">", 0.99], ["x", ">", 0.99], ["z", ">", 0.99]] }, { "op": "scale", "by": 0 } ] },
+    { "name": "proportional grab", "prim": "grid", "app": true, "steps": [
+      { "prop": 0.5 }, { "sel": "verts", "where": [["x", ">", -0.01], ["x", "<", 0.01], ["z", ">", -0.01], ["z", "<", 0.01]] }, { "op": "grab", "axis": "z", "by": 1 } ] },
+    { "name": "proportional grab, wider", "prim": "grid", "app": true, "steps": [
+      { "prop": 0.9 }, { "sel": "verts", "where": [["x", ">", -0.01], ["x", "<", 0.01], ["z", ">", -0.01], ["z", "<", 0.01]] }, { "op": "grab", "axis": "z", "by": 0.5 } ] },
+    { "name": "proportional rotate", "prim": "grid", "app": true, "steps": [
+      { "prop": 0.5 }, { "sel": "verts", "where": [["x", ">", -0.01], ["x", "<", 0.01]] }, { "op": "rotate", "axis": "z", "deg": 30 } ] },
+    { "name": "proportional scale", "prim": "grid", "app": true, "steps": [
+      { "prop": 0.5 }, { "sel": "verts", "where": [["x", ">", -0.21], ["x", "<", 0.21], ["z", ">", -0.21], ["z", "<", 0.21]] }, { "op": "scale", "by": 2 } ] },
+
+    { "name": "separate the top face", "prim": "cube", "parts": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "separate", "kind": "selection" } ] },
+    { "name": "separate two faces", "prim": "cube", "parts": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "add": "faces", "where": [["x", ">", 0.99]] }, { "op": "separate", "kind": "selection" } ] },
+    { "name": "separate an edge", "prim": "cube", "parts": true, "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99], ["x", ">", 0.99]] }, { "op": "separate", "kind": "selection" } ] },
+    { "name": "separate loose parts", "prim": "cube", "parts": true, "steps": [
+      { "sel": "faces", "where": [["y", ">", 0.99]] }, { "op": "duplicate" }, { "op": "move", "by": [0, 2, 0] },
+      { "sel": "verts", "where": [] }, { "op": "separate", "kind": "loose" } ] },
+    { "name": "separate by material", "prim": "cube", "parts": true, "steps": [
+      { "op": "materials", "where": [["y", ">", 0.99]] }, { "sel": "verts", "where": [] }, { "op": "separate", "kind": "material" } ] },
+
+    { "name": "reset a cube's UVs", "prim": "cube", "uv": true, "uvTurn": true, "steps": [ { "sel": "faces", "where": [] }, { "op": "uv", "kind": "reset" } ] },
+    { "name": "cube projection", "prim": "cube", "uv": true, "steps": [ { "sel": "faces", "where": [] }, { "op": "uv", "kind": "cube" } ] },
+    { "name": "cube projection of a long box", "prim": "cube", "uv": true, "steps": [
+      { "sel": "verts", "where": [["x", ">", 0.99]] }, { "op": "move", "by": [1, 0, 0] }, { "sel": "faces", "where": [] }, { "op": "uv", "kind": "cube" } ] },
+    { "name": "smart project a cube", "prim": "cube", "uv": true, "uvLoose": true, "steps": [ { "sel": "faces", "where": [] }, { "op": "uv", "kind": "smart" } ] },
+    { "name": "smart project a cylinder", "prim": "cylinder", "uv": true, "uvLoose": true, "steps": [ { "sel": "faces", "where": [] }, { "op": "uv", "kind": "smart" } ] },
+
+    { "name": "subdivision surface 1", "prim": "cube", "steps": [ { "op": "modifier", "type": "subsurf", "levels": 1 } ] },
+    { "name": "subdivision surface 2", "prim": "cube", "steps": [ { "op": "modifier", "type": "subsurf", "levels": 2 } ] },
+    { "name": "subdivision surface 2 creased", "prim": "cube", "steps": [
+      { "sel": "edges", "where": [] }, { "op": "crease", "value": 1 }, { "op": "modifier", "type": "subsurf", "levels": 2 } ] },
+    { "name": "subdivision surface 2 half creased", "prim": "cube", "steps": [
+      { "sel": "edges", "where": [] }, { "op": "crease", "value": 0.5 }, { "op": "modifier", "type": "subsurf", "levels": 2 } ] },
+    { "name": "subdivision surface 2 top creased", "prim": "cube", "steps": [
+      { "sel": "edges", "where": [["y", ">", 0.99]] }, { "op": "crease", "value": 1 }, { "op": "modifier", "type": "subsurf", "levels": 2 } ] },
+    { "name": "subdivision surface 2 on a plane", "prim": "plane", "steps": [ { "op": "modifier", "type": "subsurf", "levels": 2 } ] },
+    { "name": "mirror half a cube", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["x", "<", -0.99]] }, { "op": "delete", "kind": "faces" }, { "sel": "verts", "where": [["x", "<", -0.99]] }, { "op": "move", "by": [1, 0, 0] },
+      { "op": "modifier", "type": "mirror" } ] },
+    { "name": "array of 3", "prim": "cube", "steps": [ { "op": "modifier", "type": "array", "count": 3 } ] },
+    { "name": "solidify a plane", "prim": "plane", "steps": [ { "op": "modifier", "type": "solidify", "thickness": 0.1 } ] },
+    { "name": "array then subdivision", "prim": "cube", "steps": [ { "op": "modifier", "type": "array", "count": 2 }, { "op": "modifier", "type": "subsurf", "levels": 1 } ] },
+    { "name": "subdivision then array", "prim": "cube", "steps": [ { "op": "modifier", "type": "subsurf", "levels": 1 }, { "op": "modifier", "type": "array", "count": 2 } ] },
+    { "name": "mirror then bevel", "prim": "cube", "steps": [
+      { "sel": "faces", "where": [["x", "<", -0.99]] }, { "op": "delete", "kind": "faces" }, { "sel": "verts", "where": [["x", "<", -0.99]] }, { "op": "move", "by": [1, 0, 0] },
+      { "op": "modifier", "type": "mirror" }, { "op": "modifier", "type": "bevel", "width": 0.1, "segments": 1, "angle": 30 } ] },
+    { "name": "apply the second of two", "prim": "cube", "steps": [ { "op": "modifier", "type": "array", "count": 2 }, { "op": "modifier", "type": "subsurf", "levels": 1 }, { "op": "apply", "index": 1 } ] },
+    { "name": "apply the first of two", "prim": "cube", "steps": [ { "op": "modifier", "type": "array", "count": 2 }, { "op": "modifier", "type": "subsurf", "levels": 1 }, { "op": "apply", "index": 0 } ] },
+    { "name": "bevel modifier", "prim": "cube", "steps": [ { "op": "modifier", "type": "bevel", "width": 0.1, "segments": 2, "angle": 30 } ] }
+  ]
+}

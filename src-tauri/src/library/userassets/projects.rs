@@ -2,6 +2,7 @@
 //! with the game's look.
 
 use super::*;
+use std::collections::HashSet;
 
 pub(crate) fn bounds(map: &MapData, obj: &CustomObject) -> ([f32; 3], [f32; 3]) {
     let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
@@ -21,6 +22,60 @@ pub(crate) fn bounds(map: &MapData, obj: &CustomObject) -> ([f32; 3], [f32; 3]) 
 }
 
 pub(crate) const PROJECT_LIBRARY: &str = "assets/library.jbrmap";
+
+/// A library bigger than this (an imported map's: hundreds of MB) isn't written again for each piece placed: what's
+/// added goes into a small file beside it (`added_path`), read with it (`load_project_library`). Writing the whole of
+/// it each time held a placement up seconds.
+const BIG_LIBRARY: u64 = 32 << 20;
+
+/// One write to a project's libraries at a time: two at once (a piece placed while a stroke of the Scatter brush was
+/// bringing its pieces in) each read it, added theirs, and wrote it back, the one written first lost.
+pub(crate) static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Where what's added to the library `lib` is kept when it's big: `library.jbrmap` → `library.added.jbrmap`.
+pub(crate) fn added_path(lib: &Path) -> PathBuf {
+    lib.with_extension("added.jbrmap")
+}
+
+pub(crate) fn is_big(lib: &Path) -> bool {
+    std::fs::metadata(lib).is_ok_and(|m| m.len() > BIG_LIBRARY)
+}
+
+/// A project's library as a whole: the file at `lib`, with what's been added beside it in its place where both have it.
+pub fn load_project_library(lib: &Path) -> Result<MapData> {
+    let mut map = crate::jbrmap::load(lib)?;
+    let added = added_path(lib);
+    if added.exists() {
+        let a = crate::jbrmap::load(&added)?;
+        map.mesh_library.extend(a.mesh_library);
+        map.texture_library.extend(a.texture_library);
+    }
+    Ok(map)
+}
+
+/// Whether a big library keeps any modelled pieces' meshes or textures itself.
+pub(crate) fn has_models(lib: &Path) -> Result<bool> {
+    let k = keys_of(lib)?;
+    Ok(k.0.iter().chain(&k.1).any(|x| x.starts_with("Models/")))
+}
+
+/// A big library's mesh and texture keys ( read once a session for a file as it is, not every time something's
+/// placed ).
+fn keys_of(lib: &Path) -> Result<std::sync::Arc<(HashSet<String>, HashSet<String>)>> {
+    type Keys = std::sync::Arc<(HashSet<String>, HashSet<String>)>;
+    static KNOWN: std::sync::Mutex<Option<(PathBuf, String, Keys)>> = std::sync::Mutex::new(None);
+    let m = std::fs::metadata(lib)?;
+    let stamp = format!("{}-{:?}", m.len(), m.modified()?);
+    if let Some((p, s, k)) = KNOWN.lock().unwrap().as_ref() {
+        if p == lib && *s == stamp {
+            return Ok(k.clone());
+        }
+    }
+    let map = crate::jbrmap::load(lib)?;
+    let keys: Keys = std::sync::Arc::new((map.mesh_library.into_keys().collect(), map.texture_library.into_keys().collect()));
+    *KNOWN.lock().unwrap() = Some((lib.to_path_buf(), stamp, keys.clone()));
+    Ok(keys)
+}
 
 /// Copies an asset's meshes/textures into the project's library and returns its object (at the origin) plus the
 /// library path to record in the project.
@@ -62,7 +117,40 @@ pub fn refresh_in_project(project_dir: &Path, asset: &Path) -> Result<CustomObje
 }
 
 pub(crate) fn merge(project_dir: &Path, meshes: IndexMap<String, MeshData>, textures: IndexMap<String, TextureData>, replace: bool) -> Result<()> {
+    let _one = WRITING.lock().unwrap_or_else(|e| e.into_inner());
     let lib_path = project_dir.join(PROJECT_LIBRARY);
+    // a big library: what's new goes beside it ( a key it has already kept, as it's kept there; the game's look, which
+    // can't be told apart from its copy there without reading it all, added beside it once )
+    if is_big(&lib_path) {
+        let keys = keys_of(&lib_path)?;
+        let added = added_path(&lib_path);
+        let mut lib = if added.exists() { crate::jbrmap::load(&added)? } else { MapData { id: "library".into(), name: "library".into(), ..MapData::default() } };
+        let mut changed = false;
+        for (k, m) in meshes {
+            let take = match lib.mesh_library.get(&k) {
+                Some(old) => (replace || from_game_look(&k)) && *old != m,
+                None => replace || from_game_look(&k) || !keys.0.contains(&k),
+            };
+            if take {
+                lib.mesh_library.insert(k, m);
+                changed = true;
+            }
+        }
+        for (k, t) in textures {
+            let take = match lib.texture_library.get(&k) {
+                Some(old) => (replace || from_game_look(&k)) && *old != t,
+                None => replace || from_game_look(&k) || !keys.1.contains(&k),
+            };
+            if take {
+                lib.texture_library.insert(k, t);
+                changed = true;
+            }
+        }
+        if changed {
+            crate::jbrmap::save(&lib, &added)?;
+        }
+        return Ok(());
+    }
     let mut lib = if lib_path.exists() {
         crate::jbrmap::load(&lib_path)?
     } else {
@@ -104,7 +192,7 @@ pub fn stale_game_look(project_dir: &Path, assets: &[(PathBuf, Vec<String>)]) ->
     if !lib_path.exists() {
         return Ok(vec![false; assets.len()]);
     }
-    let lib = crate::jbrmap::load(&lib_path)?;
+    let lib = load_project_library(&lib_path)?;
     assets
         .iter()
         .map(|(asset, in_use)| -> Result<bool> {
@@ -129,7 +217,7 @@ pub fn stale_game_look(project_dir: &Path, assets: &[(PathBuf, Vec<String>)]) ->
 /// Saves a custom object from a project (e.g. one of Melon's pieces) to the personal library. `obj` is expected
 /// at the origin (the editor moves it there before sending).
 pub fn save_from_project(project_dir: &Path, library_rel: &str, obj: CustomObject, name: &str, over: Option<&Path>) -> Result<AssetInfo> {
-    let lib = crate::jbrmap::load(project_dir.join(library_rel))?;
+    let lib = load_project_library(&project_dir.join(library_rel))?;
     let mut meshes = IndexMap::new();
     let mut textures = IndexMap::new();
     for p in &obj.parts {

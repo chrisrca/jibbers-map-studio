@@ -5,8 +5,9 @@
 //    an image becomes a material, put on the piece it's let go on and kept in My materials.
 //  - The asset bar: added to your library and nothing else ( a map's pieces and materials, a model, an image as a
 //    material ).
-// Where pieces are edited on their own ( Modeling, Materials ) the view adds to the library too: there's no map there
-// to put things in. Painting with the Decal tool, an image let go on the view is the decal.
+// In the Assets workspace the view is the asset's scene: a model let go on it is imported into it ( Blender's Import:
+// not kept in your library ), anything else goes to the library. Painting with the Decal tool, an image let go on
+// the view is the decal.
 
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useState } from "react";
@@ -19,7 +20,7 @@ import { Icon } from "./widgets/icons";
 import { resetLibraryPreviews } from "./previews";
 import { getEngine } from "./Viewport";
 
-type Kind = "map"  | "model" | "image";
+type Kind = "map"  | "model" | "image" | "unity";
 type Zone = "view" | "dock";
 
 // A place files can go, and where it is on the page.
@@ -27,7 +28,8 @@ type DropZone = { zone: Zone; rect: DOMRect };
 
 const ext    = ( p: string ) => p.split( "." ).pop()?.toLowerCase() ?? "";
 const kindOf = ( p: string ): Kind | null =>
-  ext( p ) === "jbrmap" ? "map" : MODEL_EXTENSIONS.includes( ext( p ) ) ? "model" : IMAGE_EXTENSIONS.includes( ext( p ) ) ? "image" : null;
+  ext( p ) === "jbrmap" ? "map" : ext( p ) === "unity" || ext( p ) === "unitypackage" ? "unity"
+    : MODEL_EXTENSIONS.includes( ext( p ) ) ? "model" : IMAGE_EXTENSIONS.includes( ext( p ) ) ? "image" : null;
 export const mapName = ( p: string ) => p.split( /[\\/]/ ).pop()!.replace( /\.jbrmap$/i, "" );
 const same           = ( a: string, b: string ) => a.replace( /\//g, "\\" ).toLowerCase() === b.replace( /\//g, "\\" ).toLowerCase();
 
@@ -62,7 +64,9 @@ function zoneAt( x: number, y: number ): Zone | null {
  * What letting `kinds` go on `zone` does: an icon and a few words for each.
 **/
 function actions( zone: Zone, kinds: Kind[] ): { icon: string; text: string }[] {
+  if ( kinds.includes( "unity" ) ) return [{ icon: "folderOpen", text: "Open map" }];
   if ( zone === "view" && decalOut() && kinds.includes( "image" ) ) return [{ icon: "image", text: "Use as decal" }];
+  if ( zone === "view" && !viewPlaces() && kinds.includes( "model" ) ) return [{ icon: "import", text: "Import into the scene" }];
   if ( zone === "dock" || !viewPlaces() ) return [{ icon: "libraryAdd", text: "Add to library" }];
   const out: { icon: string; text: string }[] = [];
   if ( kinds.includes( "map"   ) ) out.push( { icon: "folderOpen", text: "Open map"       } );
@@ -102,7 +106,13 @@ async function toLibrary( paths: string[] ) {
  * Files let go on the view at ( x, y ).
 **/
 async function toView( paths: string[], x: number, y: number ) {
-  if ( !viewPlaces() ) return toLibrary( paths );
+  if ( !viewPlaces() ) {
+    // ( the asset's scene: models into it, at the 3D cursor; the rest to the library )
+    const models = paths.filter( ( p ) => kindOf( p ) === "model" );
+    if ( models.length ) await ( await import( "../pieces/assetFiles" ) ).importModels( models );
+    const rest = paths.filter( ( p ) => kindOf( p ) !== "model" );
+    return rest.length ? toLibrary( rest ) : undefined;
+  }
   const st  = useEditor.getState();
   const map = paths.find( ( p ) => kindOf( p ) === "map" );
   if ( map ) {
@@ -157,8 +167,11 @@ async function toView( paths: string[], x: number, y: number ) {
 export async function dropFiles( paths: string[], x: number, y: number ) {
   const known = paths.filter( ( p ) => kindOf( p ) );
   if ( known.length < paths.length )
-    useEditor.getState().toast( `Skipped ${paths.length - known.length} file(s) the studio can't take (maps, .glb/.gltf/.obj models and .png/.jpg images)`, "error" );
+    useEditor.getState().toast( `Skipped ${paths.length - known.length} file(s) the studio can't take (maps, .glb/.gltf/.obj/.fbx models and .png/.jpg images)`, "error" );
   if ( !known.length ) return;
+  // ( a Unity scene or package: opened as a map, wherever it's let go )
+  const unity = known.find( ( p ) => kindOf( p ) === "unity" );
+  if ( unity ) return ( await import( "./importAny" ) ).importUnityFile( unity );
   const zone  = zoneAt( x, y );
   const image = known.find( ( p ) => kindOf( p ) === "image" );
   if ( zone === "view" && decalOut() && image ) await ( await import( "../texture/stencil" ) ).loadDecal( image );

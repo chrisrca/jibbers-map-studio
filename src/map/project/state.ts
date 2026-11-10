@@ -33,6 +33,11 @@ export interface EditorData {
   // 2: saved after the jib fix was narrowed ( see undoUpMethodSwitch )
   jibFix?:      number;
   shapes?:      Shape[];
+  // ( the shapes whose change in the ground is kept in shapes/<uid>.bin )
+  shapePatches?: string[];
+  // shapes that came worked into the ground ( a Unity scene's terrain inserts ), to be taken as made when the project
+  // is first opened ( terrain/shapes/unbake.ts ); gone once it's saved
+  unbake?:      string[];
   trails?:      ReturnType<typeof trailEditorData>;
   collections?: Collection[];
   membership?:  Record<string, string>;
@@ -42,11 +47,14 @@ export interface EditorData {
   // uids hidden in the 3D view
   hidden?:      string[];
   customUids?:  string[];
+  // the terrain trees' uids, in the order they're packed into the chunks
+  treeUids?:    string[];
   // the map in the game this project last wrote ( to tell it from one it didn't: exportToGame )
   exported?:    Exported;
   // the game map this project was imported from
   sourceMapId?: string;
   realTerrain?: RealTerrainData;
+  madeLand?:    MadeLandData;
 }
 
 interface Exported {
@@ -57,7 +65,11 @@ interface Exported {
 }
 
 // This project's own bookkeeping ( in its editor data ).
-export const meta: { exported?: Exported; sourceMapId?: string; realTerrain?: RealTerrainData } = {};
+export const meta: { exported?: Exported; sourceMapId?: string; realTerrain?: RealTerrainData; madeLand?: MadeLandData } = {};
+
+// A made-up map's land around it ( geo/land.ts ): its seed, and the ground level and place it rises from, set the
+// first time it's looked at, so it's the same land every time.
+export type MadeLandData = { seed: number; level: number; x0: number; z0: number; x1: number; z1: number };
 
 // A real mountain's place on the earth and its data's credits ( from its import; kept through saves ).
 type RealTerrainData = { center: { lon: number; lat: number }; seaLevelOffset: number; source?: string; attribution?: string[] };

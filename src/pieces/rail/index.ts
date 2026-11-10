@@ -27,11 +27,13 @@ import { type P3, PER_BODY_Z_UP, PROUD, isRailCollider, isStudioCollider, vec } 
 import { keepClear } from "./fit";
 import { railFromView, toPiece } from "./frame";
 import { simplify } from "./shape";
+import { carryTweaks } from "./tweaks";
 
 export { RAIL_MARK, type P3, PART_MARK, isRailCollider, isStudioCollider } from "./common";
 export { toView, toPiece, dirToView, dirToPiece, railToView, railFromView, railScaled, scaleOf } from "./frame";
 export { surfacePoints, autoRail, straightRail } from "./shape";
-export { railPath, unityEuler, railColliders } from "./colliders";
+export { railPath, unityEuler, railColliders, railRuns, type RailRun } from "./colliders";
+export { colliderInView, tweakFrom, withTweak } from "./tweaks";
 export { keepClear, fitParts } from "./fit";
 
 /**
@@ -62,7 +64,11 @@ export function withRail( o: CustomObjectEntry, rail: Rail ): CustomObjectEntry 
     ...( parts ? { parts } : {} ),
     ...( whole ? { whole } : {} ),
     ...( own.length ? { body: own } : {} ),
+    ...( rail.knots ? { knots: rail.knots } : {} ),
   };
+  // ( its colliders changed by hand: where they were along it )
+  const tweaks = carryTweaks( o.rail, rail );
+  if ( tweaks ) r.tweaks = tweaks;
   const body = !solid ? [] : parts && !whole ? placeWith( o, keepClear( parts, r ) ) : own.map( ( c ) => ( { ...c, surface_type: "Generic" as const } ) );
   return { ...o, rail: r, intended_up_method: PER_BODY_Z_UP, colliders: [...body, ...railColliders( o, r )] };
 }

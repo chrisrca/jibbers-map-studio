@@ -8,7 +8,7 @@ import { deltaBetween, transformCustom } from "../core/transform";
 import { arr3, customName, type CustomMaterial, type CustomObjectEntry } from "../core/types";
 import { useEditor } from "../map/store";
 
-export const MODEL_EXTENSIONS = ["glb", "gltf", "obj"];
+export const MODEL_EXTENSIONS = ["glb", "gltf", "obj", "fbx"];
 
 export async function loadUserAssets() {
   try {
@@ -16,13 +16,15 @@ export async function loadUserAssets() {
   } catch ( e ) {
     useEditor.getState().toast( `Couldn't read your asset library: ${e}`, "error" );
   }
+  // ( and the asset browser's cards, which are read from the whole library )
+  await ( await import( "./library" ) ).loadLibrary();
 }
 
 export async function importAssetFiles( paths: string[] ) {
   const st      = useEditor.getState();
   const models  = paths.filter( ( p ) => MODEL_EXTENSIONS.includes( p.split( "." ).pop()?.toLowerCase() ?? "" ) );
   const skipped = paths.length - models.length;
-  if ( skipped ) st.toast( `Skipped ${skipped} file${skipped > 1 ? "s" : ""} — import .glb, .gltf or .obj (export FBX from Blender as GLB)`, "error" );
+  if ( skipped ) st.toast( `Skipped ${skipped} file${skipped > 1 ? "s" : ""} — import .glb, .gltf, .obj or .fbx`, "error" );
   let last: UserAsset | null = null;
   for ( const p of models ) {
     st.setBusy( `Importing ${p.split( /[\\/]/ ).pop()}…` );

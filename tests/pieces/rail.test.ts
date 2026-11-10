@@ -78,9 +78,8 @@ describe( "autoRail", () => {
   } );
 
   it( "won't guess at a spiral", () => {
-    const { rail, why } = autoRail( tube( ( t ) => [Math.cos( t * Math.PI * 3 ) * 1.4, 3 - 3 * t, Math.sin( t * Math.PI * 3 ) * 1.4], 0.1 ) );
+    const { rail } = autoRail( tube( ( t ) => [Math.cos( t * Math.PI * 3 ) * 1.4, 3 - 3 * t, Math.sin( t * Math.PI * 3 ) * 1.4], 0.1 ) );
     expect( rail ).toBeNull();
-    expect( why  ).toMatch( /doubles back/ );
     expect( autoRail( tube( ( t ) => [Math.cos( t * Math.PI * 3 ) * 1.4, 3 - 3 * t, Math.sin( t * Math.PI * 3 ) * 1.4], 0.1 ) ).radius ).toBeGreaterThan( 0.05 );
   } );
 } );

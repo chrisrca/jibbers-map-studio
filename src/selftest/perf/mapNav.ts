@@ -43,7 +43,6 @@ export async function mapNavSelftest( dir: string ) {
         if ( p === eng.terrainR.group ) return "terrain";
         if ( p === eng.objectsR.group ) return "game objects";
         if ( p === eng.customR.group ) return "pieces";
-        if ( p === eng.trees.builtTrees ) return "trees";
       }
       return o.type;
     };

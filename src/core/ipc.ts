@@ -49,7 +49,21 @@ export interface GameLight {
 // The game's snow ( gamelook/terrain.rs ): its terrain textures ( files in `dir` ) and its material's numbers.
 export interface GameTerrain {
   dir:                string;
-  textures:           { snow?: string; rock?: string };
+  // the shader it's drawn with ( "Custom/PisteSnow": lit its own way, the numbers below )
+  shader?:            string;
+  textures:           { snow?: string; snownormal?: string; rock?: string };
+  worldScale?:        number | null;
+  snowTexTiling?:     number | null;
+  snowNormalStrength?: number | null;
+  snowWrap?:          number | null;
+  snowSpecular?:      number | null;
+  snowRoughness?:     number | null;
+  sheen?:             number | null;
+  snowScatter?:       number | null;
+  usePbrLighting?:    number | null;
+  rockTexTiling?:     number | null;
+  grooveStrength?:    number | null;
+  pisteTiling?:       number | null;
   baseColor:          [number, number, number] | null;
   rockColor:          [number, number, number] | null;
   thirdColor:         [number, number, number] | null;
@@ -171,6 +185,8 @@ export const bootMark = ( what: string ) => void invoke( "boot_mark", { what } )
 
 export const ipc = {
   appInfo:       () => invoke<AppInfo>( "app_info" ),
+  // the maps the game comes with, as [id, name]: one of yours under one of their ids isn't loaded by the game
+  builtinMaps:   () => invoke<[string, string][]>( "builtin_maps" ),
   readText:      ( path: string ) => invoke<string>( "read_text", { path } ),
   /**
    * an OpenStreetMap Overpass query, sent from the studio ( src-tauri overpass_query ): the answer's JSON text
@@ -206,6 +222,10 @@ export const ipc = {
   loadProject:  ( dir: string ) => invoke<Project>( "load_project", { dir } ),
   saveProject:  ( dir: string, project: Project ) => invoke<void>( "save_project", { dir, project } ),
   importJbrmap: ( mapPath: string, projectDir: string ) => invoke<Project>( "import_jbrmap", { mapPath, projectDir } ),
+  // a Unity scene made with Map-Tools: the project, and what was kept as it is or left out
+  importUnity:  ( scenePath: string, projectDir: string ) => invoke<{ project: Project; notes: string[] }>( "import_unity", { scenePath, projectDir } ),
+  // a .unitypackage unpacked as a Unity project of its own: its scenes ( "Assets/…" ), its models ( full paths )
+  openUnityPackage: ( path: string ) => invoke<{ dir: string; scenes: string[]; models: string[]; assets: number; notes: string[] }>( "open_unity_package", { path } ),
   exportProject: ( projectDir: string, outPath?: string ) =>
     invoke<ExportResult>( "export_project", { projectDir, outPath: outPath ?? null } ),
   generateProject: ( dir: string, name: string, id: string, options: GenOptions ) =>
@@ -245,7 +265,8 @@ export const ipc = {
    * opens your library's folder in Explorer
   **/
   showLibraryFolder:   () => invoke<void>( "show_library_folder" ),
-  addScenery:          ( projectDir: string, name: string, strips: string[], texture: string ) => invoke<unknown>( "add_scenery", { projectDir, name, strips, texture } ),
+  // ( `rings`: the rings inside the outermost, each with meshes and a texture of its own )
+  addScenery:          ( projectDir: string, name: string, strips: string[], texture: string, rings: { name: string; strips: string[]; texture: string }[] = [] ) => invoke<unknown>( "add_scenery", { projectDir, name, strips, texture, rings } ),
   /**
    * the play area's terrain as a coarse part of the scenery ( src-tauri scenery::set_inner ): the mesh's key
   **/
@@ -282,6 +303,10 @@ export const ipc = {
   listUserAssets:    () => invoke<UserAsset[]>( "list_user_assets" ),
   importUserAsset:   ( file: string ) => invoke<UserAsset>( "import_user_asset", { file } ),
   addAssetToProject: ( projectDir: string, asset: string ) => invoke<{ object: unknown; library: string }>( "add_asset_to_project", { projectDir, asset } ),
+  // a model file ( glb, gltf, obj, fbx ) into the project's scene, not your library
+  importModelToProject: ( projectDir: string, file: string ) => invoke<{ object: unknown; library: string }>( "import_model_to_project", { projectDir, file } ),
+  // pieces written to a .glb; how many meshes
+  exportGlb:         ( projectDir: string, library: string, objects: unknown[], name: string, out: string ) => invoke<number>( "export_glb", { projectDir, library, objects, name, out } ),
   saveCustomAsAsset: ( projectDir: string, library: string, object: unknown, name: string, over?: string ) =>
     invoke<UserAsset>( "save_custom_as_asset", { projectDir, library, object, name, over: over ?? null } ),
   deleteUserAsset:     ( path: string ) => invoke<void>( "delete_user_asset", { path } ),

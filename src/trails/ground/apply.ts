@@ -1,6 +1,7 @@
 // Applying a change of trails to the ground: the old net's making taken out and the new one's put in, block by
 // block, near ones first ( the far part a slice a frame ).
 
+import { shapesRebased, trailsChanging, trailsMoved } from "../../terrain/shapes/shapes";
 import { type ChunkInit, terrain } from "../../terrain/terrain";
 import type { TrailNet } from "../trails";
 import { BT, baseKey, bases, snapshotBlock } from "./base";
@@ -124,6 +125,8 @@ interface Job {
   // blocks that went beyond their tile's height range: written once the tile has room
   staged:  { key: string; i0: number; j0: number; w: number; h: number; v: Float32Array; mask: Uint8Array | null; bi: number; bj: number }[];
   changed: number;
+  // the shapes on the ground it changes made again on it, once it's all in ( terrain/shapes/shapes/apply.ts )
+  done:    () => void;
 }
 
 // The ground still to be brought up to date ( the far part of the last change ), if any.
@@ -167,7 +170,7 @@ function planJob( fromP: Placed[], toP: Placed[], ff: Field | null, tf: Field | 
         }
     }
   const tasks = [...byBlock.values()].sort( ( a, b ) => a.d - b.d );
-  return { fromP, toP, ff, tf, tasks, next: 0, need: new Map(), staged: [], changed: 0 };
+  return { fromP, toP, ff, tf, tasks, next: 0, need: new Map(), staged: [], changed: 0, done: trailsChanging( new Set( tasks.map( ( t ) => t.key ) ) ) };
 }
 
 // The runs' ground worked out on blocks by the last change and by this one: the next change's old ground is this
@@ -194,7 +197,7 @@ function runTask( job: Job, t: Task ): boolean {
   rasters.now.set( at, { placed: job.toP, r: now } );
   const fo = fieldBlock( job.ff, gx, gz, sp, w, h ), fn = fieldBlock( job.tf, gx, gz, sp, w, h );
   if ( !old && !now && !fo && !fn ) return false;
-  const v    = new Float32Array( w * h );
+  const v    = new Float32Array( w * h ), moved = new Float32Array( w * h );
   const H    = c.heights, res = c.res, y0 = c.position[1], top = y0 + c.size[1];
   const base = bases.get( baseKey( c.key, t.bi, t.bj ) )!, bArr = typeof base === "number" ? null : base, bNum = typeof base === "number" ? base : 0;
   const oy   = old?.y, oc = old?.cover, ny = now?.y, nc = now?.cover, M = t.mask;
@@ -221,7 +224,8 @@ function runTask( job: Job, t: Task ): boolean {
         const outNew = ( b + ( fn ? fn[k] : 0 ) ) * ( 1 - cn ) + sn * cn;
         nv           = cur + ( outNew - outOld );
       }
-      v[k] = nv;
+      v[k]     = nv;
+      moved[k] = nv - cur;
       if ( nv !== cur ) {
         job.changed++;
         any = true;
@@ -232,6 +236,8 @@ function runTask( job: Job, t: Task ): boolean {
     }
   }
   if ( !any ) return false;
+  // ( under the shapes on it: they're built on the trails )
+  trailsMoved( t.key, t.a0, t.b0, w, h, moved );
   terrain.markDirtyRect( ci, t.a0, t.b0, t.a1, t.b1 );
   if ( lo < y0 || hi > top ) job.staged.push( { key: t.key, i0: t.a0, j0: t.b0, w, h, v, mask: M, bi: t.bi, bj: t.bj } );
   const n = job.need.get( t.key );
@@ -273,6 +279,7 @@ function finish( job: Job ) {
         const base = Math.floor( lo - BELOW ), top = Math.ceil( hi - base + ABOVE );
         const H    = new Float32Array( c.heights.length ), shift = c.position[1] - base;
         for ( let k = 0; k < H.length; k++ ) H[k] = c.heights[k] + shift;
+        shapesRebased( c.key, shift );
         return { ...plain, position: [c.position[0], base, c.position[2]], size: [c.size[0], top, c.size[2]], heights: H };
       } ),
     );
@@ -289,6 +296,7 @@ function finish( job: Job ) {
     touched.add( ci );
   }
   if ( touched.size ) terrain.syncEdges( touched );
+  job.done();
 }
 
 /**

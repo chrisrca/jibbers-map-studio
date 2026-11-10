@@ -11,6 +11,7 @@
 
 import * as THREE from "three/webgpu";
 import { BL_AXES } from "../../../core/blenderAxes";
+import { redraw } from "../../redraw";
 import { GizmoLook } from "./look";
 
 export type GizmoMode = "translate" | "rotate" | "scale" | "transform";
@@ -47,6 +48,8 @@ export class BlGizmo {
   handles        = new THREE.Group();      // the handles ( turned by the orientation ) and a turn's feedback ( not )
   fb             = new THREE.Group();      //  :
   pivot          = new THREE.Vector3();    //  :
+  // ( the other orientation, for an axis key pressed twice: the piece's own when the gizmo's the world's, or back )
+  private other: THREE.Quaternion | null = null;
   quat           = new THREE.Quaternion(); //  :
   private local  = false;
   hover: Handle | null = null;
@@ -60,6 +63,10 @@ export class BlGizmo {
     modal: boolean;
     // a turn's ring: its axis, and where on it the drag began
     ring?: { n: THREE.Vector3; u0: THREE.Vector3; r: number; col: THREE.Color };
+    // a number typed meanwhile ( see type )
+    typed?: string;
+    // held to the other orientation's axis ( its own put back after )
+    swapped?: { quat: THREE.Quaternion; local: boolean };
   } | null = null;
   // the parts drawn, by handle
   parts:     { h: Handle; obj: THREE.Object3D; mat: THREE.Material & { color: THREE.Color; opacity: number }; base: THREE.Color; alpha: number }[] = [];
@@ -102,11 +109,12 @@ export class BlGizmo {
   /**
    * Shown at `pivot` ( view space ), its axes turned by `quat` ( the world's, or a piece's own: `local` ).
   **/
-  attach( pivot: THREE.Vector3, quat: THREE.Quaternion, local = false ) {
+  attach( pivot: THREE.Vector3, quat: THREE.Quaternion, local = false, other: THREE.Quaternion | null = null ) {
     if ( this.drag ) return;
     this.pivot.copy( pivot );
     this.quat.copy( quat );
     this.local         = local;
+    this.other         = other;
     this.group.visible = true;
     this.look.update();
   }
@@ -189,7 +197,10 @@ export class BlGizmo {
    * The mouse moved ( no button ): what's under it lights up. Whether it's over a handle.
   **/
   hoverAt( x: number, y: number ) {
+    const was  = this.hover;
     this.hover = this.pick( x, y );
+    // ( a handle lit or let go: drawn again; the mouse moving over nothing of it draws nothing )
+    if ( was?.kind !== this.hover?.kind || was?.axis !== this.hover?.axis ) redraw();
     return !!this.hover;
   }
 
@@ -215,6 +226,19 @@ export class BlGizmo {
   }
 
   /**
+   * A number typed during a drag ( Blender's numeric input ): its digits and point, "-" turning it negative or back,
+   * "\b" taking the last off. While it reads as a number, it's the move ( metres, along the axis held to, else X ),
+   * the turn ( degrees, about the axis held to, else the view's ) or the scale.
+  **/
+  type( ch: string ) {
+    const d = this.drag;
+    if ( !d ) return;
+    const t = d.typed ?? "";
+    d.typed = ch === "\b" ? t.slice( 0, -1 ) : ch === "-" ? ( t.startsWith( "-" ) ? t.slice( 1 ) : `-${t}` ) : t + ch;
+    this.move( d.lx, d.ly, { ctrl: false, shift: false }, true );
+  }
+
+  /**
    * X / Y / Z during a key's drag: along that axis ( `plane`: across it ), again: back to free.
   **/
   constrain( axis: 0 | 1 | 2, plane: boolean ) {
@@ -222,7 +246,18 @@ export class BlGizmo {
     if ( !d ) return;
     const want: Handle = d.op === "turn" ? { kind: "ring", axis } : { kind: plane ? "plane" : "axis", axis };
     const free: Handle = { kind: d.op === "move" ? "view" : d.op === "turn" ? "viewRing" : "uniform", axis: 0 };
-    const h            = same( d.h, want ) ? free : want;
+    // ( as Blender's: the same key again holds it to the other orientation's axis, a third time lets it go )
+    let h              = same( d.h, want ) ? free : want;
+    if ( same( d.h, want ) && this.other && !d.swapped ) {
+      d.swapped = { quat: this.quat.clone(), local: this.local };
+      this.quat.copy( this.other );
+      this.local = !this.local;
+      h          = want;
+    } else if ( d.swapped && ( h === free || !same( d.h, want ) ) ) {
+      this.quat.copy( d.swapped.quat );
+      this.local = d.swapped.local;
+      d.swapped  = undefined;
+    }
     d.h                = h;
     d.ang              = 0;
     d.hit0             = this.planeHit( h, d.x0, d.y0 );
@@ -294,6 +329,7 @@ export class BlGizmo {
       d.ly    = y;
     }
     const vx       = d.vx, vy = d.vy;
+    if ( this.typedMove( d ) ) return;
     const sn       = this.view.snapping();
     const snapping = sn.on !== mods.ctrl;
     const inc      = snapping && sn.to === "increment", fine = mods.shift;
@@ -388,9 +424,41 @@ export class BlGizmo {
     this.onChange?.( delta );
   }
 
+  /**
+   * The drag as its typed number says, if it reads as one.
+  **/
+  private typedMove( d: NonNullable<typeof this.drag> ) {
+    const t = d.typed && !Number.isNaN( parseFloat( d.typed ) ) ? parseFloat( d.typed ) : null;
+    if ( t === null ) return false;
+    const P     = d.pivot, h = d.h;
+    const about = ( m: THREE.Matrix4 ) => new THREE.Matrix4().makeTranslation( P.x, P.y, P.z ).multiply( m ).multiply( new THREE.Matrix4().makeTranslation( -P.x, -P.y, -P.z ) );
+    const name  = ( a: number ) => "XYZ"[a];
+    const other = h.kind === "plane" ? [0, 1, 2].filter( ( q ) => q !== h.axis ) : [];
+    let delta: THREE.Matrix4, text: string;
+    if ( d.op === "turn" ) {
+      // ( about the axis, the right-hand way as Blender's; about the view's, anticlockwise as it's seen )
+      const n = h.kind === "ring" ? this.axisDir( h.axis ) : this.view.camera.position.clone().sub( P ).normalize();
+      delta   = about( new THREE.Matrix4().makeRotationAxis( n, rad( t ) ) );
+      text    = `Rotation: ${t}°${h.kind === "ring" ? ` along ${name( h.axis )}` : ""}`;
+    } else if ( d.op === "scale" ) {
+      delta = h.kind === "axis" ? about( scaleAlong( this.axisDir( h.axis ), t ) ) : h.kind === "plane" ? about( scaleAlong( this.axisDir( other[0] ), t ).multiply( scaleAlong( this.axisDir( other[1] ), t ) ) ) : about( new THREE.Matrix4().makeScale( t, t, t ) );
+      text  = `Scale: ${t}${h.kind === "axis" ? ` along ${name( h.axis )}` : h.kind === "plane" ? ` along ${other.map( name ).join( "" )}` : ""}`;
+    } else {
+      const a = h.kind === "axis" ? h.axis : h.kind === "plane" ? other[0] : 0;
+      const v = this.axisDir( a ).multiplyScalar( t );
+      delta   = new THREE.Matrix4().makeTranslation( v.x, v.y, v.z );
+      text    = `D: ${fmtM( t )} along ${name( a )}`;
+    }
+    this.look.clearFeedback();
+    this.info = { text: `${text}  [${d.typed}]`, from: this.screen( P ).slice( 0, 2 ) as [number, number], to: [d.lx, d.ly], line: d.op !== "move" };
+    this.onChange?.( delta );
+    return true;
+  }
+
   up() {
     if ( !this.drag ) return false;
     const modal = this.drag.modal;
+    this.unswap();
     this.drag   = null;
     this.info   = null;
     this.look.clearFeedback();
@@ -399,12 +467,20 @@ export class BlGizmo {
     return true;
   }
 
+  private unswap() {
+    const s = this.drag?.swapped;
+    if ( !s ) return;
+    this.quat.copy( s.quat );
+    this.local = s.local;
+  }
+
   /**
    * Esc or a right click: what was being moved goes back.
   **/
   cancel() {
     if ( !this.drag ) return false;
     const modal = this.drag.modal;
+    this.unswap();
     this.drag   = null;
     this.info   = null;
     this.look.clearFeedback();

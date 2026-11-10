@@ -57,7 +57,21 @@ pub struct TextureFile {
 
 /// Replaces the library's `Models/…` meshes and textures with these; the files are removed afterwards.
 pub fn set(project_dir: &Path, meshes: &[MeshFile], textures: &[TextureFile]) -> Result<()> {
-    let lib_path = project_dir.join(crate::library::userassets::PROJECT_LIBRARY);
+    let _one = crate::library::userassets::WRITING.lock().unwrap_or_else(|e| e.into_inner());
+    let main = project_dir.join(crate::library::userassets::PROJECT_LIBRARY);
+    // ( a big library: the models kept beside it, as what's placed is, not written into it on every export; any it
+    // kept itself taken out of it, the once )
+    let lib_path = if crate::library::userassets::is_big(&main) {
+        if crate::library::userassets::has_models(&main)? {
+            let mut lib = crate::jbrmap::load(&main).context("the map's library")?;
+            lib.mesh_library.retain(|k, _| !k.starts_with("Models/"));
+            lib.texture_library.retain(|k, _| !k.starts_with("Models/"));
+            crate::jbrmap::save(&lib, &main)?;
+        }
+        crate::library::userassets::added_path(&main)
+    } else {
+        main
+    };
     let mut lib = if lib_path.exists() {
         crate::jbrmap::load(&lib_path).context("the map's library")?
     } else {

@@ -38,16 +38,25 @@ export function unwrap( g0: Mesh, faces: Iterable<number>, kind: Unwrap, view?: 
   if ( kind === "reset" ) {
     for ( const fi of list ) {
       const n = g.f[fi].length;
-      // a quad's corners on the square's, any other face's round its middle
-      g.u[fi] = n === 4 ? [0, 0, 1, 0, 1, 1, 0, 1] : g.f[fi].flatMap( ( _, k ) => [0.5 + 0.5 * Math.cos( ( k / n ) * Math.PI * 2 ), 0.5 + 0.5 * Math.sin( ( k / n ) * Math.PI * 2 )] );
+      // a quad's corners on the square's, any other face's round its middle; round the face as Blender's go round it
+      // ( its corners run the other way in the piece's coordinates: so the texture isn't mirrored on it )
+      const at = ( k: number ) => ( n - k ) % n;
+      g.u[fi]  = g.f[fi].flatMap( ( _, k ) => ( n === 4 ? [[0, 0], [1, 0], [1, 1], [0, 1]][at( k )] : [0.5 + 0.5 * Math.cos( ( at( k ) / n ) * Math.PI * 2 ), 0.5 + 0.5 * Math.sin( ( at( k ) / n ) * Math.PI * 2 )] ) );
     }
     return g;
   }
   if ( kind === "cube" ) {
-    for ( const fi of list ) {
-      const n = faceNormal( g, fi );
-      g.u[fi] = g.f[fi].flatMap( ( v ) => boxUv( g.v[v], n ).map( ( x ) => x / 2 + 0.5 ) );
-    }
+    // Blender's: each face flat along its most upright axis ( Blender's X faces by its Y and Z, Y by X and Z, Z by X and
+    // Y: the game's X by Z and Y, Z by X and Y, Y by X and Z ), the same way on both sides, then all of it fitted into
+    // the square about its middle, its shape kept
+    const along = list.map( ( fi ) => {
+      const n = faceNormal( g, fi ).map( Math.abs );
+      return n[0] >= n[1] && n[0] >= n[2] ? [2, 1] : n[2] >= n[1] ? [0, 1] : [0, 2];
+    } );
+    const used  = [...new Set( list.flatMap( ( fi ) => g.f[fi] ) )];
+    const lo    = [0, 1, 2].map( ( k ) => Math.min( ...used.map( ( v ) => g.v[v][k] ) ) ), hi = [0, 1, 2].map( ( k ) => Math.max( ...used.map( ( v ) => g.v[v][k] ) ) );
+    const mid   = lo.map( ( x, k ) => ( x + hi[k] ) / 2 ), size = Math.max( 1e-9, ...hi.map( ( x, k ) => x - lo[k] ) );
+    list.forEach( ( fi, i ) => ( g.u![fi] = g.f[fi].flatMap( ( v ) => along[i].map( ( k ) => ( g.v[v][k] - mid[k] ) / size + 0.5 ) ) ) );
     return g;
   }
   // from the view: flat as it's seen, the whole fitted into the square ( its shape kept )

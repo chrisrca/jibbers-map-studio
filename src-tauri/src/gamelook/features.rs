@@ -6,15 +6,17 @@
 //!
 //! Each stays an ordinary piece — every setting, its rail and colliders as editable as before: the colliders are the
 //! app piece's own (the shapes the rails and grinding were worked out on), only what it looks like is the game's.
-//! The game's paint is blue, its colour parameter turning the hue; each piece is painted in its feature's default
-//! colour (blue, red…), with the brightness the game's material gives it. A feature whose setting picks one of
+//! Each piece is painted in its feature's default colour (blue, red…) as the game paints it (features/colours.rs),
+//! with the brightness the game's material gives it. A feature whose setting picks one of
 //! several children (the snow cannon's direction) is its default option, and a piece more for each other option
 //! ("Snowcannon Flat", "Snowcannon Up 1"…) beside it.
 
+mod colours;
 mod look;
 mod names;
 mod mesh;
 mod material;
+pub(crate) use colours::*;
 pub(crate) use look::*;
 pub(crate) use names::*;
 pub(crate) use mesh::*;
@@ -35,7 +37,7 @@ type Meshes = IndexMap<String, MeshData>;
 type Textures = IndexMap<String, TextureData>;
 
 /// Bump when what's built changes: the folder is built again.
-const VERSION: u32 = 7;
+const VERSION: u32 = 8;
 /// The game's "blue": its paint as it comes (other colours turn the paint's hue from it).
 const BLUE: u32 = 0x3b82f6;
 /// The library piece is the game's prefab at half size (see jibbers-player-scale).
@@ -73,10 +75,10 @@ pub fn ensure(app_root: &Path, placeholders_json: &Path) -> Result<Option<PathBu
             let obj = library::read_object(&it.path)?;
             let Some(id) = feature_of(&obj) else { return Ok(None) };
             let Some(look) = index.features.get(&id) else { return Ok(None) };
-            let colour = colours.get(&id).copied();
+            let colour = colours.get(&id).map(String::as_str);
             let rel = it.path.strip_prefix(app_root)?;
             for (k, v) in variants(look, defaults.get(&id)).iter().enumerate() {
-                let (mut piece, meshes, textures) = build(app_root, rel, &id, look, v, colour)?;
+                let (mut piece, meshes, textures) = build(app_root, rel, &id, look, &index.materials, v, colour)?;
                 piece.lights = piece_lights(index.lights.get(&id).map_or(&[][..], Vec::as_slice), v);
                 let file = if k == 0 { out.join(rel) } else { out.join(rel).with_file_name(format!("{} {}.jbrasset", it.name, option_label(&v.as_ref().unwrap().1))) };
                 library::save_entry(&file, file.file_stem().unwrap_or_default().to_string_lossy().as_ref(), piece, meshes, textures)?;
@@ -121,7 +123,7 @@ fn variants(look: &[LookRenderer], defaults: Option<&HashMap<String, String>>) -
 
 /// The app piece at `rel` wearing the game's look for one option, painted `colour`: its parts, with the app piece's
 /// colliders (and the meshes they use) unchanged.
-fn build(app_root: &Path, rel: &Path, id: &str, look: &[LookRenderer], v: &Option<(String, String)>, colour: Option<u32>) -> Result<(CustomObject, Meshes, Textures)> {
+fn build(app_root: &Path, rel: &Path, id: &str, look: &[LookRenderer], swaps: &HashMap<String, LookMaterial>, v: &Option<(String, String)>, colour: Option<&str>) -> Result<(CustomObject, Meshes, Textures)> {
     let path = app_root.join(rel);
     let mut piece = library::read_object(&path)?;
     let src = crate::jbrmap::load(&path)?;
@@ -135,7 +137,7 @@ fn build(app_root: &Path, rel: &Path, id: &str, look: &[LookRenderer], v: &Optio
             (Some(_), None) => false,
         })
         .collect();
-    let (parts, mut meshes, textures) = dressed(&look_dir()?, id, &rs, colour)?;
+    let (parts, mut meshes, textures) = dressed(&look_dir()?, id, &rs, swaps, colour)?;
     piece.parts = parts;
     for c in &piece.colliders {
         if let Some(m) = src.mesh_library.get(&c.mesh_ref) {
@@ -163,22 +165,23 @@ pub fn piece_for(app_root: &Path, placeholders_json: &Path, id: &str, params: &H
     let defaults = default_options(placeholders_json)?;
     let vs = variants(look, defaults.get(id));
     let k = vs.iter().position(|v| v.as_ref().is_some_and(|(p, o)| params.get(p) == Some(o))).unwrap_or(0);
-    let own = default_colours(placeholders_json)?.get(id).copied();
-    let named = params.get("color").and_then(|c| NAMED.iter().find(|(n, _)| n == c)).map(|(_, h)| *h);
+    let own = default_colours(placeholders_json)?.get(id).cloned();
+    // (a colour it can be painted in: one the game's colours for it have, or one of the app's named ones)
+    let colour = params.get("color").filter(|c| look.iter().any(|r| game_paint(id, &r.mesh_name, c).is_some()) || NAMED.iter().any(|(n, _)| *n == c.as_str()));
     let name = rel.file_stem().unwrap_or_default().to_string_lossy().to_string();
     let option = vs[k].as_ref().map(|(_, o)| option_label(o));
-    if named.is_none() || named == own {
+    if colour.is_none() || colour == own.as_ref() {
         let file = match &option {
             Some(o) if k > 0 => out.join(&rel).with_file_name(format!("{name} {o}.jbrasset")),
             _ => out.join(&rel),
         };
         return Ok(file.exists().then_some(file));
     }
-    let colour = params.get("color").cloned().unwrap_or_default();
-    let label = [Some(name.clone()), option, Some(readable(&colour))].into_iter().flatten().collect::<Vec<_>>().join(" ");
+    let colour = colour.unwrap();
+    let label = [Some(name.clone()), option, Some(readable(colour))].into_iter().flatten().collect::<Vec<_>>().join(" ");
     let file = out.join(".painted").join(format!("{label}.jbrasset"));
     if !file.exists() {
-        let (mut piece, meshes, textures) = build(app_root, &rel, id, look, &vs[k], named)?;
+        let (mut piece, meshes, textures) = build(app_root, &rel, id, look, &index.materials, &vs[k], Some(colour))?;
         piece.lights = piece_lights(index.lights.get(id).map_or(&[][..], Vec::as_slice), &vs[k]);
         let tmp = file.with_extension("partial");
         library::save_entry(&tmp, &label, piece, meshes, textures)?;
@@ -198,7 +201,7 @@ fn lift_piece(out: &Path, id: &str) -> Result<Option<PathBuf>> {
     let index: LookIndex = serde_json::from_slice(&std::fs::read(look.join("index.json"))?)?;
     let Some(rs) = index.features.get(id) else { return Ok(None) };
     let rs: Vec<(usize, &LookRenderer)> = rs.iter().enumerate().collect();
-    let (parts, meshes, textures) = dressed(&look, id, &rs, None)?;
+    let (parts, meshes, textures) = dressed(&look, id, &rs, &HashMap::new(), None)?;
     let piece = CustomObject { parts, ..CustomObject::default() };
     let tmp = file.with_extension("partial");
     library::save_entry(&tmp, id, piece, meshes, textures)?;
@@ -207,8 +210,9 @@ fn lift_piece(out: &Path, id: &str) -> Result<Option<PathBuf>> {
 }
 
 /// The game's renderers for a feature as the piece's parts (in its frame: the prefab at half size), with their
-/// meshes and textures. (Each renderer's key is by its place among all the feature's.)
-fn dressed(look: &Path, id: &str, rs: &[(usize, &LookRenderer)], colour: Option<u32>) -> Result<(Vec<Part>, Meshes, Textures)> {
+/// meshes and textures, painted `colour` as the game paints it (or near it, a colour the game's own aren't known in).
+/// (Each renderer's key is by its place among all the feature's.)
+fn dressed(look: &Path, id: &str, rs: &[(usize, &LookRenderer)], swaps: &HashMap<String, LookMaterial>, colour: Option<&str>) -> Result<(Vec<Part>, Meshes, Textures)> {
     let mut parts = vec![];
     let mut meshes = IndexMap::new();
     let mut textures = IndexMap::new();
@@ -216,8 +220,22 @@ fn dressed(look: &Path, id: &str, rs: &[(usize, &LookRenderer)], colour: Option<
         let key = format!("Features/{id}/g{k}");
         meshes.insert(key.clone(), mesh(look, r)?);
         let mut mats = vec![];
+        let game = colour.and_then(|c| game_paint(id, &r.mesh_name, c));
+        let hex = colour.and_then(|c| NAMED.iter().find(|(n, _)| *n == c)).map(|(_, h)| *h);
         for m in &r.materials {
-            mats.push(material(look, m, colour, &mut textures)?);
+            let (m, paint) = match (&game, colour) {
+                // (another material: its own, when the look has it)
+                (Some(Some(g)), Some(c)) => match &g.material {
+                    Some(n) => match swaps.get(n) {
+                        Some(sw) => (sw, Paint::game(g, c)),
+                        None => (m, hex.map_or_else(|| Paint::plain(m), |h| Paint::near(m, h))),
+                    },
+                    None => (m, Paint::game(g, c)),
+                },
+                (Some(None), _) => (m, Paint::plain(m)),
+                _ => (m, hex.map_or_else(|| Paint::plain(m), |h| Paint::near(m, h))),
+            };
+            mats.push(material(look, m, &paint, &mut textures)?);
         }
         // a material a submesh (the last one again when there are fewer)
         while mats.len() < r.submeshes.len() && !mats.is_empty() {
@@ -235,9 +253,35 @@ mod tests {
     #[test]
     fn repaint_turns_blue_to_red() {
         let img = image::RgbaImage::from_pixel(1, 1, image::Rgba([40, 60, 200, 255]));
-        let out = repaint(img, (hsl(0xef4444).0 - hsl(BLUE).0).rem_euclid(1.0), 1.0, 1.0, 1.0);
+        let out = repaint(img, (hsl(0xef4444).0 - hsl(BLUE).0).rem_euclid(1.0), 1.0, 1.0, 1.0, false);
         let p = out.get_pixel(0, 0).0;
         assert!(p[0] > p[2] && p[0] > p[1], "{p:?}");
+    }
+
+    /// A paint turned as the game's Custom/MapObject pixel shader turns it (its assembly, by hand: the sampled colour,
+    /// in linear, to HSV with no epsilon, the hue plus _HueShift, back), to a byte.
+    #[test]
+    fn repaint_turns_hue_as_the_games_shader() {
+        let game = |c: [f32; 3], shift: f32| -> [f32; 3] {
+            let k = if c[1] >= c[2] { [c[1], c[2], 0.0, -1.0 / 3.0] } else { [c[2], c[1], -1.0, 2.0 / 3.0] };
+            let q = if c[0] >= k[0] { [c[0], k[1], k[2], k[0]] } else { [k[0], k[1], k[3], c[0]] };
+            let d = q[0] - q[3].min(q[1]);
+            let h = ((q[2] + (q[3] - q[1]) / (6.0 * d)).abs() + shift).fract();
+            let (s, v) = (d / q[0], q[0]);
+            [1.0, 2.0 / 3.0, 1.0 / 3.0].map(|o| v * (1.0 + s * ((((h + o).fract() * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0) - 1.0)))
+        };
+        let to_linear = |c: f32| if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
+        let to_srgb = |c: f32| if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 };
+        let img = image::RgbaImage::from_fn(6, 6, |x, y| image::Rgba([(x * 50) as u8, (y * 45 + 10) as u8, (230 - x * 20 - y * 15) as u8, 255]));
+        for shift in [0.4f32, 0.65, 0.24, 0.92, 0.51, 0.142] {
+            let out = repaint(img.clone(), shift, 1.0, 1.0, 1.0, false);
+            for (a, b) in img.pixels().zip(out.pixels()) {
+                let want = game([a[0], a[1], a[2]].map(|v| to_linear(v as f32 / 255.0)), shift).map(|c| (to_srgb(c) * 255.0).round() as i32);
+                for k in 0..3 {
+                    assert!((b[k] as i32 - want[k]).abs() <= 1, "{a:?} by {shift}: {b:?} vs the game's {want:?}");
+                }
+            }
+        }
     }
 
     /// Placed game objects come out as the pieces for their settings (reads the installed game's look).
@@ -253,7 +297,14 @@ mod tests {
         assert_eq!(name(p("snowcannon", &[("color", "orange+blue"), ("direction", "down")])).as_deref(), Some("Snowcannon"));
         let red = p("rail_long", &[("color", "red")]).unwrap();
         assert_eq!(red.file_stem().unwrap(), "Rail Long Red");
-        assert!(library::read_object(&red).unwrap().parts[0].materials[0].base_tex.contains("(Red)"));
+        // its bar red, its posts as they are (as the game has them)
+        let reds: Vec<bool> = library::read_object(&red).unwrap().parts.iter().map(|p| p.materials[0].base_tex.contains("(Red)")).collect();
+        assert_eq!(reds, [false, true]);
+        // black: the game's black material
+        let black = library::read_object(&p("curve_tube", &[("color", "black")]).unwrap()).unwrap();
+        assert!(black.parts[0].materials[0].base_tex.contains("Curve Tube Black"), "{}", black.parts[0].materials[0].base_tex);
+        // the snow cannon's two-colour paints
+        assert_eq!(name(p("snowcannon", &[("color", "cyan+red"), ("direction", "down")])).as_deref(), Some("Snowcannon Down Cyan+red"));
         assert_eq!(p("no_such_feature", &[]), None);
     }
 
@@ -261,7 +312,7 @@ mod tests {
     #[test]
     fn brightness_is_in_linear_light() {
         let img = image::RgbaImage::from_fn(2, 1, |x, _| if x == 0 { image::Rgba([48, 45, 104, 255]) } else { image::Rgba([187, 187, 187, 255]) });
-        let out = repaint(img, 0.0, 1.0, 1.0, 2.0);
+        let out = repaint(img, 0.0, 1.0, 1.0, 2.0, false);
         let (navy, stripe) = (out.get_pixel(0, 0).0, out.get_pixel(1, 0).0);
         assert!((140..=146).contains(&navy[2]), "{navy:?}");
         assert!(stripe[0] < 255 && stripe[0] > 240, "{stripe:?}");
@@ -301,7 +352,7 @@ mod tests {
             shader: "Custom/MapObject".into(),
         };
         let mut textures = IndexMap::new();
-        let mat = material(&look, &m, None, &mut textures).unwrap();
+        let mat = material(&look, &m, &Paint::plain(&m), &mut textures).unwrap();
         let read = |key: &str| {
             let t = &textures[key];
             (image::load_from_memory(t.data.as_ref().unwrap()).unwrap().to_rgba8(), t.linear)

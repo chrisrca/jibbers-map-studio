@@ -6,6 +6,7 @@ mod gamelook;
 pub mod jbrmap;
 mod library;
 mod project;
+pub(crate) mod unity;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -17,6 +18,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             discord::discord_presence,
             commands::game::game_object_look,
+            commands::game::builtin_maps,
             commands::game::game_lights,
             commands::game::game_spins,
             commands::game::game_mark,
@@ -33,6 +35,7 @@ pub fn run() {
             commands::net::overpass_query,
             commands::projects::add_scenery,
             commands::app::save_lag_report,
+            commands::app::save_studio_logs,
             commands::projects::copy_piece_assets,
             commands::files::read_image_rgba,
             commands::game::game_close,
@@ -50,6 +53,8 @@ pub fn run() {
             commands::projects::load_project,
             commands::projects::save_project,
             commands::projects::import_jbrmap,
+            commands::projects::import_unity,
+            commands::projects::open_unity_package,
             commands::projects::export_project,
             commands::game::play_in_game,
             commands::game::game_status,
@@ -58,6 +63,8 @@ pub fn run() {
             commands::assets::import_user_asset,
             commands::assets::add_asset_to_project,
             commands::assets::save_custom_as_asset,
+            commands::assets::import_model_to_project,
+            commands::assets::export_glb,
             commands::assets::delete_user_asset,
             commands::library::library_entry_preview,
             commands::library::list_library,

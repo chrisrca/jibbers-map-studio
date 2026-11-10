@@ -35,6 +35,19 @@ pub fn selftest_dir() -> Option<String> {
 #[tauri::command]
 pub fn frontend_log(level: String, message: String) {
     println!("[webview {level}] {message}");
+    // warnings and errors kept in <data>/studio.log too, for Help › Save studio logs ( past 2 MB, it's moved to
+    // studio.old.log and begun again )
+    if let Some(data) = crate::library::userassets::data_dir().ok().filter(|_| level != "selftest") {
+        use std::io::Write;
+        let log = data.join("studio.log");
+        if std::fs::metadata(&log).map(|m| m.len() > 2_000_000).unwrap_or(false) {
+            let _ = std::fs::rename(&log, data.join("studio.old.log"));
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log) {
+            let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            let _ = writeln!(f, "{t} [{level}] {message}");
+        }
+    }
     // release builds have no console: during a self-test also append to <dir>/selftest.log
     if let Some(dir) = selftest_dir() {
         use std::io::Write;
@@ -56,13 +69,37 @@ pub fn boot_mark(what: String) {
 pub async fn save_lag_report(text: String) -> CmdResult<String> {
     tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<String> {
         let mut out = text;
-        let run = |cmd: &str, args: &[&str]| -> String {
-            use std::os::windows::process::CommandExt;
-            match std::process::Command::new(cmd).args(args).creation_flags(0x0800_0000 /* CREATE_NO_WINDOW */).output() {
-                Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
-                Err(e) => format!("({cmd} unavailable: {e})"),
-            }
-        };
+        out.push_str(&system_info());
+        let dir = crate::library::userassets::data_dir()?.join("lag-reports");
+        std::fs::create_dir_all(&dir)?;
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let path = dir.join(format!("lag-{stamp}.txt"));
+        std::fs::write(&path, out)?;
+        Ok(path.display().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(err)
+}
+
+/// Help › Save studio logs: the studio's logs (crate::game::diag::studio_report) written to `path`.
+#[tauri::command]
+pub async fn save_studio_logs(path: String, frontend: String) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || std::fs::write(&path, crate::game::diag::studio_report(&frontend))).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+}
+
+/// The game's window and files as the studio sees them, the GPU, and the studio's and game's processes: for a lag
+/// report, or the studio's logs.
+pub(crate) fn system_info() -> String {
+    let mut out = String::new();
+    let run = |cmd: &str, args: &[&str]| -> String {
+        use std::os::windows::process::CommandExt;
+        match std::process::Command::new(cmd).args(args).creation_flags(0x0800_0000 /* CREATE_NO_WINDOW */).output() {
+            Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+            Err(e) => format!("({cmd} unavailable: {e})"),
+        }
+    };
+    {
         out.push_str("== the game window\n");
         out.push_str(&crate::game::embed::debug_info());
         if let Ok(maps) = game::maps_dir() {
@@ -81,16 +118,8 @@ pub async fn save_lag_report(text: String) -> CmdResult<String> {
         out.push_str(&run("powershell", &["-NoProfile", "-Command",
             "Get-Process jibbers-studio, Jibbers, msedgewebview2, parsecd -ErrorAction SilentlyContinue | Sort-Object CPU -Descending | Select-Object -First 12 | ForEach-Object { '{0,-16} pid {1,-6} cpu {2,8:N1}s  mem {3,6:N0} MB' -f $_.ProcessName, $_.Id, $_.CPU, ($_.WorkingSet64 / 1MB) }"]));
         out.push('\n');
-        let dir = crate::library::userassets::data_dir()?.join("lag-reports");
-        std::fs::create_dir_all(&dir)?;
-        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let path = dir.join(format!("lag-{stamp}.txt"));
-        std::fs::write(&path, out)?;
-        Ok(path.display().to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(err)
+    }
+    out
 }
 
 /// Sends a studio project folder or a map in the game's Maps folder to the Recycle Bin (recoverable). Anything

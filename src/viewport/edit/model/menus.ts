@@ -5,9 +5,9 @@ import { toThree, toUnity } from "../../../core/coords";
 import { namesFor, pieceName } from "../../../map/names";
 import { useEditor } from "../../../map/store";
 import { newUid } from "../../../map/store";
-import { compact, norm, recalcOutside, sub, type Mesh, type V3 } from "../../../model/mesh";
+import { norm, recalcOutside, sub, type Mesh, type V3 } from "../../../model/mesh";
 import { withModel } from "../../../model/objects";
-import { bridge, emptySel, fill, flip, linked, merge, remove, selFromFaces, setSmooth, subdivide, type DeleteKind, type MergeKind } from "../../../model/ops";
+import { bridge, emptySel, fill, flip, merge, remove, selFromFaces, separate, setSmooth, subdivide, type DeleteKind, type MergeKind, type SeparateKind } from "../../../model/ops";
 import { unwrap, type Unwrap } from "../../../model/uvEdit";
 import { useUvEditor } from "../../../ui/panels/UvEditor";
 import type { MenuItem } from "../../../ui/widgets/widgets";
@@ -56,7 +56,8 @@ export class ModelMenus {
     const order = [...this.ed.sel.v];
     const run   = ( kind: MergeKind, label: string ) => () => {
       const g     = this.ed.obj()!.model.mesh;
-      const r     = merge( g, kind === "distance" ? g.v.map( ( _, i ) => i ).filter( ( v ) => this.ed.sel.v.has( v ) ) : order, kind );
+      // ( Collapse: each run of selected edges to a point, as Blender's )
+      const r     = merge( g, kind === "distance" ? g.v.map( ( _, i ) => i ).filter( ( v ) => this.ed.sel.v.has( v ) ) : order, kind, 0.0001, kind === "collapse" && this.ed.mode !== "vert" ? this.ed.sel.e : undefined );
       this.ed.sel = r.sel;
       this.op( r.mesh, label );
       // ( as Blender says how many went )
@@ -117,33 +118,16 @@ export class ModelMenus {
   }
 
   private separateItems(): MenuItem[] {
-    const run = ( loose: boolean ) => () => {
+    const run = ( kind: SeparateKind ) => () => {
       const o = this.ed.obj();
       if ( !o ) return;
-      const g                  = o.model.mesh;
-      const groups: number[][] = [];
-      if ( loose ) {
-        const seen = new Set<number>();
-        g.f.forEach( ( f, fi ) => {
-          if ( seen.has( fi ) ) return;
-          const verts = linked( g, f ), faces = g.f.map( ( _, i ) => i ).filter( ( i ) => verts.has( g.f[i][0] ) );
-          faces.forEach( ( i ) => seen.add( i ) );
-          groups.push( faces );
-        } );
-        if ( groups.length < 2 ) return useEditor.getState().toast( "It's all one part", "info" );
-        groups.shift();
-      } else {
-        if ( !this.ed.sel.f.size ) return;
-        groups.push( [...this.ed.sel.f] );
-      }
+      const r = separate( o.model.mesh, kind, this.ed.sel );
+      if ( !r.parts.length ) return useEditor.getState().toast( kind === "selection" ? "Nothing selected" : kind === "loose" ? "It's all one part" : "It's all one material", "info" );
       const st            = useEditor.getState();
-      const moved         = new Set( groups.flat() );
-      const pick          = ( faces: number[] ) => compact( { ...g, f: faces.map( ( i ) => g.f[i] ), m: faces.map( ( i ) => g.m[i] ), s: faces.map( ( i ) => g.s[i] ), w: [] } ).mesh;
-      const rest          = pick( g.f.map( ( _, i ) => i ).filter( ( i ) => !moved.has( i ) ) );
-      const pieces        = groups.map( ( faces ) => withModel( { ...o, uid: newUid() }, { ...o.model, paint: undefined, mesh: pick( faces ) } ) );
-      const kept          = withModel( o, { ...o.model, mesh: rest } );
+      const pieces        = r.parts.map( ( mesh ) => withModel( { ...o, uid: newUid() }, { ...o.model, paint: undefined, mesh } ) );
+      const kept          = withModel( o, { ...o.model, mesh: r.rest } );
       const customObjects = [...st.customObjects.map( ( x ) => ( x.uid === o.uid ? kept : x ) ), ...pieces];
-      st.commit( loose ? "Separate by loose parts" : "Separate selection", {
+      st.commit( { selection: "Separate selection", loose: "Separate by loose parts", material: "Separate by material" }[kind], {
         customObjects,
         // ( Blender's: "Cube" separated makes "Cube.001" )
         labels: namesFor( { labels: st.labels, customObjects }, pieces.map( ( x ) => ( { uid: x.uid, want: pieceName( st, o ) } ) ) ),
@@ -153,8 +137,9 @@ export class ModelMenus {
       this.ed.publish();
     };
     return [
-      { label: "Selection",      run: run( false ) },
-      { label: "By Loose Parts", run: run( true  ) },
+      { label: "Selection",      run: run( "selection" ) },
+      { label: "By Material",    run: run( "material"  ) },
+      { label: "By Loose Parts", run: run( "loose"     ) },
     ];
   }
 
@@ -256,7 +241,7 @@ export class ModelMenus {
       return this.menuAtMouse( "Vertex", [
         this.subdivideItem(),
         { label: "Extrude Vertices", keys: "E",            run: () => this.ed.ops.extrude()    },
-        { label: "Bevel Vertices",   keys: "Shift Ctrl B", run: () => this.ed.ops.startBevel() },
+        { label: "Bevel Vertices",   keys: "Shift Ctrl B", run: () => this.ed.ops.startBevel( true ) },
         { sep: true, label: "" },
         fillItem,
         { sep: true, label: "" },

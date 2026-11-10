@@ -49,6 +49,8 @@ pub(crate) struct Builder {
     pub(crate) meshes: IndexMap<String, MeshData>,
     pub(crate) textures: IndexMap<String, TextureData>,
     pub(crate) parts: Vec<Part>,
+    /// each part's name in the file (its level of detail is read from it: `Tree_LOD1`)
+    pub(crate) labels: Vec<String>,
     /// texture source id → library key
     pub(crate) texture_keys: IndexMap<String, String>,
 }
@@ -99,6 +101,7 @@ impl Builder {
             meshes: IndexMap::new(),
             textures: IndexMap::new(),
             parts: vec![],
+            labels: vec![],
             texture_keys: IndexMap::new(),
         }
     }
@@ -147,6 +150,46 @@ impl Builder {
             },
         );
         self.parts.push(Part { mesh: key, materials, ..Part::default() });
+        self.labels.push(label.to_string());
+    }
+
+    /// Unity's way of naming levels of detail (`Tree_LOD0`, `Tree_LOD1`… in one file): the named parts made one LOD
+    /// group, each at its level; a part named otherwise shows at every distance. None when there's only one level.
+    /// The levels hand over as the studio's own models' do (objects.ts lodGroup), on the parts' bounds.
+    fn lod_group(&mut self) -> Option<LodGroup> {
+        let levels: Vec<Option<i32>> = self.labels.iter().map(|l| lod_level(l)).collect();
+        let top = levels.iter().flatten().copied().max()?;
+        if top < 1 {
+            return None;
+        }
+        for (part, level) in self.parts.iter_mut().zip(&levels) {
+            (part.lod_group_index, part.lod_index) = match level {
+                Some(l) => (0, *l),
+                None => (-1, 0),
+            };
+        }
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for m in self.meshes.values() {
+            for p in m.vertices.as_deref().unwrap_or_default().chunks_exact(12) {
+                for k in 0..3 {
+                    let v = f32::from_le_bytes(p[k * 4..k * 4 + 4].try_into().unwrap());
+                    lo[k] = lo[k].min(v);
+                    hi[k] = hi[k].max(v);
+                }
+            }
+        }
+        let n = top as usize + 1;
+        let mut transitions: Vec<f32> = (0..n - 1).map(|k| 0.3 * 0.45f32.powi(k as i32)).collect();
+        transitions.push(0.004);
+        Some(LodGroup {
+            local_position: Vec3::ZERO,
+            local_reference_point: Vec3 { x: (lo[0] + hi[0]) / 2.0, y: (lo[1] + hi[1]) / 2.0, z: (lo[2] + hi[2]) / 2.0 },
+            size: (0..3).map(|k| hi[k] - lo[k]).fold(0.01, f32::max),
+            fade_mode: 0,
+            animate_crossfading: false,
+            fade_widths: vec![0.0; transitions.len()],
+            transitions,
+        })
     }
 
     /// With `recenter`, moves the pivot to the bottom centre (it then sits on the ground where it's dropped) and
@@ -156,7 +199,8 @@ impl Builder {
             bail!("no meshes found");
         }
         if !self.opts.recenter {
-            let obj = CustomObject { parts: self.parts, ..CustomObject::default() };
+            let lod_groups = self.lod_group().into_iter().collect();
+            let obj = CustomObject { parts: self.parts, lod_groups, ..CustomObject::default() };
             return Ok(Converted { name: self.name, object: obj, meshes: self.meshes, textures: self.textures });
         }
         let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
@@ -181,17 +225,40 @@ impl Builder {
             }
         }
         let size = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
+        // (after the pivot's moved: the group's middle where the parts now are)
+        let lod_groups = self.lod_group().into_iter().collect();
         let obj = CustomObject {
             surface_type: SurfaceType::Generic,
             position: Vec3::ZERO,
             rotation: Vec3::ZERO,
             scale: Vec3::ONE,
             parts: self.parts,
+            lod_groups,
             colliders: vec![box_collider(size)],
             ..CustomObject::default()
         };
         Ok(Converted { name: self.name, object: obj, meshes: self.meshes, textures: self.textures })
     }
+}
+
+/// A part's level of detail by its name, Unity's way: `LOD` and a number at its end, after `_`, `-`, `.` or a space
+/// (`Tree_LOD1`, `trunk LOD2`; Blender's `.001` on a copy's name let past).
+pub(crate) fn lod_level(label: &str) -> Option<i32> {
+    let s = label.trim();
+    let s = match s.rsplit_once('.') {
+        Some((head, tail)) if !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()) => head,
+        _ => s,
+    };
+    let lower = s.to_ascii_lowercase();
+    let at = lower.rfind("lod")?;
+    let digits = &lower[at + 3..];
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    if at > 0 && !matches!(lower.as_bytes()[at - 1], b'_' | b'-' | b'.' | b' ') {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 pub(crate) fn box_collider(size: [f32; 3]) -> Collider {
@@ -244,8 +311,8 @@ pub fn convert(file: &Path, opts: ImportOpts) -> Result<Converted> {
     match file.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).as_deref() {
         Some("glb" | "gltf") => import_gltf(file, &name, opts),
         Some("obj") => import_obj(file, &name, opts),
-        Some("fbx") => bail!("FBX isn't supported yet — export it as GLB (in Blender: File › Export › glTF 2.0) and import that"),
-        _ => bail!("unsupported file type (use .glb, .gltf or .obj)"),
+        Some("fbx") => import_fbx(file, &name, opts),
+        _ => bail!("unsupported file type (use .glb, .gltf, .obj or .fbx)"),
     }
 }
 
@@ -401,6 +468,46 @@ pub(crate) fn gltf_image_rgba(img: &gltf::image::Data) -> Option<image::RgbaImag
     image::RgbaImage::from_raw(w, h, rgba)
 }
 
+/// An FBX ( Unity's reader: unity/model.rs ), each of its meshes a part where it is in the file's scene, with its
+/// materials' colours and diffuse textures ( found beside the file, or in a folder of its own beside it ). Already in
+/// Unity's space and metres: only `opts.scale` applies.
+pub(crate) fn import_fbx(file: &Path, name: &str, opts: ImportOpts) -> Result<Converted> {
+    let meshes = crate::unity::model::fbx_meshes(&std::fs::read(file).with_context(|| format!("read {}", file.display()))?)?;
+    let dir = file.parent().unwrap_or(Path::new("."));
+    let mut b = Builder::with(name, opts);
+    for (label, m, mats) in meshes {
+        let s = opts.scale;
+        let g = Geo {
+            pos: m.pos.iter().map(|p| [p[0] * s, p[1] * s, p[2] * s]).collect(),
+            nrm: m.nrm.clone(),
+            uv: m.uv.first().cloned().unwrap_or_default(),
+            submeshes: m.subs.clone(),
+        };
+        let mut materials = vec![];
+        for k in 0..m.subs.len().max(1) {
+            let (_, tex, col) = mats.get(k).or(mats.last()).cloned().unwrap_or_else(|| (String::new(), None, [0.8, 0.8, 0.8, 1.0]));
+            let mut mat = Material { base_color: Color { r: col[0], g: col[1], b: col[2], a: col[3] }, ..Material::default() };
+            if let Some(t) = tex {
+                // ( as the file names it, else by its name beside the file or in a textures folder )
+                let fname = Path::new(&t).file_name().map(|f| f.to_owned());
+                let found = [dir.join(&t)].into_iter().chain(fname.iter().flat_map(|f| [dir.join(f), dir.join("textures").join(f), dir.join("Textures").join(f)])).find(|p| p.is_file());
+                if let Some(p) = found {
+                    match image::open(&p) {
+                        Ok(img) => {
+                            mat.base_tex = b.texture(&p.display().to_string(), p.file_stem().map_or("texture".into(), |s| s.to_string_lossy()).as_ref(), img.to_rgba8())?;
+                            mat.base_color = Color::WHITE;
+                        }
+                        Err(e) => eprintln!("texture {}: {e}", p.display()),
+                    }
+                }
+            }
+            materials.push(mat);
+        }
+        b.add_part(&label, g, materials);
+    }
+    b.finish()
+}
+
 pub(crate) fn import_obj(file: &Path, name: &str, opts: ImportOpts) -> Result<Converted> {
     let (models, mtl) = tobj::load_obj(file, &tobj::LoadOptions { triangulate: true, single_index: true, ..Default::default() })
         .with_context(|| format!("read {}", file.display()))?;
@@ -444,4 +551,30 @@ pub(crate) fn import_obj(file: &Path, name: &str, opts: ImportOpts) -> Result<Co
         b.add_part(&model.name, g, vec![mat]);
     }
     b.finish()
+}
+
+#[cfg(test)]
+mod fbx_tests {
+    use super::*;
+
+    /// (with a Unity sample on this machine) an FBX comes in as parts with its triangles, the size Unity has it.
+    #[test]
+    #[ignore]
+    fn an_fbx_comes_in() {
+        let f = Path::new("C:/Projects/cutting-corners/Library/PackageCache/com.unity.testtools.codecoverage@1.2.5/Samples~/Tutorial/Asteroids/Visuals/Models/ship.FBX");
+        let c = convert(f, ImportOpts::default()).unwrap();
+        let tris: usize = c.meshes.values().flat_map(|m| m.submeshes.iter()).map(|s| s.as_ref().map_or(0, |b| b.len() / 12)).sum();
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for m in c.meshes.values() {
+            for p in m.vertices.as_deref().unwrap().chunks_exact(12) {
+                for k in 0..3 {
+                    let v = f32::from_le_bytes(p[k * 4..k * 4 + 4].try_into().unwrap());
+                    lo[k] = lo[k].min(v);
+                    hi[k] = hi[k].max(v);
+                }
+            }
+        }
+        eprintln!("{} parts, {tris} triangles, size {:?}", c.object.parts.len(), [0, 1, 2].map(|k| hi[k] - lo[k]));
+        assert!(!c.object.parts.is_empty() && tris > 10);
+    }
 }

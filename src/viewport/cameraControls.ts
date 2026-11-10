@@ -53,6 +53,13 @@ export class CameraController {
     return this.drag?.mode === "fly";
   }
 
+  /**
+   * A press the camera took that's someone else's ( a right click cancelling an operator ): no fly.
+  **/
+  letGo() {
+    this.drag = null;
+  }
+
   private onDown = ( e: PointerEvent ) => {
     if ( this.riderMode ) return;
     if ( e.button === 1 || ( e.button === 0 && e.altKey ) ) {
@@ -121,16 +128,18 @@ export class CameraController {
   private onWheel = ( e: WheelEvent ) => {
     e.preventDefault();
     if ( this.riderMode ) return;
+    // ( Shift finer, Ctrl coarser, as a field's dragged; Shift+wheel comes as a sideways scroll on Windows )
+    const delta  = e.deltaY || e.deltaX, rate = e.shiftKey ? 0.25 : e.ctrlKey ? 3 : 1;
     if ( this.flying ) {
-      this.flySpeed = clamp( this.flySpeed * ( e.deltaY < 0 ? 1.25 : 0.8 ), 1, 2000 );
+      this.flySpeed = clamp( this.flySpeed * Math.pow( delta < 0 ? 1.25 : 0.8, rate ), 1, 2000 );
       return;
     }
     this.glide   = null;
     // ( toward the point under the mouse )
-    const factor = Math.pow( 1.0015, e.deltaY );
+    const factor = Math.pow( 1.0015, delta * rate );
     const rect   = this.dom.getBoundingClientRect();
     const hit    = this.pickPoint( e.clientX - rect.left, e.clientY - rect.top );
-    if ( hit && e.deltaY < 0 ) this.target.lerp( hit, 1 - factor );
+    if ( hit && delta < 0 ) this.target.lerp( hit, 1 - factor );
     this.distance = clamp( this.distance * factor, 0.2, 50000 );
     this.apply();
   };

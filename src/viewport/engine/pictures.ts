@@ -62,7 +62,8 @@ export class Pictures {
     const cam  = this.engine.camera.clone();
     cam.aspect = width / height;
     cam.updateProjectionMatrix();
-    this.engine.terrainR.update( cam );
+    this.engine.terrainR.update( cam, height );
+    this.engine.customR.updateMatrices();
     // ( as the screen shows it: tone-mapped, in sRGB )
     rt.texture.colorSpace = THREE.SRGBColorSpace;
     this.engine.renderer.setOutputRenderTarget( rt );

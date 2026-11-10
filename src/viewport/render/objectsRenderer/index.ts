@@ -15,7 +15,6 @@ import { LiftsDrawn } from "./lifts";
 import { LooksDrawn } from "./looksDrawn";
 import { simulateRide } from "./ride";
 import { SpawnsDrawn } from "./spawns";
-import { TreesDrawn } from "./trees";
 
 export { PlaceholderLibrary } from "./library";
 export { simulateRide } from "./ride";
@@ -46,18 +45,21 @@ export interface TreeGroup {
   size:     [number, number, number];
   id:        string;
   instances: ArrayLike<number>;
+  // ( each instance's tree, to pick it by )
+  uids?:     string[];
 }
 
 export class ObjectsRenderer {
   // its parts, each in a file of its own beside this one
   readonly lifts  = new LiftsDrawn( this );  // the lifts
   readonly spawns = new SpawnsDrawn( this ); // the spawns
-  readonly trees  = new TreesDrawn( this );  // the game's trees
   readonly looks  = new LooksDrawn( this );  // the game's look on its objects
 
   readonly group                = new THREE.Group();
   objects                       = new Map<string, THREE.Mesh>();
   lastObjects: ObjectEntry[]    = [];
+  // ( each object as it was last drawn, and whether it was picked: one that's the same isn't gone over again )
+  private drawnAs               = new Map<string, { o: ObjectEntry; picked: boolean }>();
   // every game look asked for so far, built
   settled:     Promise<unknown> = Promise.resolve();
   private materials             = new Map<number, THREE.MeshStandardNodeMaterial>();
@@ -84,11 +86,19 @@ export class ObjectsRenderer {
     const selObj   = new Set( selection.filter( ( s ) => s.kind === "object" ).map( ( s ) => s.uid ) );
     const selSpawn = new Set( selection.filter( ( s ) => s.kind === "spawn"  ).map( ( s ) => s.uid ) );
 
-    const seen = new Set<string>();
+    const seen    = new Set<string>();
+    // ( what changed: the objects moved or set otherwise, and whether any came or went )
+    const changed: string[] = [];
+    let came      = false;
     for ( const o of objects ) {
       seen.add( o.uid );
       let mesh = this.objects.get( o.uid );
+      const as = this.drawnAs.get( o.uid ), picked = selObj.has( o.uid );
+      if ( mesh && as?.o === o && as.picked === picked && !o.lift ) continue;
+      this.drawnAs.set( o.uid, { o, picked } );
+      changed.push( o.uid );
       if ( !mesh ) {
+        came            = true;
         const info      = this.lib.info( o.id );
         mesh            = new THREE.Mesh( ( info && this.lib.loadedFile( info.file ) ) ?? unknownGeo, this.mat( DEFAULT_COLOR ) );
         mesh.userData   = { kind: "object", uid: o.uid };
@@ -114,12 +124,14 @@ export class ObjectsRenderer {
       if ( !seen.has( uid ) ) {
         this.group.remove( m );
         this.objects.delete( uid );
+        this.drawnAs.delete( uid );
         this.looks.lookOf.delete( uid );
+        came = true;
       }
     for ( const [uid, l] of this.lifts.drawn )
       if ( !seen.has( uid ) || !objects.find( ( o ) => o.uid === uid )?.lift ) this.lifts.drop( uid, l );
     this.lastObjects = objects;
-    this.looks.layout();
+    if ( came || changed.length ) this.looks.layout( came ? undefined : changed );
 
     const seenS = new Set<string>();
     for ( const s of spawns ) {

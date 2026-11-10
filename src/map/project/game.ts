@@ -30,19 +30,37 @@ export async function exportToGame() {
       .catch( ( e ) => st.toast( `The scenery's view of the play area wasn't updated: ${e}`, "error" ) );
     // modelled pieces' meshes, into the library the map carries
     await import( "../../model/export" ).then( ( m ) => m.updateModelMeshes() ).catch( ( e ) => st.toast( `The modelled pieces weren't exported: ${e}`, "error" ) );
+    const mapsDir = ( await ipc.appInfo() ).mapsDir;
+    const map     = () => useEditor.getState().map!;
+    // a map made from one of the game's own keeps its id: the game won't load one of yours under it ( it skips it for
+    // its own, the changes nowhere to be seen ), so it goes in as a new map
+    const builtin = await ipc.builtinMaps().catch( () => [] as [string, string][] );
+    const own     = builtin.find( ( [id] ) => id === map().id );
+    if ( own && !testRun.active ) {
+      st.setBusy( null );
+      const a = await ask( {
+        title:   `“${own[1] || map().name}” is one of the game's own maps`,
+        text:    { label: "New map's name", value: `${map().name} 2` },
+        answers: [{ id: "new", label: "Save as new map", usesText: true, primary: true }],
+      } );
+      if ( !a ) return null;
+      st.setBusy( "Exporting…" );
+      const named = mapIdFrom( a.text ), taken = new Set( builtin.map( ( [id] ) => id ) );
+      useEditor.setState( ( s ) => ( { map: s.map && { ...s.map, id: named && !taken.has( named ) ? named : uuid(), name: a.text }, dirty: true } ) );
+      rememberRecent( dir, a.text, map().id );
+    }
     // a map in the game with this id that this project didn't write ( the one it was imported from, or another
     // project's ): replaced only when you say so
-    const mapsDir = ( await ipc.appInfo() ).mapsDir;
-    const target  = joinPath( mapsDir, `${st.map!.id}.jbrmap` );
+    const target  = joinPath( mapsDir, `${map().id}.jbrmap` );
     const there   = await ipc.fileStamp( target ).catch( () => null );
     const was     = meta.exported;
-    const ours    = was && there && was.id === st.map!.id && was.bytes === there[0] && Math.abs( was.modified - there[1] ) < 2000;
+    const ours    = was && there && was.id === map().id && was.bytes === there[0] && Math.abs( was.modified - there[1] ) < 2000;
     if ( there && !ours && !testRun.active ) {
       st.setBusy( null );
-      const name = st.map!.name.replace( /<[^>]*>/g, "" ).trim() || "This map";
+      const name = map().name.replace( /<[^>]*>/g, "" ).trim() || "This map";
       const a    = await ask( {
         title:   `“${name}” is already in the game`,
-        text:    { label: "New map's name", value: `${st.map!.name} 2` },
+        text:    { label: "New map's name", value: `${map().name} 2` },
         answers: [
           { id: "new",     label: "Save as new map", usesText: true },
           { id: "replace", label: "Replace it",      primary:  true },

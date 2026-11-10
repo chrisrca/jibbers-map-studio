@@ -61,23 +61,47 @@ pub(crate) fn times(img: &image::RgbaImage, linear: bool, k: f32) -> image::Rgba
     out
 }
 
-pub(crate) fn material(look: &Path, m: &LookMaterial, colour: Option<u32>, textures: &mut IndexMap<String, TextureData>) -> Result<Material> {
-    // the piece's colour as a turn of the paint's hue, from the game's own blue (white and black: no colour, lighter
-    // or darker)
-    let (turn, sat, bright) = match colour {
-        Some(hex) => {
-            let (h, s, l) = hsl(hex);
-            if s < 0.25 { (0.0, 0.0, if l > 0.5 { 1.6 } else { 0.5 }) } else { (h - hsl(BLUE).0, 1.0, 1.0) }
-        }
-        None => (0.0, 1.0, 1.0),
-    };
-    let turn = (turn + m.hue_shift).rem_euclid(1.0);
+/// How a material's paint is coloured: turned round the colour wheel by `turn` (the game's hue shift), its colour
+/// kept to `sat`, its stored values times `bright`, its light times `light`; `label` the colour's name for its maps.
+#[derive(Clone, Debug)]
+pub(crate) struct Paint {
+    pub(crate) turn: f32,
+    pub(crate) sat: f32,
+    pub(crate) bright: f32,
+    pub(crate) light: Option<f32>,
+    pub(crate) label: Option<String>,
+}
+
+impl Paint {
+    /// As the game's prefab has it.
+    pub(crate) fn plain(m: &LookMaterial) -> Paint {
+        Paint { turn: m.hue_shift, sat: 1.0, bright: 1.0, light: None, label: None }
+    }
+
+    /// As the game colours it (features/colours.rs).
+    pub(crate) fn game(p: &GamePaint, colour: &str) -> Paint {
+        Paint { turn: p.hue, sat: 1.0, bright: 1.0, light: p.brightness, label: Some(readable(colour)) }
+    }
+
+    /// A colour the game's own colours for the feature aren't known in: the paint's hue turned from the game's blue
+    /// to it (white and black: no colour, lighter or darker).
+    pub(crate) fn near(m: &LookMaterial, hex: u32) -> Paint {
+        let (h, s, l) = hsl(hex);
+        let (turn, sat, bright) = if s < 0.25 { (0.0, 0.0, if l > 0.5 { 1.6 } else { 0.5 }) } else { (h - hsl(BLUE).0, 1.0, 1.0) };
+        let label = NAMED.iter().find(|(_, h)| *h == hex).map(|(n, _)| readable(n));
+        Paint { turn: turn + m.hue_shift, sat, bright, light: None, label }
+    }
+}
+
+pub(crate) fn material(look: &Path, m: &LookMaterial, paint: &Paint, textures: &mut IndexMap<String, TextureData>) -> Result<Material> {
+    let turn = paint.turn.rem_euclid(1.0);
     let turn = if !(1e-3..=1.0 - 1e-3).contains(&turn) { 0.0 } else { turn };
+    let (sat, bright) = (paint.sat, paint.bright);
     // (the game's brightness multiplies what its shader draws, in linear light: ×2 there is ×1.37 to the paint's
     // stored values, not ×2 — which burnt the paint to flat blue)
-    let light = m.brightness;
+    let light = paint.light.unwrap_or(m.brightness);
     // what it's shown as: the game's material name, the map, and the piece's colour when it was painted in one
-    let colour_name = colour.and_then(|hex| NAMED.iter().find(|(_, h)| *h == hex)).map(|(n, _)| readable(n));
+    let colour_name = paint.label.clone();
     let mut put = |file: &Option<String>, img: &image::RgbaImage, linear: bool, suffix: &str, map: &str| -> Result<String> {
         let stem = Path::new(file.as_deref().unwrap_or("")).file_stem().unwrap_or_default().to_string_lossy().to_string();
         let mut label = readable(&m.name);
@@ -109,12 +133,12 @@ pub(crate) fn material(look: &Path, m: &LookMaterial, colour: Option<u32>, textu
     let painted = turn != 0.0 || sat != 1.0 || bright != 1.0 || light != 1.0;
     match load_tex(look, &m.base, BASE_MAX)? {
         Tex::Image(img) => {
-            let img = if painted { repaint(img, turn, sat, bright, light) } else { img };
+            let img = if painted { repaint(img, turn, sat, bright, light, linear("base", false)) } else { img };
             let suffix = if painted { format!("-{:.0}-{:.0}-{:.0}-L{:.0}", turn * 100.0, sat * 100.0, bright * 100.0, light * 100.0) } else { String::new() };
             mat.base_tex = put(&m.base, &img, linear("base", false), &suffix, "")?;
         }
         Tex::Flat(v) => {
-            let c = repaint(image::RgbaImage::from_pixel(1, 1, image::Rgba([v; 4])), turn, sat, bright, light);
+            let c = repaint(image::RgbaImage::from_pixel(1, 1, image::Rgba([v; 4])), turn, sat, bright, light, linear("base", false));
             let p = c.get_pixel(0, 0).0;
             mat.base_color = Color { r: p[0] as f32 / 255.0, g: p[1] as f32 / 255.0, b: p[2] as f32 / 255.0, a: 1.0 };
         }
@@ -187,41 +211,60 @@ pub(crate) fn hsl(hex: u32) -> (f32, f32, f32) {
     (h / 6.0, s, l)
 }
 
+/// A colour (as the shader gets it) turned round the colour wheel by `turn` (0..1) in HSV, its colour kept to `sat`.
+pub(crate) fn hsv_turn([r, g, b]: [f32; 3], turn: f32, sat: f32) -> [f32; 3] {
+    let (mx, mn) = (r.max(g).max(b), r.min(g).min(b));
+    let v = mx;
+    let s = if mx > 0.0 { (mx - mn) / mx } else { 0.0 } * sat;
+    let hh = if mx == mn {
+        0.0
+    } else if mx == r {
+        ((g - b) / (mx - mn)).rem_euclid(6.0)
+    } else if mx == g {
+        (b - r) / (mx - mn) + 2.0
+    } else {
+        (r - g) / (mx - mn) + 4.0
+    } / 6.0;
+    let hh = (hh + turn).rem_euclid(1.0);
+    let i = (hh * 6.0).floor();
+    let f = hh * 6.0 - i;
+    let (pv, qv, tv) = (v * (1.0 - s), v * (1.0 - f * s), v * (1.0 - (1.0 - f) * s));
+    let (r2, g2, b2) = match i as i32 % 6 {
+        0 => (v, tv, pv),
+        1 => (qv, v, pv),
+        2 => (pv, v, tv),
+        3 => (pv, qv, v),
+        4 => (tv, pv, v),
+        _ => (v, pv, qv),
+    };
+    [r2, g2, b2]
+}
+
+pub(crate) fn to_linear(c: f32) -> f32 {
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
+
+pub(crate) fn to_srgb(c: f32) -> f32 {
+    if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
+}
+
 /// The paint turned round the colour wheel by `turn` (0..1), its colour kept to `sat`, its stored values times
 /// `bright` (a piece's white or black), and its light times `light` (the game's MapObject brightness, in linear).
-pub(crate) fn repaint(mut img: image::RgbaImage, turn: f32, sat: f32, bright: f32, light: f32) -> image::RgbaImage {
-    let to_linear = |c: f32| if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
-    let to_srgb = |c: f32| if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 };
+/// Turned as the game's shader does: in HSV, on the values it gets (an sRGB paint's decoded to linear first).
+pub(crate) fn repaint(mut img: image::RgbaImage, turn: f32, sat: f32, bright: f32, light: f32, linear: bool) -> image::RgbaImage {
+    let turned = turn != 0.0 || sat != 1.0;
     for p in img.pixels_mut() {
-        let [r, g, b] = [p[0], p[1], p[2]].map(|v| v as f32 / 255.0);
-        let (mx, mn) = (r.max(g).max(b), r.min(g).min(b));
-        let v = mx;
-        let s = if mx > 0.0 { (mx - mn) / mx } else { 0.0 } * sat;
-        let mut hh = if mx == mn {
-            0.0
-        } else if mx == r {
-            ((g - b) / (mx - mn)).rem_euclid(6.0)
-        } else if mx == g {
-            (b - r) / (mx - mn) + 2.0
+        let c = [p[0], p[1], p[2]].map(|v| v as f32 / 255.0);
+        let c = if !turned {
+            c
+        } else if linear {
+            hsv_turn(c, turn, sat)
         } else {
-            (r - g) / (mx - mn) + 4.0
-        } / 6.0;
-        hh = (hh + turn).rem_euclid(1.0);
-        // back to RGB
-        let i = (hh * 6.0).floor();
-        let f = hh * 6.0 - i;
-        let (pv, qv, tv) = (v * (1.0 - s), v * (1.0 - f * s), v * (1.0 - (1.0 - f) * s));
-        let (r2, g2, b2) = match i as i32 % 6 {
-            0 => (v, tv, pv),
-            1 => (qv, v, pv),
-            2 => (pv, v, tv),
-            3 => (pv, qv, v),
-            4 => (tv, pv, v),
-            _ => (v, pv, qv),
+            hsv_turn(c.map(to_linear), turn, sat).map(|c| to_srgb(c.clamp(0.0, 1.0)))
         };
-        for (k, c) in [r2, g2, b2].into_iter().enumerate() {
+        for (k, c) in c.into_iter().enumerate() {
             let c = (c * bright).clamp(0.0, 1.0);
-            let c = if light == 1.0 { c } else { to_srgb((to_linear(c) * light).clamp(0.0, 1.0)) };
+            let c = if light == 1.0 { c } else if linear { (c * light).clamp(0.0, 1.0) } else { to_srgb((to_linear(c) * light).clamp(0.0, 1.0)) };
             p[k] = (c * 255.0).round().clamp(0.0, 255.0) as u8;
         }
     }

@@ -23,15 +23,26 @@ export function ToolColumn() {
   const transform = ( m: "translate" | "rotate" | "scale" ) => () => useEditor.setState( { tool: "select", gizmoMode: m } );
   // editing a rail's points: scale does nothing to a point
   const pointEdit = useEditor( ( s ) => !!s.railEdit );
+  const pick      = useEditor( ( s ) => s.designPick );
   if ( tool === "material" || tool === "model" ) return <AssetsToolbar />;
-  // ( Blender's toolbar: groups of tools, its own icons where it has the tool )
+  // ( Blender's toolbar: groups of tools, its own icons where it has the tool; Select Box or Cursor let go of by any
+  // other )
   const tb = ( key: string, icon: IconName | { tool: string }, title: string, on: boolean, run: () => void ) => (
-    <button key={key} className={`tool ${on ? "on" : ""}`} title={title} onClick={run}>
+    <button key={key} className={`tool ${on && !pick ? "on" : ""}`} title={title} onClick={() => { useEditor.setState( { designPick: null } ); run(); }}>
       {typeof icon === "string" ? <Icon name={icon} size={18} /> : <ToolIcon name={icon.tool} />}
+    </button>
+  );
+  const pb = ( id: "box" | "cursor", icon: string, title: string ) => (
+    <button key={id} className={`tool ${pick === id ? "on" : ""}`} title={title} onClick={() => useEditor.setState( { designPick: id } )}>
+      <ToolIcon name={icon} />
     </button>
   );
   return (
     <div className="tool-column bl">
+      <div className="tool-group">
+        {pb( "box",    "ops.generic.select_box", "Select Box" )}
+        {pb( "cursor", "ops.generic.cursor",     "Cursor"     )}
+      </div>
       { mode === "object" && (
         <>
           <div className="tool-group">
@@ -44,6 +55,9 @@ export function ToolColumn() {
             {tb( "scatter", "draw",  "Scatter",       tool === "scatter", () => st().setTool( "scatter" ) )}
             {tb( "spawn",   "spawn", "Add Spawn (N)", tool === "spawn",   () => st().setTool( "spawn"   ) )}
           </div>
+          <div className="tool-group">
+            {tb( "collider", "collider", "Colliders", tool === "collider", () => st().setTool( "collider" ) )}
+          </div>
         </>
       ) }
       {mode === "paint" && <div className="tool-group">{PAINT_TOOLS.map( ( t, i ) => tb( t.id, t.icon, `${t.label} (${i + 1})`, paintTool === t.id, () => st().setPaint( { tool: t.id } ) ) )}</div>}
@@ -54,6 +68,7 @@ export function ToolColumn() {
             {tb( "form",  "mountain",   "Formation",    tool === "shape" && shapeKind === "formation", () => useEditor.setState( { tool: "shape", shapeKind: "formation" } ) )}
             {tb( "curve", "shapeCurve", "Ramp (H)",     tool === "shape" && shapeKind === "curve", () => useEditor.setState( { tool: "shape", shapeKind: "curve" } ) )}
             {tb( "copy",  "shapeCopy",  "Copy Terrain", tool === "shape" && shapeKind === "stamp", () => useEditor.setState( { tool: "shape", shapeKind: "stamp" } ) )}
+            {tb( "ski",   "skiLine",    "Ski Line",     tool === "shape" && shapeKind === "skiline", () => useEditor.setState( { tool: "shape", shapeKind: "skiline" } ) )}
           </div>
           <div className="tool-group">
             { BRUSHES.map( ( b ) =>
@@ -68,6 +83,12 @@ export function ToolColumn() {
     </div>
   );
 }
+
+// ( Select Box and Cursor let go of when the mode or its tool changes, by a key or a menu as much as the toolbar )
+useEditor.subscribe( ( s, p ) => {
+  if ( s.designPick && ( s.tool !== p.tool || s.gizmoMode !== p.gizmoMode || s.shapeKind !== p.shapeKind || s.sculpt.brush !== p.sculpt.brush || s.paint.tool !== p.paint.tool ) )
+    useEditor.setState( { designPick: null } );
+} );
 
 // Grind lines on every jib ( selected jibs always show theirs ).
 export let grindOn = false;

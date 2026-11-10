@@ -102,11 +102,12 @@ export function presetCurve( p: CurvePreset ): CurveData {
 }
 
 /**
- * Where a spline goes: points along it ( and the size there ), a corner kept at every sharp point.
+ * Where a spline goes: points along it ( the size there, and how far along its own points: 1.5 halfway from the second
+ * to the third ), a corner kept at every sharp point.
 **/
-export function samplePath( s: Spline, resolution: number ): { p: V3; r: number }[] {
+export function samplePath( s: Spline, resolution: number ): { p: V3; r: number; t: number }[] {
   const pts = s.points, n = pts.length;
-  if ( n < 2 ) return pts.map( ( q ) => ( { p: q.p, r: q.r } ) );
+  if ( n < 2 ) return pts.map( ( q, i ) => ( { p: q.p, r: q.r, t: i } ) );
   const at      = ( i: number ) => pts[s.closed ? ( i + n ) % n : Math.max( 0, Math.min( n - 1, i ) )];
   // a smooth point's tangent runs between its neighbours; a sharp point has none ( the curve turns there )
   const tangent = ( i: number ): V3 => {
@@ -118,8 +119,8 @@ export function samplePath( s: Spline, resolution: number ): { p: V3; r: number 
     }
     return mul( sub( at( i + 1 ).p, at( i - 1 ).p ), 0.5 );
   };
-  const out: { p: V3; r: number }[] = [];
-  const segs                        = s.closed ? n : n - 1;
+  const out: { p: V3; r: number; t: number }[] = [];
+  const segs                                   = s.closed ? n : n - 1;
   for ( let i = 0; i < segs; i++ ) {
     const a     = at( i ), b = at( i + 1 ), ta = tangent( i ), tb = tangent( i + 1 );
     // a straight piece ( between sharp points, or with its tangents along it ) needs no steps between its ends
@@ -129,10 +130,10 @@ export function samplePath( s: Spline, resolution: number ): { p: V3; r: number 
     for ( let k = 0; k < steps; k++ ) {
       const t   = k / steps, t2 = t * t, t3 = t2 * t;
       const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
-      out.push( { p: add( add( mul( a.p, h00 ), mul( ta, h10 ) ), add( mul( b.p, h01 ), mul( tb, h11 ) ) ), r: a.r + ( b.r - a.r ) * t } );
+      out.push( { p: add( add( mul( a.p, h00 ), mul( ta, h10 ) ), add( mul( b.p, h01 ), mul( tb, h11 ) ) ), r: a.r + ( b.r - a.r ) * t, t: i + t } );
     }
   }
-  if ( !s.closed ) out.push( { p: pts[n - 1].p, r: pts[n - 1].r } );
+  if ( !s.closed ) out.push( { p: pts[n - 1].p, r: pts[n - 1].r, t: n - 1 } );
   // ( two samples in the same place would give no direction )
   return out.filter( ( q, i ) => i === 0 || len( sub( q.p, out[i - 1].p ) ) > 1e-6 );
 }

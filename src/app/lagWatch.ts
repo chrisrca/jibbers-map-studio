@@ -1,6 +1,7 @@
-// Watches for the editor getting slow — the 3D view drawing few frames, or mouse moves reaching it late — and then
-// saves a report with what was going on: frame times, mouse moves per second, the game's window state and its own
-// frame rate, GPU and process figures. Slowdowns that only happen on one machine can be read from it afterwards.
+// Watches for the editor getting slow — the 3D view drawing few frames, or mouse moves reaching it late — and, in a
+// dev build, then saves a report with what was going on: frame times, mouse moves per second, the game's window state
+// and its own frame rate, GPU and process figures. In a release it only keeps the figures, for Help › Save studio logs
+// ( lagSummary ).
 //
 // Mouse moves arriving late look like this: while a button is held, a move comes long after the last one and far
 // from it ( the hand kept moving; the moves were held up on their way in ). The view itself keeps drawing at full
@@ -48,16 +49,13 @@ function onMove( e: PointerEvent ) {
 }
 
 /**
- * Writes a report now ( from the watcher, or Help › Save a lag report ). Returns where it went.
+ * What the editor is doing now: frame times, the last seconds' figures, the map's size.
 **/
-export async function saveLagReport( reason: string ): Promise<string | null> {
+export function lagSummary(): string[] {
   const st    = useEditor.getState();
   const eng   = getEngine();
   const f3    = frameStats( 3000 );
-  const lines = [
-    `Jibbers Map Studio lag report — ${new Date().toString()}`,
-    `why: ${reason}`,
-    "",
+  return [
     "== the editor",
     `3D view, last 3 s: ${f3.frames} frames, median ${f3.median.toFixed( 1 )} ms, worst ${f3.worst.toFixed( 0 )} ms`,
     "per second, newest last (frames drawn / longest frame / mouse moves received / moves that arrived late):",
@@ -68,6 +66,13 @@ export async function saveLagReport( reason: string ): Promise<string | null> {
     `memory: ${( ( performance as unknown as { memory?: { usedJSHeapSize: number } } ).memory?.usedJSHeapSize ?? 0 ) / 1e6 | 0} MB of JS heap`,
     "",
   ];
+}
+
+/**
+ * Writes a report now ( from the watcher in a dev build, or a self-test ). Returns where it went.
+**/
+export async function saveLagReport( reason: string ): Promise<string | null> {
+  const lines = [`Jibbers Map Studio lag report — ${new Date().toString()}`, `why: ${reason}`, "", ...lagSummary()];
   try {
     return await invoke<string>( "save_lag_report", { text: lines.join( "\n" ) } );
   } catch ( e ) {
@@ -98,7 +103,7 @@ export function startLagWatch() {
     const watching = st.projectDir && st.centerTab === "editor" && document.visibilityState === "visible" && perSecond[perSecond.length - 1].moves > 0;
     slowSeconds    = watching && f.frames < 15 ? slowSeconds + 1 : 0;
     lateSeconds    = late >= 3 ? lateSeconds + 1 : 0;
-    if ( ( slowSeconds >= 2 || lateSeconds >= 2 ) && Date.now() - lastReport > 120_000 ) {
+    if ( import.meta.env.DEV && ( slowSeconds >= 2 || lateSeconds >= 2 ) && Date.now() - lastReport > 120_000 ) {
       lastReport = Date.now();
       const why  = slowSeconds >= 2 ? `the 3D view drew ${f.frames} frames a second for ${slowSeconds} s` : `mouse moves arrived late (${late} jumps a second, ${lateSeconds} s running)`;
       saveLagReport( why ).then( ( path ) => {

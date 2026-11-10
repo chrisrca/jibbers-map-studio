@@ -5,9 +5,10 @@
 import * as THREE from "three";
 import { quatToUnityEuler, toThree, toUnity, unityEulerToQuat, type V3 } from "../core/coords";
 import { composeUnity } from "../core/transform";
-import { arr3, xyz, type CustomCollider, type CustomMaterial, type CustomObjectEntry } from "../core/types";
+import { arr3, xyz, type CustomCollider, type CustomMaterial, type CustomObjectEntry, type RailTweak } from "../core/types";
 import { buildMesh, modelColliders, newModel, packBuilt, type ModelData } from "./build";
 import { samplePath, styleOf, type CurveData } from "./curve";
+import { isBrushCollider } from "../pieces/brushColliders";
 import { railColliders, withRail } from "../pieces/rail";
 import type { Mesh } from "./mesh";
 import { paintAtlas, pieceTexture, putPieceTexture } from "../texture/meshPaint";
@@ -73,7 +74,8 @@ export function newModelObject( uid: string, mesh: Mesh, at: V3, given?: ModelDa
 **/
 export function withModel( o: CustomObjectEntry, model: ModelData ): CustomObjectEntry {
   const kit  = o.parts.filter( ( p ) => p.mesh !== meshKey( o.uid ) && !p.mesh.startsWith( `Models/${o.uid}/lod` ) );
-  const kc   = o.kitColliders ?? [];
+  // ( the colliders drawn on it with the Collider tool stay, as drawn )
+  const kc   = [...( o.kitColliders ?? [] ), ...o.colliders.filter( isBrushCollider )];
   const done = modelOnly( o, model );
   return kit.length || kc.length ? { ...done, parts: [...done.parts, ...kit], colliders: [...done.colliders, ...kc] } : done;
 }
@@ -113,18 +115,31 @@ function curveColliders( o: CustomObjectEntry & { model: ModelData }, own: Custo
   // ( a square tube or a flat bar is boxes along it, as wide and as high as it is )
   const rails = c.splines.map( ( s ) => {
     const st = styleOf( c, s );
-    return { points: samplePath( s, Math.min( 8, c.resolution ) ).map( ( q ) => q.p ), radius: st.radius, ...( st.profile === "round" ? {} : { box: [st.radius, st.profile === "flat" ? st.thickness : st.radius] as [number, number] } ) };
+    // ( `knots`: where each sample is along the spline's own points, for the rail's colliders changed by hand )
+    const pts = samplePath( s, Math.min( 8, c.resolution ) );
+    return { points: pts.map( ( q ) => q.p ), knots: pts.map( ( q ) => q.t ), radius: st.radius, ...( st.profile === "round" ? {} : { box: [st.radius, st.profile === "flat" ? st.thickness : st.radius] as [number, number] } ) };
   } );
   const jib   = o.surface_type === "Jib";
   const plain = jib ? ( "Generic" as const ) : o.surface_type;
-  const caps  = rails.flatMap( ( r, i ) => railColliders( o, r ).map( ( x ) => ( { ...x, surface_type: jib && i === 0 ? ( "Jib" as const ) : plain } ) ) );
   const body  = own.map( ( x ) => ( { ...x, surface_type: plain } ) );
   if ( jib && rails[0]?.points.length >= 2 ) {
+    // ( the grind rail's own: its way up and its colliders changed by hand )
     const railed = withRail( { ...o, colliders: [] }, { ...rails[0], solid: false, ...( o.rail?.up ? { up: o.rail.up } : {} ) } );
-    return { ...railed, colliders: [...body, ...caps] };
+    const rest   = rails.slice( 1 ).flatMap( ( r ) => railColliders( o, r ).map( ( x ) => ( { ...x, surface_type: plain } ) ) );
+    return { ...railed, colliders: [...body, ...railed.colliders, ...rest] };
   }
+  const caps = rails.flatMap( ( r ) => railColliders( o, r ).map( ( x ) => ( { ...x, surface_type: plain } ) ) );
   const { rail: _r, ...rest } = o;
   return { ...rest, colliders: [...body, ...caps] };
+}
+
+/**
+ * The piece with its rail's colliders changed by hand as `tweaks` says ( a curve piece's made again from its curve ).
+**/
+export function withTweaks( x: CustomObjectEntry, tweaks: RailTweak[] | undefined ): CustomObjectEntry {
+  if ( !x.rail ) return x;
+  const rail = { ...x.rail, tweaks: tweaks?.length ? tweaks : undefined };
+  return isModel( x ) && x.model.curve ? withModel( { ...x, rail }, x.model ) : withRail( x, rail );
 }
 
 /**
@@ -133,7 +148,8 @@ function curveColliders( o: CustomObjectEntry & { model: ModelData }, own: Custo
 export function railOfCurve( o: CustomObjectEntry ): CustomObjectEntry {
   const c = o.model?.curve, s = c?.splines[0];
   if ( !c || !s || !o.rail ) return o;
-  return { ...o, rail: { ...o.rail, points: s.points.map( ( q ) => [...q.p] as V3 ) } };
+  const { knots: _k, ...rail } = o.rail;
+  return { ...o, rail: { ...rail, points: s.points.map( ( q ) => [...q.p] as V3 ) } };
 }
 
 /**

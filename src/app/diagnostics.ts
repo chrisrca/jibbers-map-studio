@@ -1,19 +1,28 @@
-// Help > Save game diagnostics: a text report ( written by the Rust side, src-tauri/src/game/diag.rs ) of everything that
-// decides how the game sits inside the studio, plus what the UI knows, for sending to whoever is helping.
+// Help > Save game logs / Save studio logs: text files ( written by the Rust side, src-tauri/src/game/diag.rs ) for
+// sending to whoever is helping. The game's: everything that decides how it sits inside the studio, and its own logs.
+// The studio's: how it started, the warnings and errors it printed, its slowdown figures, the machine.
 
 import { invoke } from "@tauri-apps/api/core";
 import { desktopDir } from "@tauri-apps/api/path";
 import { save } from "@tauri-apps/plugin-dialog";
 import { joinPath } from "../core/ipc";
 import { useEditor } from "../map/store";
+import { lagSummary } from "./lagWatch";
 
-export async function saveGameDiagnostics() {
+/**
+ * Where to save `name`-<time>.txt ( the desktop to begin with ), or null if put off.
+**/
+async function saveTo( title: string, name: string ) {
   const stamp = new Date().toISOString().slice( 0, 19 ).replace( /[:T]/g, "-" );
-  const path  = await save( {
-    title:       "Save game diagnostics",
-    defaultPath: joinPath( await desktopDir().catch( () => "" ), `jibbers-studio-diagnostics-${stamp}.txt` ),
+  return save( {
+    title,
+    defaultPath: joinPath( await desktopDir().catch( () => "" ), `${name}-${stamp}.txt` ),
     filters:     [{ name: "Text", extensions: ["txt"] }],
   } );
+}
+
+export async function saveGameLogs() {
+  const path = await saveTo( "Save game logs", "jibbers-game-logs" );
   if ( !path ) return;
   const st    = useEditor.getState();
   const host  = document.querySelector<HTMLElement>( ".game-panel" );
@@ -31,8 +40,20 @@ export async function saveGameDiagnostics() {
   ];
   try {
     await invoke( "save_game_diagnostics", { path, frontend: lines.join( "\n" ) } );
-    st.toast( `Saved diagnostics to ${path}`, "success" );
+    st.toast( `Saved ${path}`, "success" );
   } catch ( e ) {
-    st.toast( `Couldn't save diagnostics: ${e}`, "error" );
+    st.toast( `Couldn't save the game logs: ${e}`, "error" );
+  }
+}
+
+export async function saveStudioLogs() {
+  const path = await saveTo( "Save studio logs", "jibbers-studio-logs" );
+  if ( !path ) return;
+  const st = useEditor.getState();
+  try {
+    await invoke( "save_studio_logs", { path, frontend: [`user agent ${navigator.userAgent}`, "", ...lagSummary()].join( "\n" ) } );
+    st.toast( `Saved ${path}`, "success" );
+  } catch ( e ) {
+    st.toast( `Couldn't save the studio logs: ${e}`, "error" );
   }
 }

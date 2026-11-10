@@ -44,6 +44,30 @@ pub async fn add_asset_to_project(project_dir: String, asset: String) -> CmdResu
         .map_err(err)
 }
 
+/// A model file (GLB, glTF, OBJ, FBX) brought into a project's scene as it is (the Assets workspace's Import): its
+/// meshes and textures into the project's library — not kept in your own — and its piece (the pivot at its bottom
+/// middle) to put down.
+#[tauri::command]
+pub async fn import_model_to_project(project_dir: String, file: String) -> CmdResult<PlacedAsset> {
+    tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<PlacedAsset> {
+        let c = crate::library::userassets::convert(&PathBuf::from(&file), crate::library::userassets::ImportOpts::default())?;
+        crate::library::userassets::merge_into_project(&PathBuf::from(&project_dir), c.meshes, c.textures)?;
+        Ok(PlacedAsset { object: c.object, library: crate::library::userassets::PROJECT_LIBRARY.into() })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(err)
+}
+
+/// A project's pieces (the Assets workspace's scene, as the editor has them) written to a .glb; how many meshes.
+#[tauri::command]
+pub async fn export_glb(project_dir: String, library: String, objects: Vec<crate::jbrmap::CustomObject>, name: String, out: String) -> CmdResult<usize> {
+    tauri::async_runtime::spawn_blocking(move || crate::project::glb::export(&PathBuf::from(project_dir), &library, &objects, &name, &PathBuf::from(out)))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)
+}
+
 /// Saves a project's custom object (moved to the origin by the editor) to the personal library.
 #[tauri::command]
 pub async fn save_custom_as_asset(project_dir: String, library: String, object: crate::jbrmap::CustomObject, name: String, over: Option<String>) -> CmdResult<crate::library::userassets::AssetInfo> {

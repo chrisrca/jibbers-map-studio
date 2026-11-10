@@ -34,8 +34,13 @@ pub(crate) struct Link {
     pub(crate) studio_pid: u32,
     pub(crate) size_stamp: Option<std::time::SystemTime>,
     pub(crate) size_changed: Instant,
+    /// out of sight in the studio: muted, the keyboard and mouse left to the editor (and paced)
     pub(crate) out_of_sight: bool,
-    pub(crate) saved: (f32, i32, i32),
+    /// paced to the screen's refresh: out of sight, or popped out behind another window
+    pub(crate) paced: bool,
+    /// the game's own volume, and its vsync and frame cap, while they're changed
+    pub(crate) saved_volume: Option<f32>,
+    pub(crate) saved_pace: Option<(i32, i32)>,
     pub(crate) input_without_focus: bool,
     pub(crate) status_at: Option<(Instant, i32)>,
     /// the size last asked of the game, and when (Unity only reports a new size a frame or so later)
@@ -64,7 +69,9 @@ impl Link {
             size_stamp: None,
             size_changed: Instant::now(),
             out_of_sight: false,
-            saved: (1.0, 1, -1),
+            paced: false,
+            saved_volume: None,
+            saved_pace: None,
             input_without_focus: false,
             status_at: None,
             asked: None,
@@ -271,12 +278,16 @@ impl Link {
                 ShowWindow(w, SW_SHOW);
                 log("the studio is gone: showing the game again");
             }
-            let parked = self.studio_parked;
-            self.set_out_of_sight(a, parked);
+            // (parked is hidden: a game window that shows is popped out, whatever the studio last wrote)
+            let parked = self.studio_parked && IsWindowVisible(w) == 0;
+            // (popped out behind another window, the studio's most likely: Windows doesn't pace a window it can't
+            // see, and the game ran at 1600 fps behind it, the graphics card flat out for frames nobody saw)
+            let behind = !parked && GetForegroundWindow() != w;
+            self.set_sight(a, parked, parked || behind);
             return;
         }
         let hidden = self.studio_hidden;
-        self.set_out_of_sight(a, hidden);
+        self.set_sight(a, hidden, hidden);
         let (sw, sh) = self.studio;
         // (while a panel edge is dragged the size changes every frame: wait till it settles)
         if sw < 64 || sh < 64 || self.size_changed.elapsed() < Duration::from_millis(200) {
@@ -346,36 +357,51 @@ impl Link {
         }
     }
 
-    /// Out of sight in the studio (another tab showing): quiet, the keyboard and mouse left to the editor, and paced
-    /// to the screen's refresh (Windows doesn't pace a window nobody can see: 1400+ fps for frames no one sees).
-    pub(crate) unsafe fn set_out_of_sight(&mut self, a: &Api, hidden: bool) {
-        if hidden == self.out_of_sight {
+    /// Out of sight in the studio (another tab showing, `quiet`): muted, the keyboard and mouse left to the editor.
+    /// `paced`: held to the screen's refresh (Windows doesn't pace a window nobody can see: 1400+ fps for frames no one
+    /// sees, the graphics card flat out). Each is done with what the game has of it: the volume not found had left the
+    /// game unpaced too.
+    pub(crate) unsafe fn set_sight(&mut self, a: &Api, quiet: bool, paced: bool) {
+        let u = self.unity.as_ref().unwrap();
+        if paced != self.paced {
+            self.paced = paced;
+            if let (Some((get_vs, set_vs)), Some((get_fps, set_fps))) = (u.vsync, u.target_fps) {
+                if paced {
+                    let hz = u
+                        .current_resolution
+                        .and_then(|m| a.invoke(m, std::ptr::null_mut(), &mut []).ok())
+                        .and_then(|o| a.unbox::<[u32; 4]>(o))
+                        .map(|r| if r[3] > 0 { (r[2] as f64 / r[3] as f64).round() as i32 } else { 0 })
+                        .unwrap_or(0);
+                    self.saved_pace.get_or_insert((get(a, get_vs), get(a, get_fps)));
+                    set(a, set_vs, 0i32);
+                    set(a, set_fps, if hz >= 30 { hz } else { 60 });
+                    log(&format!("paced to the screen ({} fps)", if hz >= 30 { hz } else { 60 }));
+                } else if let Some((vs, fps)) = self.saved_pace.take() {
+                    set(a, set_vs, vs);
+                    set(a, set_fps, fps);
+                    log("paced as the game sets it again");
+                }
+            } else {
+                log("can't pace the game: no vsync or frame cap found");
+            }
+        }
+        if quiet == self.out_of_sight {
             return;
         }
-        self.out_of_sight = hidden;
-        let ready = self.rewired_ready(a);
-        let u = self.unity.as_ref().unwrap();
-        let (Some((get_vol, set_vol)), Some((get_vs, set_vs)), Some((get_fps, set_fps))) = (u.volume, u.vsync, u.target_fps) else { return };
-        if hidden {
-            self.saved = (get(a, get_vol), get(a, get_vs), get(a, get_fps));
-            set(a, set_vol, 0f32);
-            let hz = u
-                .current_resolution
-                .and_then(|m| a.invoke(m, std::ptr::null_mut(), &mut []).ok())
-                .and_then(|o| a.unbox::<[u32; 4]>(o))
-                .map(|r| if r[3] > 0 { (r[2] as f64 / r[3] as f64).round() as i32 } else { 0 })
-                .unwrap_or(0);
-            set(a, set_vs, 0i32);
-            set(a, set_fps, if hz >= 30 { hz } else { 60 });
-        } else {
-            set(a, set_vol, self.saved.0);
-            set(a, set_vs, self.saved.1);
-            set(a, set_fps, self.saved.2);
+        self.out_of_sight = quiet;
+        if let Some((get_vol, set_vol)) = u.volume {
+            if quiet {
+                self.saved_volume.get_or_insert(get(a, get_vol));
+                set(a, set_vol, 0f32);
+            } else if let Some(v) = self.saved_volume.take() {
+                set(a, set_vol, v);
+            }
         }
-        if ready {
-            self.ignore_input_unfocused(a, hidden);
+        if self.rewired_ready(a) {
+            self.ignore_input_unfocused(a, quiet);
         }
-        log(if hidden { "out of sight in the studio: muted, paced to the screen" } else { "back in sight: sound and input on" });
+        log(if quiet { "out of sight in the studio: muted" } else { "back in sight: sound and input on" });
     }
 
     /// Every couple of seconds: how fast the game runs and what it thinks its state is (for the studio's lag reports).
@@ -395,6 +421,7 @@ impl Link {
         let v = serde_json::json!({
             "fps": (fps * 10.0).round() / 10.0,
             "outOfSight": self.out_of_sight,
+            "paced": self.paced,
             "insideStudio": !w.is_null() && !GetParent(w).is_null(),
             "vSync": vs,
             "targetFrameRate": tf,

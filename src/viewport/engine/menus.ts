@@ -13,7 +13,7 @@ import { newUid, unlocked, useEditor, type LastAdd, type Selection } from "../..
 import { type ModelData } from "../../model/build";
 import { presetCurve, type CurvePreset } from "../../model/curve";
 import { primitive, PRIMITIVES, type PrimitiveId } from "../../model/mesh";
-import { geometryToOrigin, isModelled, mirrorLocal, originTo, originToGeometry, shade } from "../../model/objectOps";
+import { applyTransform, geometryToOrigin, isModelled, mirrorLocal, originTo, originToGeometry, shade } from "../../model/objectOps";
 import { newCurveObject, newModelObject } from "../../model/objects";
 import { fenceOf, sectionFence } from "../../pieces/fence";
 import { showHideItems } from "../../ui/Toolbar/modeHeaders";
@@ -135,6 +135,14 @@ export class ViewportMenus {
   }
 
   /**
+   * Ctrl+A: Blender's Apply menu, at the mouse.
+  **/
+  applyMenu() {
+    const apply = this.objectMenuItems().find( ( i ) => i.label === "Apply" )?.sub;
+    if ( apply ) this.menuAtMouse( "Apply", apply );
+  }
+
+  /**
    * The Object menu's operators ( the right-click menu, and the header's Object menu ).
   **/
   objectMenuItems(): MenuItem[] {
@@ -162,6 +170,13 @@ export class ViewportMenus {
       { label: "Convert To", sub: [
         { label: "Model", bl: "outliner_ob_mesh",   disabled: sel.every( ( o ) => o.model ), run: () => void this.engine.modelling.convertToModel() },
         { label: "Mesh",  bl: "outliner_data_mesh", disabled: noModels, run: () => this.engine.modelling.convertToMesh() },
+      ] },
+      { label: "Apply", keys: "Ctrl A", disabled: noModels, sub: [
+        { label: "Location",         run: each( "Apply location",          ( o ) => applyTransform( o, { location: true } ) ) },
+        { label: "Rotation",         run: each( "Apply rotation",          ( o ) => applyTransform( o, { rotation: true } ) ) },
+        { label: "Scale",            run: each( "Apply scale",             ( o ) => applyTransform( o, { scale: true } ) ) },
+        { label: "All Transforms",   run: each( "Apply all transforms",    ( o ) => applyTransform( o, { location: true, rotation: true, scale: true } ) ) },
+        { label: "Rotation & Scale", run: each( "Apply rotation & scale", ( o ) => applyTransform( o, { rotation: true, scale: true } ) ) },
       ] },
       { label: "Set Origin", disabled: noModels, sub: [
         { label: "Geometry to Origin", run: each( "Geometry to origin", geometryToOrigin ) },
@@ -201,8 +216,8 @@ export class ViewportMenus {
   **/
   addMenu( anchor?: DOMRect ) {
     const r     = this.engine.host.getBoundingClientRect();
-    // ( in Assets, at the 3D cursor, as Blender adds )
-    const at    = ( this.engine.stage.shown ? toThree( useEditor.getState().cursor3d ) : null ) ?? this.engine.pickTerrain( this.engine.mouse.x, this.engine.mouse.y ) ?? this.engine.camera.position.clone().add( this.engine.camera.getWorldDirection( new THREE.Vector3() ).multiplyScalar( 10 ) );
+    // ( at the 3D cursor, as Blender adds: in Assets, and in Design once it's been put down )
+    const at    = ( this.engine.stage.shown || useEditor.getState().cursorDown ? toThree( useEditor.getState().cursor3d ) : null ) ?? this.engine.pickTerrain( this.engine.mouse.x, this.engine.mouse.y ) ?? this.engine.camera.position.clone().add( this.engine.camera.getWorldDirection( new THREE.Vector3() ).multiplyScalar( 10 ) );
     // under a header button, beside a toolbar one, else at the mouse
     const place = !anchor ? { x: r.left + this.engine.mouse.x, y: r.top + this.engine.mouse.y } : anchor.bottom <= r.top + 2 ? { x: anchor.left, y: anchor.bottom } : { x: anchor.right + 4, y: anchor.top };
     if ( this.engine.curveEd.uid ) {

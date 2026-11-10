@@ -171,17 +171,14 @@ function GradientLine() {
   ) : null;
 }
 
-export function Viewport( { onStats, hidden }: { onStats: ( s: Parameters<NonNullable<Engine["onStats"]>>[0] ) => void; hidden?: boolean } ) {
+export function Viewport( { onStats, onCursor, hidden }: { onStats: Engine["onStats"]; onCursor: Engine["onCursor"]; hidden?: boolean } ) {
   const host            = useRef<HTMLDivElement>( null );
-  const tool            = useEditor( ( s ) => s.tool       );
-  const cameraMode      = useEditor( ( s ) => s.cameraMode );
-  const sculpt          = useEditor( ( s ) => s.sculpt );
-  const label           = useRef<HTMLDivElement>( null );
 
   useEffect( () => {
     const e   = new Engine( host.current! );
     current   = e;
-    e.onStats = onStats;
+    e.onStats  = onStats;
+    e.onCursor = onCursor;
     e.loadTerrain();
     return () => {
       e.dispose();
@@ -202,22 +199,8 @@ export function Viewport( { onStats, hidden }: { onStats: ( s: Parameters<NonNul
       style={{ visibility: hidden ? "hidden" : "visible" }}
       // never start a native drag from the 3D view: it shows a "not allowed" cursor and steals the gizmo drag
       onDragStart={( e ) => e.preventDefault()}
-      // the brush size readout follows the cursor ( moved directly, no re-render per mouse move )
-      onPointerMove={( e ) => {
-        const el = label.current;
-        if ( !el || !host.current ) return;
-        const r            = host.current.getBoundingClientRect();
-        el.style.transform = `translate(${e.clientX - r.left + 18}px, ${e.clientY - r.top + 14}px)`;
-        el.style.opacity   = getEngine()?.cursorOnTerrain() ? "1" : "0";
-      }}
-      onPointerLeave={() => label.current && ( label.current.style.opacity = "0" )}
     >
-      { tool === "sculpt" && cameraMode !== "rider" && (
-        <div ref={label} className="brush-label" style={{ opacity: 0 }}>
-          {sculpt.radius < 10 ? sculpt.radius.toFixed( 1 ) : Math.round( sculpt.radius )} m
-          <span> · {Math.round( sculpt.brushes[sculpt.brush].strength * 100 )}%</span>
-        </div>
-      ) }
+      {/* ( the sculpt brush's size by the mouse is drawn in the view: render/brushLabel.ts ) */}
       <ToolColumn />
       <ViewMenu />
       <MeshBrush />

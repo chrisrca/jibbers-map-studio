@@ -89,6 +89,13 @@ const ICONS = {
     </>
   ),
   cube: <path d="M8 1.8 13.5 4.8v6.4L8 14.2 2.5 11.2V4.8zM2.5 4.8 8 7.8l5.5-3M8 7.8v6.4" />,
+  // ( a piece's collider: a box drawn round it, dashed )
+  collider: (
+    <>
+      <path d="M8 4.2 11.5 6.1v3.8L8 11.8 4.5 9.9V6.1z" />
+      <path d="M8 1 14.5 4.5v7L8 15 1.5 11.5v-7z" strokeDasharray="1.6 1.4" />
+    </>
+  ),
   brush: (
     <>
       <path d="M13.8 2.2 7.9 8.3" />
@@ -263,6 +270,14 @@ const ICONS = {
       <circle cx="3.4" cy="13" r="1.3" fill="currentColor" />
       <circle cx="8" cy="7.8" r="1.3" fill="currentColor" />
       <circle cx="12.4" cy="3.2" r="1.3" fill="currentColor" />
+    </>
+  ),
+  skiLine: (
+    <>
+      <path d="M1.8 13.4C3.4 9.3 5.8 7.4 8.6 6s4.3-2.6 5.2-4.4" />
+      <path d="M4.6 14.6C6.1 10.9 8.3 9.2 11 7.9s3.6-2.2 4.3-3.6" />
+      <circle cx="3.2" cy="14" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="9.8" cy="7" r="1.1" fill="currentColor" stroke="none" />
     </>
   ),
   shapeCurve: (

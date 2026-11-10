@@ -37,6 +37,8 @@ export interface EditView {
   menu( x: number, y: number, title: string, items: MenuItem[] ): void;
   // the surface under a screen point ( other pieces, the ground ), for snapping
   surfaceAt?( x: number, y: number, skip: string ): THREE.Vector3 | null;
+  // where the mouse is in the view ( the editor hears it move only while editing )
+  mouse?(): { x: number; y: number };
 }
 
 // ( TSL's node types are stricter than these simple expressions need )
@@ -65,14 +67,14 @@ export type Modal =
       propRadius: number;
     }
   | { kind: "inset"; o0: CustomObjectEntry; mesh0: Mesh; faces: Set<number>; pivot: THREE.Vector3; x0: number; y0: number; typed: string; individual: boolean }
-  | { kind: "bevel"; o0: CustomObjectEntry; mesh0: Mesh; edges: Set<string>; pivot: THREE.Vector3; x0: number; y0: number; typed: string; segments:   number  }
+  | { kind: "bevel"; o0: CustomObjectEntry; mesh0: Mesh; edges: Set<string>; pivot: THREE.Vector3; x0: number; y0: number; typed: string; segments:   number; verts?: Set<number> }
   | { kind: "loopcut"; cuts: number;            edge:  string | null; preview: THREE.Vector3[][] }
   | { kind: "slide";   o0:   CustomObjectEntry; mesh0: Mesh; edge: string; cuts: number; x0: number; y0: number; along: THREE.Vector2 }
   | { kind: "box";     x0:   number;            y0:    number; x1: number; y1: number; extend: boolean; subtract: boolean }
   | { kind: "spin";    o0:   CustomObjectEntry; mesh0: Mesh; sel0: Sel; axis: 0 | 1 | 2; steps: number; typed: string; centre: V3; turned: number; last: number }
   | { kind: "crease";  o0:   CustomObjectEntry; mesh0: Mesh; edges: string[]; pivot: THREE.Vector3; x0: number; y0: number; typed: string }
   | { kind: "knife";   o0:   CustomObjectEntry; pts:   KnifeHit[]; hover: KnifeHit | null; preview: THREE.Vector3[][] }
-  | { kind: "drag";    o0:   CustomObjectEntry; mesh0: Mesh; x0: number; label: string; run: ( px: number ) => { mesh: Mesh; status: string } };
+  | { kind: "drag";    o0:   CustomObjectEntry; mesh0: Mesh; x0: number; label: string; typed: string; run: ( px: number, typed: number | null ) => { mesh: Mesh; status: string } };
 
 // What's selected, the active element and the select mode, as an undo step keeps them.
 export type Picked = { sel: Sel; active: number | string | null; mode: SelectMode };
@@ -123,6 +125,11 @@ export class ModelEditor {
   }
   modal: Modal | null = null;
   mouse               = { x: 0, y: 0 };
+  // each piece's selection as Edit Mode was left, with the mesh it was on ( picked up again while that's unchanged )
+  private kept        = new Map<string, { mesh: Mesh; sel: Sel; active: number | string | null }>();
+  // the selection each version of the mesh was last left with: put back with it by Ctrl+Z and Ctrl+Shift+Z, as Blender's
+  private selOf       = new WeakMap<Mesh, { sel: Sel; active: number | string | null }>();
+  private lastMesh: Mesh | null = null;
   private lines:   LineSegments2;
   private dots:    THREE.Sprite;
   private faces:   THREE.Mesh;
@@ -177,9 +184,16 @@ export class ModelEditor {
   }
 
   enter( uid: string ) {
+    // ( where the mouse is now, not where it was last time: Shift+E, I, Ctrl+B measure from it )
+    const at           = this.view.mouse?.();
+    if ( at ) this.mouse = { x: at.x, y: at.y };
     this.uid           = uid;
-    this.sel           = emptySel();
-    this.active        = null;
+    // ( as Blender keeps it with the mesh: what was selected last time, while the mesh is the one it was left as; the
+    // first time, all of it, as a new primitive comes )
+    const g            = this.obj()?.model.mesh;
+    const was          = this.kept.get( uid );
+    this.sel           = was && g && was.mesh === g ? was.sel : g ? selFromVerts( g, g.v.map( ( _, i ) => i ) ) : emptySel();
+    this.active        = was && g && was.mesh === g ? was.active : null;
     this.modal         = null;
     this.group.visible = true;
     this.publish();
@@ -187,6 +201,8 @@ export class ModelEditor {
   }
   exit() {
     if ( this.modal ) this.cancel();
+    const g = this.obj()?.model.mesh;
+    if ( this.uid && g ) this.kept.set( this.uid, { mesh: g, sel: this.sel, active: this.active } );
     this.uid           = null;
     this.group.visible = false;
     useEditor.setState( { modelEdit: null } );
@@ -252,7 +268,15 @@ export class ModelEditor {
       return;
     }
     const g = o.model.mesh, M = this.matrix( o );
+    // ( a mesh back from before, by undo or redo: its selection with it )
+    const back = g !== this.lastMesh ? this.selOf.get( g ) : undefined;
+    if ( back && this.lastMesh ) {
+      this.sel    = { v: new Set( back.sel.v ), e: new Set( back.sel.e ), f: new Set( back.sel.f ) };
+      this.active = back.active;
+    }
+    this.lastMesh = g;
     this.clampSel( g );
+    this.selOf.set( g, { sel: this.snapshot().sel, active: this.active } );
     const W = g.v.map( ( p ) => this.world( o, p, M ) );
     for ( const f of this.hidden ) if ( f >= g.f.length ) this.hidden.delete( f );
     const vis          = this.shown( g );
@@ -376,9 +400,10 @@ export class ModelEditor {
     if ( e.button !== 0 ) return false;
     if ( e.altKey ) {
       // Alt+click: the loop through the edge nearest the mouse, whatever the select mode ( faces: the faces round it;
-      // Shift adds it )
+      // Shift adds it ); Ctrl+Alt+click: the ring across it
       const k = this.picking.pickEdge( x, y );
       if ( k === null ) return true;
+      if ( e.ctrlKey ) return this.picking.ring( k, e.shiftKey ), true;
       const g   = this.obj()!.model.mesh;
       const was = this.snapshot();
       if ( this.mode === "face" ) this.sel = selFromFaces( g, [...( e.shiftKey ? this.sel.f : [] ), ...faceLoop( g, k )] );
@@ -397,12 +422,21 @@ export class ModelEditor {
       this.modal = { kind: "box", x0: x, y0: y, x1: x, y1: y, extend, subtract };
       return true;
     }
+    // Ctrl+click: the shortest path from the active one ( Blender's ); the header's subtract mode: that one off
+    if ( e.ctrlKey ) return this.picking.path( el ), true;
     if ( subtract ) {
-      if ( this.toolbar.isSelected( el ) ) this.picking.selectOnly( el, true );
+      if ( this.toolbar.isSelected( el ) ) this.apply1( el );
       return true;
     }
     this.picking.selectOnly( el, extend );
     return true;
+  }
+
+  /**
+   * One element taken off the selection ( the header's subtract mode, a click ).
+  **/
+  private apply1( el: number | string ) {
+    this.picking.apply( ( g, s ) => ( typeof el === "string" ? selFromEdges( g, [...s.e].filter( ( k ) => k !== el ) ) : this.mode === "face" ? selFromFaces( g, [...s.f].filter( ( f ) => f !== el ) ) : selFromVerts( g, [...s.v].filter( ( v ) => v !== el ) ) ), null );
   }
 
   move( e: PointerEvent, x: number, y: number ): boolean {
@@ -554,6 +588,7 @@ export class ModelEditor {
     if ( m?.kind === "bevel"     ) this.ops.runBevel( e as unknown as PointerEvent );
     if ( m?.kind === "spin"      ) this.ops.runSpin( e as unknown as PointerEvent );
     if ( m?.kind === "crease"    ) this.ops.runCrease( e );
+    if ( m?.kind === "drag"      ) this.toolbar.runDrag();
   }
 
   // ---------------------------------------------------------------- keeping or putting back

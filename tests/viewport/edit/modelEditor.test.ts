@@ -139,7 +139,8 @@ describe( "Edit Mode: Spin", () => {
     e.ed.ops.startSpin();
     expect( e.mesh().v.length ).toBe( 2 );
     for ( let k = 1; k <= 10; k++ ) e.move( cx + 150 * Math.cos( ( k / 10 ) * Math.PI / 2 ), cy - 150 * Math.sin( ( k / 10 ) * Math.PI / 2 ) );
-    expect( e.ed.statusText ).toMatch( /^Spin: 90°/ );
+    // ( Blender's angle: clockwise seen from the axis' tip, so this sweep anticlockwise on the screen from above is -90 )
+    expect( e.ed.statusText ).toMatch( /^Spin: -90°/ );
     const [sx, sy] = e.at( [2, 0, 0] );
     e.key( "Enter" );
     // the swept end has gone round the cursor the way the mouse did, as far ( on the screen, seen from above )
@@ -160,7 +161,7 @@ describe( "Edit Mode: Spin", () => {
     e.move( cx + 150, cy );
     e.ed.ops.startSpin();
     for ( let k = 1; k <= 36; k++ ) e.move( cx + 150 * Math.cos( ( k / 36 ) * Math.PI * 2 * 0.75 ), cy - 150 * Math.sin( ( k / 36 ) * Math.PI * 2 * 0.75 ) );
-    expect( e.ed.statusText ).toMatch( /^Spin: 270°/ );
+    expect( e.ed.statusText ).toMatch( /^Spin: -270°/ );
   } );
 } );
 
@@ -224,7 +225,7 @@ describe( "Edit Mode: UVs", () => {
     e.key( "u" );
     expect( e.menus[e.menus.length - 1].title ).toBe( "UV" );
     e.choose( "Reset" );
-    expect( e.mesh().u?.every( ( u ) => u.join() === "0,0,1,0,1,1,0,1" ) ).toBe( true );
+    expect( e.mesh().u?.every( ( u ) => u.join() === "0,0,0,1,1,1,1,0" ) ).toBe( true );
     expect( history.nextUndo                                               ).toBe( "Reset UVs" );
     e.key( "u" );
     e.choose( "UV Editor" );

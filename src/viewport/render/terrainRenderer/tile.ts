@@ -7,6 +7,7 @@ import { type Rect, Terrain, TerrainChunk } from "../../../terrain/terrain";
 import { withLamps } from "../lamps";
 import { type GpuAccess, writeTextureRegion } from "./gpu";
 import { type N, blackTex, brushLook, brushRings, gameTex, powderOf, rockStandIn, snowLook, snowStandIn } from "./look";
+import { SnowMaterial } from "./snowLighting";
 
 export const SKIRT_FLAG = 1;
 
@@ -57,7 +58,7 @@ export class Tile {
     // ( the tile's numbers as uniforms, not written into its shader: every tile one shader, made once ( warmUp ) — as
     // constants each tile was a shader of its own, a new map's first ground compiling dozens at once, a second's freeze )
     const spacing    = uniform( chunk.spacing ), res1 = uniform( chunk.res - 1 ), sz = uniform( s ), at0 = uniform( new THREE.Vector2( i0, j0 ) );
-    const mat        = new THREE.MeshLambertNodeMaterial();
+    const mat        = new SnowMaterial();
     const grid       = attribute( "grid", "vec3" );
     const h          = textureLoad( this.heightTex, ivec2( grid.x.toInt().add( 1 ), grid.y.toInt().add( 1 ) ) ).x;
     const skirtDepth = spacing.mul( 8 ).add( 2 );
@@ -80,15 +81,25 @@ export class Tile {
     this.setMaskSize( maskTex );
     this.hueNode  = texture( maskTex, floor( mUv.mul( this.maskSize ) ).add( 0.5 ).div( this.maskSize ) ).level( float( 0 ) );
     this.flowNode = texture( flowTex ?? blackTex, mUv );
-    // the game's snow and boulders, tiled as its terrain shader tiles them: 30 and 150 times across a chunk
-    this.snowNode = texture( gameTex.snow ?? snowStandIn, mUv.mul( 30 ) );
-    this.rockNode = texture( gameTex.rock ?? rockStandIn, mUv.mul( 150 ) );
     // texture nodes of untyped textures lose their vec4 typing; it samples as rgba
     const mask    = this.maskNode as unknown as ReturnType<typeof vec4>;
     // corduroy direction ( Unity XZ ), as the game reads the flow mask: 0..1 = 0..360° from +Z towards +X; without one
     // the grooves run along +Z ( the game's default )
     const flowA   = ( this.flowNode as unknown as ReturnType<typeof vec4> ).r.mul( Math.PI * 2 );
     const fdx     = mix( float( 0 ), flowA.sin(), this.hasFlow ), fdz = mix( float( 1 ), flowA.cos(), this.hasFlow );
+    // the game's snow and boulders, laid as its terrain shader lays them: by world metres ( Unity XZ ), the snow's each
+    // repeat turned about its middle the way the corduroy runs ( Custom/PisteSnow ); the textures' first row is their
+    // top, Unity's their bottom
+    const world   = vec2( positionWorld.x, positionWorld.z.negate() );
+    const su      = world.mul( snowLook.snowScale ), f = fract( su ).sub( 0.5 );
+    const turned  = floor( su ).add( 0.5 ).add( vec2( f.x.mul( fdz ).sub( f.y.mul( fdx ) ), f.x.mul( fdx ).add( f.y.mul( fdz ) ) ) );
+    const snowUv  = mix( su, turned, this.hasFlow );
+    this.snowNode = texture( gameTex.snow ?? snowStandIn, vec2( snowUv.x, snowUv.y.negate() ) );
+    this.rockNode = texture( gameTex.rock ?? rockStandIn, vec2( world.x, world.y.negate() ).mul( snowLook.rockScale ) );
+    // ( the snow's bumps: its normal map, x in alpha × red as Unity packs them, turned with it )
+    const bumpTex = texture( gameTex.snowNormal ?? blackTex, vec2( snowUv.x, snowUv.y.negate() ) ) as unknown as ReturnType<typeof vec4>;
+    const bxy     = vec2( bumpTex.a.mul( bumpTex.r ), bumpTex.g ).mul( 2 ).sub( 1 ).mul( snowLook.snowBumps );
+    const bump    = mix( bxy, vec2( bxy.x.mul( fdz ).sub( bxy.y.mul( fdx ) ), bxy.x.mul( fdx ).add( bxy.y.mul( fdz ) ) ), this.hasFlow );
 
     mat.normalNode = Fn( () => {
       // stored normal is Unity space; mirror Z into three space
@@ -100,7 +111,9 @@ export class Tile {
       const phase  = positionWorld.x.mul( fdz ).sub( zU.mul( fdx ) ).mul( snowLook.pisteTiling );
       const powder = mask.a.mul( this.markings );
       const groove = sin( phase ).mul( snowLook.grooveStrength ).mul( snow ).mul( fade ).mul( float( 1 ).sub( powderOf( powder ) ) );
-      return transformNormalToView( n.add( vec3( fdz, 0, fdx ).mul( groove ) ).normalize() );
+      // ( and the snow's own bumps, where it's snow: Unity XZ into three's )
+      const bumped = n.add( vec3( bump.x, 0, bump.y.negate() ).mul( snow ).mul( snowLook.gameSnow ) );
+      return transformNormalToView( bumped.add( vec3( fdz, 0, fdx ).mul( groove ) ).normalize() );
     } )();
 
     mat.colorNode = Fn( () => {

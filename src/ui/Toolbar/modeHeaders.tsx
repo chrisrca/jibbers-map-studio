@@ -32,7 +32,7 @@ function selectAllItems() {
 export function showHideItems(): MenuItem[] {
   const st = useEditor.getState();
   return [
-    { label: "Show Hidden Objects", bl: "hide_off", keys: "Alt H",   disabled: !Object.keys( st.hiddenInView ).length, run: () => st.setHidden( Object.keys( st.hiddenInView ), false ) },
+    { label: "Show Hidden Objects", bl: "hide_off", keys: "Alt H",   disabled: !Object.keys( st.hiddenInView ).length, run: () => st.revealHidden() },
     { label: "Hide Selected",       bl: "hide_on",  keys: "H",       disabled: !st.selection.length,                   run: () => st.setHidden( toHide( st ), true ) },
     { label: "Hide Unselected",     bl: "hide_on",  keys: "Shift H", run:      () => st.setHidden( toHide( st, true ), true ) },
   ];
@@ -61,6 +61,40 @@ export function ScatterHeader() {
       <Slider label="Size Variation" value={sc.scaleJitter} min={0} max={0.5} step={0.01} onChange={( scaleJitter ) => set( { scaleJitter } )} fmt={( v ) => `±${Math.round( v * 100 )}%`} />
       <Slider label="Follow Slope" value={sc.followSlope} min={0} max={1} step={0.05} onChange={( followSlope ) => set( { followSlope } )} fmt={( v ) => `${Math.round( v * 100 )}%`} />
       <Slider label="Lean" value={sc.tilt} min={0} max={20} step={1} onChange={( tilt ) => set( { tilt } )} fmt={( v ) => `${Math.round( v )}°`} />
+      <label className="check" title="Lighter in game. Instances stand upright; pieces with riding settings are placed normally"><input type="checkbox" checked={sc.instanced} onChange={( e ) => set( { instanced: e.target.checked } )} /> Instanced</label>
+    </>
+  );
+}
+
+/**
+ * The Collider tool's settings: what a new one is ( its shape, size and surface ), and the gizmo on a picked collider.
+**/
+export function ColliderHeader() {
+  const b       = useEditor( ( s ) => s.colliderBrush );
+  const g       = useEditor( ( s ) => s.gizmoMode     );
+  const picked  = useEditor( ( s ) => s.colliderPick !== null );
+  const set     = ( p: Partial<typeof b> ) => useEditor.setState( { colliderBrush: { ...useEditor.getState().colliderBrush, ...p } } );
+  return (
+    <>
+      <span className="tool-name"><Icon name="collider" size={14} /> Colliders</span>
+      <div className="seg">
+        { ( ["Box", "Capsule"] as const ).map( ( k ) => (
+          <button key={k} className={b.shape === k ? "on" : ""} onClick={() => set( { shape: k } )}>{k}</button>
+        ) ) }
+      </div>
+      <Slider label="Size" log value={b.radius * 2} min={0.02} max={4} step={0.01} onChange={( v ) => set( { radius: v / 2 } )} fmt={( v ) => `${v < 1 ? `${Math.round( v * 100 )} cm` : `${v.toFixed( 2 )} m`}`} />
+      <div className="seg" title="Surface">
+        { ( [["Jib", "Jib"], ["Generic", "Solid"], ["Snow", "Snow"]] as const ).map( ( [k, label] ) => (
+          <button key={label} className={( b.surface ?? "Jib" ) === k ? "on" : ""} onClick={() => set( { surface: k } )}>{label}</button>
+        ) ) }
+      </div>
+      { picked && (
+        <div className="seg">
+          { ( [["translate", "Move"], ["rotate", "Rotate"], ["scale", "Scale"]] as const ).map( ( [k, label] ) => (
+            <button key={k} className={g === k ? "on" : ""} onClick={() => useEditor.setState( { gizmoMode: k } )}>{label}</button>
+          ) ) }
+        </div>
+      ) }
     </>
   );
 }
@@ -75,6 +109,29 @@ export function SelectHeader() {
     <span className="tool-name">
       <ToolIcon name={names[g][0]} size={16} /> {names[g][1]}
     </span>
+  );
+}
+
+/**
+ * Design's Select Box ( a new selection, added to, or taken from ) or Cursor.
+**/
+export function PickHeader() {
+  const pick = useEditor( ( s ) => s.designPick );
+  const op   = useEditor( ( s ) => s.selectOp   );
+  const set  = ( selectOp: "set" | "extend" | "subtract" ) => () => useEditor.setState( { selectOp } );
+  return (
+    <>
+      <span className="tool-name">
+        <ToolIcon name={pick === "cursor" ? "ops.generic.cursor" : "ops.generic.select_box"} size={16} /> {pick === "cursor" ? "Cursor" : "Select Box"}
+      </span>
+      { pick === "box" && (
+        <div className="seg hseg">
+          <HB icon="select_set" on={op === "set"} title="Set a new selection" onClick={set( "set" )} />
+          <HB icon="select_extend" on={op === "extend"} title="Extend existing selection" onClick={set( "extend" )} />
+          <HB icon="select_subtract" on={op === "subtract"} title="Subtract existing selection" onClick={set( "subtract" )} />
+        </div>
+      ) }
+    </>
   );
 }
 
@@ -121,6 +178,7 @@ export function DesignHeader() {
     { label: "Ramp",         icon:  "shapeCurve", keys: "H", run: () => useEditor.setState( { tool: "shape", shapeKind: "curve" } ) },
     { label: "Copy Terrain", icon:  "shapeCopy", run: () => useEditor.setState( { tool: "shape", shapeKind: "stamp" } ) },
     { label: "Formation",    icon:  "mountain",  run: () => useEditor.setState( { tool: "shape", shapeKind: "formation" } ) },
+    { label: "Ski Line",     icon:  "skiLine",   run: () => useEditor.setState( { tool: "shape", shapeKind: "skiline" } ) },
     { sep:   true,           label: "" },
     { label: "Mirror", bl: "mod_mirror", sub: [
       { label: "Left to Right", bl: "axis_side",  run: () => mirrorTerrain( "x" ) },

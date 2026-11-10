@@ -11,7 +11,8 @@ const in01 = ( u: number[] ) => u.every( ( x ) => x >= -1e-9 && x <= 1 + 1e-9 );
 describe( "UVs", () => {
   it( "Reset lays each face on the whole square; the built mesh takes them over the box projection", () => {
     const g = unwrap( primitive( "cube" ), all( 6 ), "reset" );
-    expect( g.u!.every( ( u ) => u.join() === "0,0,1,0,1,1,0,1" ) ).toBe( true );
+    // ( round each face the way Blender's goes round it: in the piece's mirrored coordinates, the other way )
+    expect( g.u!.every( ( u ) => u.join() === "0,0,0,1,1,1,1,0" ) ).toBe( true );
     const b = buildMesh( newModel( g ) );
     expect( in01( [...b.uv] ) ).toBe( true );
     // the box projection's are in metres: a 2 m box goes from -1 to 1
@@ -56,7 +57,7 @@ describe( "UVs", () => {
     const g    = unwrap( primitive( "cube" ), all( 6 ), "reset" ), t = top( g );
     const less = remove( g, selFromFaces( g, [t] ), "faces" ).mesh;
     expect( less.f.length ).toBe( 5 );
-    expect( less.f.every( ( _, fi ) => faceUvs( less, fi )?.join() === "0,0,1,0,1,1,0,1" ) ).toBe( true );
+    expect( less.f.every( ( _, fi ) => faceUvs( less, fi )?.join() === "0,0,0,1,1,1,1,0" ) ).toBe( true );
     const half = primitive( "plane" );
     half.v     = half.v.map( ( [x, y, z] ) => [x > 0 ? 1 : 0, y, z] );
     const laid = unwrap( half, [0], "reset" );

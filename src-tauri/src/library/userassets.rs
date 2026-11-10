@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
-use crate::jbrmap::{Collider, ColliderShape, Color, CustomObject, MapData, Material, MeshData, Part, SurfaceType, TextureData, Vec2, Vec3};
+use crate::jbrmap::{Collider, ColliderShape, Color, CustomObject, LodGroup, MapData, Material, MeshData, Part, SurfaceType, TextureData, Vec2, Vec3};
 use rayon::prelude::*;
 use serde::Serialize;
 
@@ -100,7 +100,64 @@ fn save_asset(name: &str, obj: CustomObject, meshes: IndexMap<String, MeshData>,
 
 #[cfg(test)]
 mod tests {
+    /// A model with Unity-named levels of detail comes in as one LOD group: each part at its level, the unnamed one
+    /// at every distance, the levels handing over smaller and smaller.
+    #[test]
+    fn lod_named_parts_make_a_group() {
+        use super::import::{lod_level, Builder, Geo};
+        assert_eq!(lod_level("Tree_A_01_LOD0"), Some(0));
+        assert_eq!(lod_level("trunk LOD2.001"), Some(2));
+        assert_eq!(lod_level("Floodlight"), None);
+        assert_eq!(lod_level("MyLODge"), None);
+        let quad = || Geo { pos: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 2.0, 0.0]], nrm: vec![], uv: vec![], submeshes: vec![vec![0, 1, 2]] };
+        let mut b = Builder::new("Tree");
+        for label in ["Tree_LOD0", "Tree_LOD1", "Tree_LOD2", "Sign"] {
+            b.add_part(label, quad(), vec![]);
+        }
+        let c = b.finish().unwrap();
+        let o = &c.object;
+        assert_eq!(o.lod_groups.len(), 1);
+        assert_eq!(o.lod_groups[0].transitions.len(), 3);
+        assert!(o.lod_groups[0].transitions.windows(2).all(|w| w[0] > w[1]));
+        let levels: Vec<(i32, i32)> = o.parts.iter().map(|p| (p.lod_group_index, p.lod_index)).collect();
+        assert_eq!(levels, vec![(0, 0), (0, 1), (0, 2), (-1, 0)]);
+        // one level only: no group
+        let mut one = Builder::new("Rock");
+        one.add_part("Rock_LOD0", quad(), vec![]);
+        assert!(one.finish().unwrap().object.lod_groups.is_empty());
+    }
     use super::*;
+
+    /// A big library ( an imported map's ) isn't written again for each piece placed: what's new goes beside it, read
+    /// with it; what it has already isn't added; the same piece placed again changes nothing.
+    #[test]
+    fn a_big_library_takes_new_pieces_beside_it() {
+        let dir = std::env::temp_dir().join(format!("studio-biglib-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        // ( data that doesn't pack small, so the library's as big on disk as it says )
+        let noise = |bytes: usize| { let mut x = 0x2545_f491u32; (0..bytes).map(|_| { x ^= x << 13; x ^= x >> 17; x ^= x << 5; x as u8 }).collect::<Vec<u8>>() };
+        let mesh = |n: i32, bytes: usize| MeshData { vertex_count: n, vertices: Some(noise(bytes)), ..MeshData::default() };
+        // ( bigger than BIG_LIBRARY once written )
+        let big = MapData { mesh_library: IndexMap::from([("Imported/terrain".to_string(), mesh((40 << 20) / 12, 40 << 20)), ("Mine/kept".to_string(), mesh(2, 16))]), ..MapData::default() };
+        let main = dir.join(PROJECT_LIBRARY);
+        crate::jbrmap::save(&big, &main).unwrap();
+        assert!(is_big(&main));
+        let before = std::fs::metadata(&main).unwrap().modified().unwrap();
+
+        merge_into_project(&dir, IndexMap::from([("Mine/new".to_string(), mesh(3, 16)), ("Mine/kept".to_string(), mesh(9, 16))]), IndexMap::new()).unwrap();
+        assert_eq!(std::fs::metadata(&main).unwrap().modified().unwrap(), before, "the big library left as it was");
+        let added = crate::jbrmap::load(added_path(&main)).unwrap();
+        assert!(added.mesh_library.contains_key("Mine/new") && !added.mesh_library.contains_key("Mine/kept"), "only what's new beside it");
+        let all = load_project_library(&main).unwrap();
+        assert_eq!(all.mesh_library.len(), 3);
+        assert_eq!(all.mesh_library["Mine/kept"].vertex_count, 2, "a kept mesh as it was kept");
+
+        let stamp = std::fs::metadata(added_path(&main)).unwrap().modified().unwrap();
+        merge_into_project(&dir, IndexMap::from([("Mine/new".to_string(), mesh(3, 16))]), IndexMap::new()).unwrap();
+        assert_eq!(std::fs::metadata(added_path(&main)).unwrap().modified().unwrap(), stamp, "nothing new: nothing written");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     /// A map holding an older build of the game's look takes the newer one; its own meshes stay as they are.
     #[test]

@@ -1,4 +1,6 @@
-// The grind guides on jib pieces: where the game will grab a rider onto them ( viewport/tools/grindGuide.ts ).
+// The grind guides on jib pieces: where the game will grab a rider onto them ( viewport/tools/grindGuide.ts ). Worked
+// out for the selected jibs ( the Properties panel reads them ), drawn only with Grind Lines on: a piece's colliders
+// over it hid the piece, and they're edited in Edit Points, which draws its own.
 
 import * as THREE from "three/webgpu";
 import { type CustomObjectEntry } from "../../../core/types";
@@ -29,6 +31,7 @@ export class GrindGuides {
   **/
   setAll( on: boolean ) {
     this.all = on;
+    for ( const c of this.cache.values() ) if ( c.obj ) c.obj.visible = on;
     this.update();
   }
 
@@ -79,7 +82,10 @@ export class GrindGuides {
       if ( this.cache.has( uid ) || !s.built || s.built !== s.data || !s.group.children.length ) continue;
       const guide = grindGuide( s.data, worldSurface( s.group, 30000 ) );
       const obj   = guide ? guideObject( guide ) : null;
-      if ( obj ) this.group.add( obj );
+      if ( obj ) {
+        obj.visible = this.all;
+        this.group.add( obj );
+      }
       this.cache.set( uid, { data: s.data, obj, guide } );
     }
     window.dispatchEvent( new CustomEvent( "grind-guides" ) );

@@ -3,9 +3,14 @@
 import { MAP_ID_MAX, mapIdFrom } from "../../../map/mapId";
 import { useEditor } from "../../../map/store";
 import { mapClockHour } from "../../../viewport/render/gameSky";
-import { NumberField, Panel } from "../../widgets/controls";
+import { NumberField, Panel, Slider } from "../../widgets/controls";
 import { plainText } from "../../widgets/RichText";
 import { MapSizeEditor } from "../MapSize";
+import { useRef, useState } from "react";
+import { isScenery, SCENERY_ROCK_ANGLE } from "../../../core/types";
+import { landOf } from "../../../geo/land";
+import { buildSurroundings, removeSurroundings, surroundingsLook, type SurroundingsLook } from "../../../geo/landGround";
+import { CurveEditor } from "../../widgets/CurveEditor";
 
 export function MapProperties() {
   const map    = useEditor( ( s ) => s.map    );
@@ -62,7 +67,64 @@ export function MapProperties() {
         <div style={{ gridColumn: "1 / -1" }}>
           <MapSizeEditor />
         </div>
+        <SurroundingsRows />
       </div>
     </Panel>
+  );
+}
+
+/**
+ * The land round the map as scenery ( geo/scenery ): on or off, how far out it reaches and how far its far edge drops
+ * away ( built again as any changes, and whenever the map's ground does: Map Size ). The
+ * real land round a real mountain; round a made-up map, land made up to match it.
+**/
+function SurroundingsRows() {
+  const sc                = useEditor( ( s ) => s.customObjects.find( isScenery ) );
+  const [look,  setLook ] = useState( surroundingsLook );
+  // ( the look as it is now, for what's let go: a curve's drag ends with the handlers it began with, which saw the look
+  // from before it, and built that, putting the curve back )
+  const latest            = useRef( look );
+  latest.current          = look;
+  const [angle, setAngle] = useState( () => sc?.scenery?.rockAngle ?? SCENERY_ROCK_ANGLE );
+  const timer             = useRef<ReturnType<typeof setTimeout> | null>( null );
+  const land              = landOf();
+  if ( !land ) return null;
+  const build = async ( change: Partial<SurroundingsLook>, rocks = angle ) => {
+    const st = useEditor.getState();
+    try {
+      st.setBusy( "Building the surroundings…" );
+      await buildSurroundings( change, ( stage, f ) => st.setBusy( stage, f ), undefined, rocks );
+    } catch ( e ) {
+      st.toast( `Couldn't build the surroundings: ${e instanceof Error ? e.message : e}`, "error" );
+    } finally {
+      st.setBusy( null );
+    }
+  };
+  // ( built again once it's let be a moment, not on every step of a drag; a button's pick at once )
+  const change = ( p: Partial<SurroundingsLook>, now = false, rocks = angle ) => {
+    const next = { ...latest.current, ...p };
+    latest.current = next;
+    setLook( next );
+    if ( timer.current ) clearTimeout( timer.current );
+    timer.current = setTimeout( () => void build( next, rocks ), now ? 0 : 600 );
+  };
+  return (
+    <>
+      <div className="section">Surroundings</div>
+      <label />
+      <label className="check"><input type="checkbox" checked={!!sc} onChange={( e ) => ( e.target.checked ? void build( look ) : removeSurroundings() )} /> Show surroundings</label>
+      { sc && (
+        <>
+          <label />
+          <Slider label="Distance" value={look.radius / 1000} min={1} max={20} step={1} fmt={( v ) => `${v.toFixed( 0 )} km`} onChange={( v ) => change( { radius: v * 1000 } )} />
+          <label />
+          <Slider label="Rocks from" value={angle} min={5} max={60} step={1} fmt={( v ) => `${Math.round( v )}°`} onChange={( v ) => { setAngle( v ); change( {}, false, v ); }} />
+          <label title="Vertex spacing from the map's edge out: 1 m at the top, 200 m at the bottom">Detail</label>
+          <div>
+            <CurveEditor value={look.detail} min={0} max={1} label={["map edge", "far edge"]} onChange={( detail ) => { latest.current = { ...latest.current, detail }; setLook( latest.current ); }} onCommit={() => change( {} )} />
+          </div>
+        </>
+      ) }
+    </>
   );
 }

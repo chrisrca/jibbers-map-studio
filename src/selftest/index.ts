@@ -48,6 +48,25 @@ import { mapPiecesSelftest } from "./pieces/mapPieces";
 import { loadVeilSelftest } from "./perf/loadVeil";
 import { mapNavSelftest } from "./perf/mapNav";
 import { userPerfSelftest } from "./perf/userPerf";
+import { busyPerfSelftest } from "./perf/busyPerf";
+import { gameFpsSelftest } from "./game/gameFps";
+import { colliderBrushSelftest } from "./app/colliderBrush";
+import { placeExportSelftest } from "./app/placeExport";
+import { colliderParkSelftest } from "./app/colliderPark";
+import { objColourSelftest } from "./app/objColour";
+import { pieceHueSelftest } from "./app/pieceHue";
+import { colliderFreeSelftest } from "./app/colliderFree";
+import { assetFlowSelftest } from "./assets/assetFlow";
+import { hueInGameSelftest } from "./game/hueInGame";
+import { sceneryColourSelftest } from "./game/sceneryColour";
+import { hueDragSelftest } from "./app/hueDrag";
+import { helpLogsSelftest } from "./app/helpLogs";
+import { rampStripesSelftest } from "./terrain/rampStripes";
+import { uiFitSelftest } from "./app/uiFit";
+import { mapSizeViewSelftest } from "./app/mapSizeView";
+import { colliderSwitchSelftest } from "./app/colliderSwitch";
+import { layerStackSelftest } from "./terrain/layerStack";
+import { gameColoursSelftest } from "./game/gameColours";
 import { lookSelftest } from "./look/look";
 import { mapTreesSelftest } from "./realmap/mapTrees";
 import { materialSelftest } from "./assets/material";
@@ -55,7 +74,28 @@ import { modelSelftest } from "./model/model";
 import { mountainLagSelftest } from "./realmap/mountainLag";
 import { mountainSelftest } from "./realmap/mountain";
 import { mountainStressSelftest } from "./realmap/mountainStress";
+import { landGrowSelftest } from "./terrain/landGrow";
+import { formationPortSelftest } from "./terrain/formationPort";
+import { designPickSelftest } from "./app/designPick";
+import { skiLineToolSelftest } from "./app/skiLineTool";
+import { creaseSelftest } from "./model/crease";
+import { scatterTreesSelftest } from "./assets/scatterTrees";
+import { railCollidersSelftest } from "./pieces/railColliders";
+import { blenderKeysSelftest } from "./model/blenderKeys";
+import { blenderSelectSelftest } from "./model/blenderSelect";
+import { blenderTransformSelftest } from "./model/blenderTransform";
+import { blenderToolsSelftest } from "./model/blenderTools";
+import { blenderObjectSelftest } from "./model/blenderObject";
+import { blenderPanelsSelftest } from "./model/blenderPanels";
+import { blenderCurveSelftest } from "./model/blenderCurve";
+import { assetLifeSelftest } from "./assets/assetLife";
+import { selectBoxSelftest } from "./app/selectBox";
+import { farViewSelftest } from "./app/farView";
+import { unityFullSelftest } from "./app/unityFull";
+import { unityImportSelftest } from "./app/unityImport";
+import { unityPackageSelftest } from "./app/unityPackage";
 import { newMapLookSelftest } from "./look/newMapLook";
+import { shadowsSelftest } from "./look/shadows";
 import { newMapSelftest } from "./terrain/newMap";
 import { nightSelftest } from "./look/night";
 import { objectLookSelftest } from "./look/objectLook";
@@ -78,7 +118,6 @@ import { realTrailsSelftest } from "./trails/realTrails";
 import { recoverSelftest } from "./pieces/recover";
 import { recycleSelftest } from "./app/recycle";
 import { refreshLookSelftest } from "./look/refreshLook";
-import { repeatsSelftest } from "./terrain/repeats";
 import { replaySelftest } from "./game/replay";
 import { resortSelftest } from "./terrain/resort";
 import { rocksSelftest } from "./realmap/rocks";
@@ -128,10 +167,30 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   brush:        brushSelftest,
   brushdrag:    brushDragSelftest,
   brushstress:  brushStressSelftest,
+  landgrow:     landGrowSelftest,
+  formation:    formationPortSelftest,
+  unityimport:  unityImportSelftest,
+  unitypackage: unityPackageSelftest,
+  farview:      farViewSelftest,
+  designpick:   designPickSelftest,
+  skiline:      skiLineToolSelftest,
+  crease:       creaseSelftest,
+  scattertrees: scatterTreesSelftest,
+  railcolliders: railCollidersSelftest,
+  blenderkeys:  blenderKeysSelftest,
+  blenderselect: blenderSelectSelftest,
+  blendertransform: blenderTransformSelftest,
+  blendertools: blenderToolsSelftest,
+  blenderobject: blenderObjectSelftest,
+  blenderpanels: blenderPanelsSelftest,
+  blendercurve: blenderCurveSelftest,
+  assetlife:    assetLifeSelftest,
+  selectbox:    selectBoxSelftest,
+  unityfull:    unityFullSelftest,
   newmap:       newMapSelftest,
   newmaplook:   newMapLookSelftest,
+  shadows:      shadowsSelftest,
   rampdrag:     rampDragSelftest,
-  repeats:      repeatsSelftest,
   resort:       resortSelftest,
   spawn:        spawnSelftest,
   terrainlines: terrainLinesSelftest,
@@ -229,6 +288,25 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   loadveil:     loadVeilSelftest,
   mapnav:       mapNavSelftest,
   userperf:     userPerfSelftest,
+  busyperf:     busyPerfSelftest,
+  gamefps:      gameFpsSelftest,
+  colliderbrush: colliderBrushSelftest,
+  placeexport:  placeExportSelftest,
+  colliderpark: colliderParkSelftest,
+  objcolour:    objColourSelftest,
+  piecehue:     pieceHueSelftest,
+  colliderfree: colliderFreeSelftest,
+  assetflow:    assetFlowSelftest,
+  hueingame:    hueInGameSelftest,
+  scenerycolour: sceneryColourSelftest,
+  huedrag:      hueDragSelftest,
+  helplogs:     helpLogsSelftest,
+  rampstripes:  rampStripesSelftest,
+  uifit:        uiFitSelftest,
+  mapsizeview:  mapSizeViewSelftest,
+  colliderswitch: colliderSwitchSelftest,
+  layerstack:   layerStackSelftest,
+  gamecolours:  gameColoursSelftest,
   vram:         vramSelftest,
 };
 

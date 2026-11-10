@@ -18,7 +18,7 @@ const ring = ( dx: number ) => Array.from( { length: 9 }, ( _, k ) => [dx + Math
 
 describe( "a live shape edit worked out a frame's share at a time", () => {
   it( "leaves the ground as the edits made at once do, however many come while one is worked out", async () => {
-    const base  = { ...newFormation( ring( 0 ) ), thermal: { on: true, amount: 0.5, iterations: 12, repose: 30 } };
+    const base  = { ...newFormation( ring( 0 ) ), peakWidth: 30, thermal: { on: true, amount: 0.5, iterations: 12, repose: 30 } };
     const edits = [base, { ...base, points: ring( 6 ) }, { ...base, points: ring( 12 ), height: 40 }, { ...base, points: ring( -5 ), roughness: 2 }];
     ground();
     for ( const s of edits ) previewShape( s );

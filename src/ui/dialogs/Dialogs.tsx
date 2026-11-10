@@ -3,8 +3,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState } from "react";
 import { ipc, joinPath, type MapListing } from "../../core/ipc";
 import { getVersion } from "@tauri-apps/api/app";
-import { defaultProjectsDir, forgetRecent, importMap, keepMapChanges, lastSession, newUntitled, openProject, projectForMap, recentProjects, recoverLastSession, untitledDir } from "../../map/project";
+import { defaultProjectsDir, forgetRecent, importMap, importUnityScene, keepMapChanges, lastSession, newUntitled, openProject, projectForMap, recentProjects, recoverLastSession, untitledDir } from "../../map/project";
 import { useEditor } from "../../map/store";
+import { pickAndImportAny } from "../importAny";
 import { plainText, RichText } from "../widgets/RichText";
 import { PopupMenu, type MenuItem } from "../widgets/widgets";
 
@@ -16,15 +17,18 @@ export async function pickAndOpenProject() {
   if ( typeof dir === "string" ) await openProject( dir ).catch( ( e ) => useEditor.getState().toast( String( e ), "error" ) );
 }
 
-export async function pickAndImportMap( path?: string, name?: string ) {
+export async function pickAndImportMap( path?: string, name?: string ): Promise<void> {
   const file =
     path ??
-    ( await open( { title: "Import a Jibbers map", filters: [{ name: "Jibbers map", extensions: ["jbrmap"] }] } ) );
+    ( await open( { title: "Import a Jibbers map", filters: [{ name: "Jibbers maps and Unity scenes", extensions: ["jbrmap", "unity", "unitypackage"] }] } ) );
   if ( typeof file !== "string" ) return;
-  const label = name || file.split( /[\\/]/ ).pop()!.replace( /\.jbrmap$/, "" );
+  // ( a package: unpacked, its scene picked, and back here with it )
+  if ( /\.unitypackage$/i.test( file ) ) return ( await import( "../importAny" ) ).importUnityFile( file );
+  const unity = /\.unity$/i.test( file );
+  const label = name || file.split( /[\\/]/ ).pop()!.replace( /\.(jbrmap|unity)$/i, "" );
   if ( !( await keepMapChanges() ) ) return;
   const dir = await untitledDir( label );
-  await importMap( file, dir ).catch( ( e ) => useEditor.getState().toast( `Import failed: ${e}`, "error" ) );
+  await ( unity ? importUnityScene( file, dir ) : importMap( file, dir ) ).catch( ( e ) => useEditor.getState().toast( `Import failed: ${e}`, "error" ) );
 }
 
 /**
@@ -93,7 +97,8 @@ export function Splash( { onClose }: { onClose: () => void } ) {
             <h3>New</h3>
             {item( "mountain", "New Map",        go( newUntitled ), "Ctrl N" )}
             {item( "cube",     "New Asset",      go( newAssetHere ) )}
-            {item( "import",   "Real Mountain…", go( () => useEditor.setState( { mountainImport: true } ) ) )}
+            {item( "import",   "Import…",        go( () => pickAndImportAny() ), "Ctrl I" )}
+            {item( "mountain", "Real Mountain…", go( () => useEditor.setState( { mountainImport: true } ) ) )}
           </div>
           <div>
             <h3>Recent</h3>

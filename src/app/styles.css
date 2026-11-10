@@ -152,6 +152,7 @@ button .icon { pointer-events: none; }
 .statusbar .hint-item .icon { color: var(--c-text-dim); }
 .statusbar .hint-item kbd { padding: 0 4px; height: 15px; line-height: 15px; border-radius: 3px; border: 1px solid var(--c-hairline-2); color: var(--c-text); font-size: var(--fs-small); }
 .statusbar .stats { color: var(--c-text-faint); }
+.statusbar .cursor-readout { font-variant-numeric: tabular-nums; }
 .status-btn { background: none; border: 0; color: var(--c-text-faint); padding: 0 2px; display: inline-flex; align-items: center; gap: 5px; }
 .status-btn:hover { color: var(--c-text-hi); }
 .status-btn.dirty { color: var(--c-accent); }
@@ -220,8 +221,11 @@ button .icon { pointer-events: none; }
 .seg button:hover:not(.on) { background: var(--c-widget-hi); }
 .seg button.on { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
 .seg.wrap { flex-wrap: wrap; row-gap: 2px; }
-.props .seg { width: 100%; }
-.props .seg button { flex: 1; }
+/* ( in a panel a row of buttons shares its width, but none narrower than its words: one that won't fit goes on a
+   row of its own under it, each with its own left edge so a row's first isn't missing one ) */
+.props .seg { width: 100%; flex-wrap: wrap; row-gap: 2px; }
+.props .seg button { flex: 1 1 auto; min-width: auto; border-left-width: 1px; margin-left: -1px; }
+.props .seg button:first-child { margin-left: 0; }
 
 /* number fields (wcol_num): value centred, step arrows on hover, drag to scrub, click to type */
 .num { position: relative; display: flex; align-items: center; height: var(--row); min-width: 0; width: 100%; padding: 0 6px; border: 1px solid var(--c-outline); border-radius: var(--r); background: var(--c-widget); color: var(--c-text); font-variant-numeric: tabular-nums; box-shadow: 0 1px 0 var(--c-emboss); }
@@ -312,8 +316,6 @@ input[type="range"] { accent-color: var(--c-accent); height: 14px; }
 .tool-column .tool.on { background: var(--c-accent); color: #fff; }
 
 /* sculpt / paint brush size by the cursor */
-.brush-label { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 4; padding: 2px 7px; border-radius: var(--r); background: rgba(24, 24, 24, .82); color: var(--c-text-hi); font-size: var(--fs-small); white-space: nowrap; transition: opacity .1s; }
-.brush-label span { color: var(--c-text-dim); }
 
 /* ================================================================ Properties editor */
 .props-editor { flex: 1; display: grid; grid-template-columns: 30px 1fr; min-height: 0; overflow: hidden; }
@@ -469,7 +471,8 @@ body.asset-dragging, body.asset-dragging * { cursor: copy !important; }
 .splash-back { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; }
 .app-blank { height: 100%; background: var(--c-backdrop); }
 /* Blender's size at 1080p: 495 wide, its picture the top 247 */
-.bsplash { position: relative; width: 495px; background: #2b2b2b; border-radius: 6px 0 6px 6px; box-shadow: 0 10px 40px rgba(0, 0, 0, .6); font-size: 12px; color: #e6e6e6; }
+/* (its top-left corner rounder than the art's own: tucked in behind it, the art's corner the one seen) */
+.bsplash { position: relative; width: 495px; background: #2b2b2b; border-radius: 9px 0 6px 6px; box-shadow: 0 10px 40px rgba(0, 0, 0, .6); font-size: 12px; color: #e6e6e6; }
 /* the picture: the photo fills the box's top; the skier leaps out above and beside it (the image is bigger) */
 .bsplash-art { position: relative; height: 247px; }
 .bsplash-art img { position: absolute; left: 0; bottom: 0; width: 553px; height: 361px; pointer-events: none; user-select: none; }
@@ -498,14 +501,10 @@ body.asset-dragging, body.asset-dragging * { cursor: copy !important; }
 .curve-caption { display: flex; justify-content: space-between; font-size: var(--fs-small); color: var(--c-text-faint); margin-top: 2px; }
 
 .mapsize { display: grid; gap: 6px; justify-items: center; }
-.mapsize-grid { display: grid; grid-template-areas: ". n ." "w m e" ". s ."; gap: 4px; align-items: center; justify-items: center; }
-.mapsize-map { grid-area: m; background: var(--c-tabs); border: 1px solid var(--c-outline); border-radius: var(--r); }
-.mapsize-side { display: flex; gap: 2px; }
-.mapsize-side.n { grid-area: n; } .mapsize-side.s { grid-area: s; }
-.mapsize-side.w { grid-area: w; flex-direction: column; } .mapsize-side.e { grid-area: e; flex-direction: column; }
-.mapsize-side button { width: 20px; height: 20px; padding: 0; display: inline-grid; place-items: center; border: 1px solid var(--c-outline); border-radius: var(--r); background: var(--c-widget); color: var(--c-text); }
-.mapsize-side button:hover { background: var(--c-widget-hi); }
-.mapsize-side button.on { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
+.mapsize-map { background: var(--c-tabs); border: 1px solid var(--c-outline); border-radius: var(--r); }
+.mapsize-map .surround { fill: none; stroke: rgba(255, 255, 255, .28); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+.mapsize-map .surround.last { stroke: rgba(255, 255, 255, .5); stroke-dasharray: none; }
+.mapsize-map { cursor: grab; }
 .grow-preview { display: flex; flex-direction: column; gap: 4px; padding: 8px; margin: 6px 0; border: 1px solid var(--c-accent); border-radius: var(--r-panel); background: var(--c-accent-soft); }
 
 
@@ -564,7 +563,7 @@ body.asset-dragging, body.asset-dragging * { cursor: copy !important; }
 /* everyone whose data is on screen, at the status bar's right end */
 .mtnw-credits { color: var(--c-text-faint); font-size: var(--fs-small); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 55%; margin-left: 14px; }
 .mtnw-value.wrap { white-space: normal; line-height: 1.35; }
-.mtn-progress { position: absolute; inset: 0; background: rgba(0, 0, 0, .55); display: grid; place-items: center; }
+.mtn-progress { position: absolute; inset: 0; z-index: 20; background: rgba(0, 0, 0, .55); display: grid; place-items: center; }
 .mtn-progress .box { min-width: 320px; padding: 18px 24px; border-radius: 12px; background: var(--c-menu); border: 1px solid var(--c-menu-line); text-align: center; }
 .mtn-progress .spinner { margin: 0 auto 12px; }
 
@@ -620,6 +619,8 @@ html.scrubbing, html.scrubbing * { cursor: none !important; user-select: none !i
 .cpick-modes { align-self: stretch; }
 .cpick-modes button { flex: 1; }
 .cpick-hex { display: flex; align-items: center; gap: 6px; }
+.cpick-adjust { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--c-menu-line); }
+.cpick-adjust-head { display: flex; align-items: center; justify-content: space-between; min-height: 20px; color: var(--c-text-dim); }
 .cpick-hex span { color: var(--c-text-dim); }
 .cpick-hex input { flex: 1; min-width: 0; height: var(--row); padding: 0 7px; border: 1px solid var(--c-outline); border-radius: var(--r); background: var(--c-edit); color: var(--c-text-hi); font: inherit; font-variant-numeric: tabular-nums; outline: none; }
 .cpick-hex input:focus { border-color: var(--c-accent); }
@@ -763,8 +764,13 @@ html.scrubbing, html.scrubbing * { cursor: none !important; user-select: none !i
 .decal-cursor { position: absolute; pointer-events: none; z-index: 5; outline: 1px dashed rgba(255, 255, 255, .6); }
 .decal-cursor img { width: 100%; height: 100%; opacity: .7; display: block; }
 
-/* the Map Size editor's chunks: picked, and repeating */
-.mapsize-map rect.chunk { cursor: pointer; }
-.mapsize-map rect.chunk.repeats { stroke: var(--c-accent); stroke-width: 1; stroke-dasharray: 3 2; }
-.mapsize-map rect.chunk.picked { stroke: #fff; stroke-width: 1.5; stroke-dasharray: none; }
-.chunk-repeat { width: 100%; }
+/* the little map's squares: the map's chunks (− on hover: taken away) and the greyed ones round them (+: added) */
+.mapsize-map g.cell { cursor: pointer; }
+.mapsize-map g.cell rect { fill: transparent; stroke: rgba(0, 0, 0, .28); stroke-width: 1; }
+.mapsize-map g.cell.add rect { fill: rgba(28, 28, 32, .5); stroke: rgba(255, 255, 255, .16); stroke-dasharray: 2 2; }
+.mapsize-map g.cell text { fill: #fff; font: 600 18px var(--font-ui); text-anchor: middle; dominant-baseline: central; opacity: 0; pointer-events: none; paint-order: stroke; stroke: rgba(0, 0, 0, .45); stroke-width: 2px; }
+.mapsize-map g.cell:hover text, .mapsize-map g.cell.add.on text { opacity: 1; }
+.mapsize-map g.cell.add:hover rect { fill: rgba(71, 114, 179, .4); stroke: #fff; stroke-dasharray: none; }
+.mapsize-map g.cell.add.on rect { fill: rgba(71, 114, 179, .6); stroke: #fff; stroke-width: 1.5; stroke-dasharray: none; }
+.mapsize-map g.cell.chunk:hover rect { fill: rgba(205, 70, 70, .3); stroke: #fff; }
+.chunk-add { width: 100%; }

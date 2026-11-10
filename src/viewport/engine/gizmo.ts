@@ -9,7 +9,7 @@ import { history } from "../../map/history";
 import { unlocked, useEditor, workspaceOf } from "../../map/store";
 import { cancelPreview, commitMoved, commitTrails, joinDropped, previewNet, withHandle, withPointAt } from "../../trails/edits";
 import type { TrailNet } from "../../trails/trails";
-import { withRailAgain } from "../../pieces/rail";
+import { colliderInView, tweakFrom, withRailAgain, type RailRun } from "../../pieces/rail";
 import { terrain } from "../../terrain/terrain";
 import { BlGizmo } from "../tools/gizmo/blGizmo";
 import type { Engine } from "./engine";
@@ -20,8 +20,8 @@ export class GizmoControl {
 
   // a trail point being moved with the gizmo: where it was, and the trails then
   private trailFrom: { id:      string; end?: "a" | "b"; node?: V3; nodeId?: string; at: THREE.Vector3; net: TrailNet } | null = null;
-  // a rail's point ( or its arrow ) as a gizmo drag began
-  private railFrom:  { at:      THREE.Vector3; q: THREE.Quaternion; point: number | null } | null = null;
+  // a rail's point ( or its arrow, or a collider of it, with its size to the rail's own ) as a gizmo drag began
+  private railFrom:  { at:      THREE.Vector3; q: THREE.Quaternion; point: number | null; collider?: { i: number; run: RailRun; size: V3 } } | null = null;
   // what was selected as an Object Mode drag began ( put back if it's cancelled )
   private before:    { objects: ObjectEntry[]; spawns: SpawnEntry[]; customObjects: CustomObjectEntry[]; pivot: THREE.Vector3 | null } | null = null;
 
@@ -58,8 +58,15 @@ export class GizmoControl {
     if ( !g || g.dragging ) return;
     const st = useEditor.getState();
     // editing a rail: Move moves its picked point ( nothing while none is ), Rotate turns the arrow halfway along it,
-    // the whole rail's way up
+    // the whole rail's way up; a collider picked, the gizmo's on it, in its own axes
     if ( st.railEdit ) {
+      const run = st.railEdit.collider !== null && st.railEdit.collider !== undefined ? this.engine.railTool.run( st.railEdit.collider ) : null;
+      if ( run ) {
+        if ( st.tool !== "select" && st.tool !== "model" && st.tool !== "material" ) return g.detach();
+        const c = colliderInView( run.made );
+        g.setMode( st.gizmoMode );
+        return g.attach( c.at, c.q, true );
+      }
       const turning = st.gizmoMode === "rotate";
       const arrow   = turning ? this.engine.railTool.arrowFrame() : null;
       const p       = turning ? ( arrow?.at ?? null ) : st.railEdit.point !== null ? this.engine.railTool.pointInView( st.railEdit.point ) : null;
@@ -67,10 +74,19 @@ export class GizmoControl {
       g.setMode( turning ? "rotate" : "translate" );
       return g.attach( p, arrow ? arrow.q : new THREE.Quaternion(), !!arrow );
     }
+    // the Collider tool: the gizmo on its picked collider, in its own axes ( none while none is )
+    if ( st.tool === "collider" ) {
+      const f = this.engine.colliderTool.pickedFrame();
+      if ( !f ) return g.detach();
+      g.setMode( st.gizmoMode );
+      return g.attach( f.at, f.q, true );
+    }
     if ( workspaceOf( st.tool ) === "assets" ) return this.syncAssets();
+    // ( Design's Select Box and Cursor: no gizmo, as Blender's tools have none )
+    if ( st.designPick ) return g.detach();
     // the Formation tool: Move on the picked point ( as on a trail's )
     if ( st.tool === "shape" ) {
-      const at = this.engine.shapeTool?.gizmoAt();
+      const at = st.shapeKind === "skiline" ? this.engine.skiLineTool?.gizmoAt() : this.engine.shapeTool?.gizmoAt();
       if ( !at ) return g.detach();
       g.setMode( "translate" );
       return g.attach( at, new THREE.Quaternion(), false );
@@ -156,14 +172,23 @@ export class GizmoControl {
     g.onStart = () => {
       if ( this.engine.editing === this.engine.modelEd && this.engine.modelEd.uid ) return this.engine.modelEd.gizmo.start();
       const st = useEditor.getState();
-      if ( st.tool === "shape" && this.engine.shapeTool?.gizmoStart() ) return;
+      if ( st.tool === "shape" && ( st.shapeKind === "skiline" ? this.engine.skiLineTool?.gizmoStart() : this.engine.shapeTool?.gizmoStart() ) ) return;
       if ( st.tool === "trail" ) {
         const tip      = this.trailHandleTip();
         const one      = st.selection[0]?.kind === "trailNode" ? st.trails.nodes.find( ( n ) => n.id === st.selection[0].uid ) : null;
         this.trailFrom = tip ? { id: tip.run, end: tip.end, node: tip.node, nodeId: tip.nodeId, at: toThree( tip.at ), net: st.trails } : one ? { id: one.id, at: toThree( one.p ), net: st.trails } : null;
         return;
       }
+      if ( st.tool === "collider" && this.engine.colliderTool.gizmoStart() ) return;
       if ( st.railEdit ) {
+        const ci  = st.railEdit.collider;
+        const run = ci !== null && ci !== undefined ? this.engine.railTool.run( ci ) : null;
+        if ( run ) {
+          const c                = colliderInView( run.made );
+          this.engine.rails.drag = st.customObjects;
+          this.railFrom          = { at: c.at, q: c.q, point: null, collider: { i: ci!, run, size: [...( run.tweak?.size ?? [1, 1, 1] )] as V3 } };
+          return;
+        }
         const arrow            = st.gizmoMode === "rotate" ? this.engine.railTool.arrowFrame() : null;
         const at               = arrow?.at ?? ( st.railEdit.point !== null ? this.engine.railTool.pointInView( st.railEdit.point ) : null );
         this.engine.rails.drag = st.customObjects;
@@ -186,12 +211,24 @@ export class GizmoControl {
       if ( this.engine.rails.drag ) {
         const f = this.railFrom;
         if ( !f ) return;
+        // a collider: moved, turned and sized about its middle, in its own axes
+        if ( f.collider ) {
+          const { i, run, size } = f.collider;
+          const lin              = new THREE.Matrix4().extractRotation( delta ), at = f.at.clone().applyMatrix4( delta );
+          const q                = g.mode === "rotate" ? new THREE.Quaternion().setFromRotationMatrix( lin ).multiply( f.q ) : f.q.clone();
+          // ( sized: how much longer each of its own axes came out )
+          const m3               = new THREE.Matrix3().setFromMatrix4( delta );
+          const k                = g.mode === "scale" ? ( [0, 1, 2].map( ( a ) => size[a] * new THREE.Vector3().setComponent( a, 1 ).applyQuaternion( f.q ).applyMatrix3( m3 ).length() ) as V3 ) : size;
+          return void this.engine.railTool.previewTweak( i, tweakFrom( run, at, q, k ) );
+        }
         // turned: the arrow's up is the rail's way up
         if ( g.mode === "rotate" ) return void this.engine.railTool.previewUp( new THREE.Vector3( 0, 1, 0 ).applyQuaternion( new THREE.Quaternion().setFromRotationMatrix( delta ).multiply( f.q ) ) );
         const p = this.engine.railTool.toPiece( f.at.clone().applyMatrix4( delta ) );
         if ( f.point !== null && p ) this.engine.railTool.preview( f.point, p );
         return;
       }
+      if ( this.engine.colliderTool.gizmoMoving ) return this.engine.colliderTool.gizmoMove( delta, g.mode );
+      if ( this.engine.skiLineTool?.gizmoMoving ) return this.engine.skiLineTool.gizmoMove( delta );
       if ( this.engine.shapeTool?.gizmoMoving ) return this.engine.shapeTool.gizmoMove( delta );
       if ( this.engine.liftTool.gizmoMoving ) return this.engine.liftTool.gizmoMove( delta );
       if ( this.engine.fenceTool.gizmoMoving ) return this.engine.fenceTool.gizmoMove( delta );
@@ -213,9 +250,15 @@ export class GizmoControl {
           useEditor.getState().setSelection( [{ kind: "trailNode", uid: joined.node }] );
         } else if ( net !== f.net ) commitMoved( net, [f.end ? f.nodeId! : f.id], f.end ? "Turn run end" : "Move point" );
       } else if ( this.engine.rails.drag ) {
+        const collider         = !!this.railFrom?.collider;
         this.engine.rails.drag = null;
         this.railFrom          = null;
-        this.engine.rails.commit( g.mode === "rotate" ? "Turn rail" : "Move rail point" );
+        if ( collider ) this.engine.rails.commitTweaks( { translate: "Move collider", rotate: "Rotate collider", scale: "Resize collider", transform: "Transform collider" }[g.mode] );
+        else this.engine.rails.commit( g.mode === "rotate" ? "Turn rail" : "Move rail point" );
+      } else if ( this.engine.colliderTool.gizmoMoving ) {
+        this.engine.colliderTool.gizmoEnd( label );
+      } else if ( this.engine.skiLineTool?.gizmoMoving ) {
+        this.engine.skiLineTool.gizmoEnd();
       } else if ( this.engine.shapeTool?.gizmoMoving ) {
         this.engine.shapeTool.gizmoEnd();
       } else if ( this.engine.liftTool.gizmoMoving ) {
@@ -248,6 +291,7 @@ export class GizmoControl {
         this.railFrom          = null;
         this.engine.rails.sync();
       }
+      else if ( this.engine.skiLineTool?.gizmoMoving ) this.engine.skiLineTool.gizmoCancel();
       else if ( this.engine.shapeTool?.gizmoMoving ) this.engine.shapeTool.gizmoCancel();
       else if ( this.engine.liftTool.gizmoMoving ) this.engine.liftTool.gizmoCancel();
       else if ( this.engine.fenceTool.gizmoMoving ) this.engine.fenceTool.gizmoCancel();
@@ -309,6 +353,19 @@ export class GizmoControl {
   }
 
   /**
+   * G / R / S with a rail's collider picked: that moved, turned or sized with the mouse, in its own axes.
+  **/
+  startColliderModal( op: "translate" | "rotate" | "scale" ) {
+    const i   = useEditor.getState().railEdit?.collider;
+    const run = i === null || i === undefined ? null : this.engine.railTool.run( i );
+    if ( !run || this.engine.blGizmo.dragging ) return false;
+    const c = colliderInView( run.made );
+    this.engine.blGizmo.attach( c.at, c.q, true );
+    this.engine.blGizmo.begin( op, this.engine.mouse.x, this.engine.mouse.y );
+    return true;
+  }
+
+  /**
    * G / R / S in Object Mode: the selection moved, turned or scaled with the mouse ( Blender's modal transform ).
   **/
   startObjectModal( op: "translate" | "rotate" | "scale" ) {
@@ -319,7 +376,12 @@ export class GizmoControl {
     if ( piece && op !== "translate" && !( op === "rotate" && !this.engine.liftTool.gizmoAt() && this.engine.fenceTool.turns() ) ) return false;
     const c = piece ?? this.objectPivot();
     if ( !c || !unlocked( st, st.selection ).length || this.engine.blGizmo.dragging ) return false;
-    this.engine.blGizmo.attach( c, this.objectOrientation(), st.view3d.orientation === "local" );
+    // ( an axis key twice: the active piece's own axes, or the world's if those are the gizmo's )
+    const last  = st.selection[st.selection.length - 1];
+    const own   = last && st.customObjects.find( ( x ) => x.uid === last.uid );
+    const local = st.view3d.orientation === "local";
+    const other = own ? ( local ? new THREE.Quaternion() : unityEulerToQuat( arr3( own.rotation ) ) ) : null;
+    this.engine.blGizmo.attach( c, this.objectOrientation(), local, other );
     this.engine.blGizmo.begin( op, this.engine.mouse.x, this.engine.mouse.y );
     return true;
   }
@@ -403,11 +465,13 @@ export class GizmoControl {
       : () => delta;
     // ( scale is kept positive: dragged through zero it comes out mirrored, which the game can't load )
     const xf = ( pos: V3, rot: V3, scl: V3 ) => applyToTRS( delta, pos, rot, scl );
+    // ( a list with nothing of it moving left as it is: what watches it isn't made again every frame of a drag )
+    const any = ( list: { uid: string }[] ) => list.some( ( o ) => ids.has( o.uid ) );
     useEditor.setState( {
       // ( a jib's rail colliders made again as it goes: at its size, not stretched with it )
-      customObjects: start.customObjects.map( ( o ) => ( ids.has( o.uid ) ? withRailAgain( transformCustom( o, own( o ) ) ) : o ) ),
-      objects:       start.objects.map( ( o ) => ( ids.has( o.uid ) ? { ...o, ...xf( o.position, o.rotation, o.scale ) } : o ) ),
-      spawns: start.spawns.map( ( s ) => {
+      customObjects: any( start.customObjects ) ? start.customObjects.map( ( o ) => ( ids.has( o.uid ) ? withRailAgain( transformCustom( o, own( o ) ) ) : o ) ) : start.customObjects,
+      objects:       any( start.objects ) ? start.objects.map( ( o ) => ( ids.has( o.uid ) ? { ...o, ...xf( o.position, o.rotation, o.scale ) } : o ) ) : start.objects,
+      spawns: !any( start.spawns ) ? start.spawns : start.spawns.map( ( s ) => {
         if ( !ids.has( s.uid ) ) return s;
         const r   = xf( s.position, s.rotation, [1, 1, 1] );
         // rotate the velocity with the spawn

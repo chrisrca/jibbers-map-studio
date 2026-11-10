@@ -254,3 +254,9 @@ mod head_field_test {
         assert_eq!(head_field(r#"{"version":"0.4"}"#, "name"), "");
     }
 }
+
+/// The maps the game comes with, as (id, name): one of yours under one of their ids isn't loaded by the game.
+#[tauri::command]
+pub fn builtin_maps() -> Vec<(String, String)> {
+    game::builtin_maps()
+}

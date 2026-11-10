@@ -15,6 +15,8 @@ export class LooksDrawn {
   // each look's meshes, once built, drawn as instances: every object wearing it in one draw a mesh ( a map's 23
   // floodlights are one floodlight's draws, not 23 of them ); its objects' placeholders hidden then, still picked
   private lookSets = new Map<string, { template: THREE.Object3D[] | null; meshes: THREE.InstancedMesh[]; capacity: number }>();
+  // ( where each object's instance is: its look, and its place in the look's instances, as last laid out )
+  private slots    = new Map<string, { key: string; i: number }>();
 
   /**
    * The object's game look, asked for ( built once for every object wearing it ).
@@ -41,8 +43,11 @@ export class LooksDrawn {
   /**
    * Every look's instances where its objects are ( a piece is the prefab at half size: twice the object's scale ).
   **/
-  layout() {
+  layout( changed?: string[] ) {
     redraw();
+    // ( only some objects moved, none come or gone and none in another look: just their instances put where they are )
+    if ( changed && changed.every( ( uid ) => this.slots.get( uid )?.key === this.lookOf.get( uid ) ) ) return this.move( changed );
+    this.slots.clear();
     const by = new Map<string, THREE.Mesh[]>();
     for ( const o of this.objects.lastObjects ) {
       const key = this.lookOf.get( o.uid ), m = this.objects.objects.get( o.uid );
@@ -71,6 +76,7 @@ export class LooksDrawn {
           return im;
         } );
       }
+      list.forEach( ( m, i ) => this.slots.set( ( m.userData as { uid: string } ).uid, { key, i } ) );
       set.template.forEach( ( t, k ) => {
         const im = set.meshes[k];
         im.count = list.length;
@@ -82,6 +88,27 @@ export class LooksDrawn {
         im.computeBoundingSphere();
         im.visible = list.length > 0;
       } );
+    }
+  }
+
+  /**
+   * Objects moved ( or turned or sized ): their instances put where they are, the rest left as they were.
+  **/
+  private move( uids: string[] ) {
+    const at = new THREE.Matrix4(), part = new THREE.Matrix4(), scale = new THREE.Vector3(), touched = new Set<THREE.InstancedMesh>();
+    for ( const uid of uids ) {
+      const sl = this.slots.get( uid ), m = this.objects.objects.get( uid ), set = sl && this.lookSets.get( sl.key );
+      if ( !sl || !m || !set?.template ) continue;
+      at.compose( m.position, m.quaternion, scale.copy( m.scale ).multiplyScalar( LOOK_TO_PLACEHOLDER ) );
+      set.template.forEach( ( t, k ) => {
+        const im = set.meshes[k];
+        im.setMatrixAt( sl.i, part.multiplyMatrices( at, t.matrixWorld ) );
+        touched.add( im );
+      } );
+    }
+    for ( const im of touched ) {
+      im.instanceMatrix.needsUpdate = true;
+      im.computeBoundingSphere();
     }
   }
 }

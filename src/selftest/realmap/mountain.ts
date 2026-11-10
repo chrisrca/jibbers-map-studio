@@ -8,14 +8,17 @@ import { toThree } from "../../core/coords";
 import { useEditor } from "../../map/store";
 
 /**
- * Focused run ( STUDIO_SELFTEST=<...>/mountain ): import Crotched Mountain for real and look at it.
+ * Focused run ( STUDIO_SELFTEST=<...>/mountain ): import Crotched Mountain ( or the folder's where.json ) for real and
+ * look at it.
 **/
 export async function mountainSelftest( dir: string ) {
   try {
     const { bestLevels }                  = await import( "../../geo/elevation/sources" );
     const { chunkShapes, importMountain } = await import( "../../geo/importMountain"    );
     const { groundRes }                   = await import( "../../terrain/generate"      );
-    const area                            = { center: { lon: -71.8788, lat: 43.0074 }, chunksX: 2, chunksZ: 2 };
+    // ( somewhere else when the folder says: where.json { lon, lat, name } )
+    const where                           = await ipc.readText( joinPath( dir, "where.json" ) ).then( ( t ) => JSON.parse( t ) as { lon: number; lat: number; name: string } ).catch( () => null );
+    const area                            = { center: { lon: where?.lon ?? -71.8788, lat: where?.lat ?? 43.0074 }, chunksX: 2, chunksZ: 2 };
     const t0                              = performance.now();
     const levels                          = await bestLevels( chunkShapes( area ).map( ( c ) => c.tests ) );
     log( `coverage: ${levels.map( ( l ) => l?.label ).join( ", " )} in ${( performance.now() - t0 ).toFixed( 0 )} ms` );
@@ -23,7 +26,7 @@ export async function mountainSelftest( dir: string ) {
     const proj    = joinPath( dir, `crotched-${Date.now()}.jbrproj` );
     const t1      = performance.now();
     let lastStage = "";
-    const r       = await importMountain( { dir: proj, name: "Crotched", area, level: lv, res: groundRes( 1000 ), trails: true, surroundings: 8000, onProgress: ( st ) => { if ( st !== lastStage ) log( `stage: ${st} at ${( performance.now() - t1 ).toFixed( 0 )} ms` ); lastStage = st; } } );
+    const r       = await importMountain( { dir: proj, name: where?.name ?? "Crotched", area, level: lv, res: groundRes( 1000 ), trails: true, surroundings: 8000, onProgress: ( st ) => { if ( st !== lastStage ) log( `stage: ${st} at ${( performance.now() - t1 ).toFixed( 0 )} ms` ); lastStage = st; } } );
     log( `import: ${( performance.now() - t1 ).toFixed( 0 )} ms, trails ${r.trails}${r.trailsError ? ` (${r.trailsError})` : ""}, filled ${r.filled}` );
     await openProject( proj );
     const eng = await waitFor( () => getEngine(), "engine" );

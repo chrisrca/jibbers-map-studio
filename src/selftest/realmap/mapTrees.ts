@@ -19,22 +19,18 @@ export async function mapTreesSelftest( dir: string ) {
     await sleep( 1000 );
     await waitFor( () => !eng.veil.loading, "the veil", 600000 );
     const st     = () => useEditor.getState();
-    const protos = Object.values( st().chunkExtras ).flatMap( ( e ) => ( ( e as { treePrototypes?: { object_id?: string; parts?: unknown[]; instances?: number[] }[] } ).treePrototypes ?? [] ) );
-    log( `prototypes: ${protos.length} (${protos.filter( ( t ) => t.object_id ).length} the game's, ${protos.filter( ( t ) => !t.object_id && t.parts?.length ).length} the map's own), trees ${protos.reduce( ( a, t ) => a + Math.floor( ( t.instances?.length ?? 0 ) / 28 ), 0 )}` );
-    const built = eng.trees.builtTrees;
-    const want  = protos.filter( ( t ) => !t.object_id ).reduce( ( a, t ) => a + Math.floor( ( t.instances?.length ?? 0 ) / 28 ), 0 );
-    const t0    = performance.now();
-    while ( performance.now() - t0 < 180000 && ( built.children as THREE.InstancedMesh[] ).reduce( ( a, m ) => a + m.count, 0 ) < want ) await sleep( 250 );
-    log( `drawn after ${( ( performance.now() - t0 ) / 1000 ).toFixed( 1 )} s${eng.trees.treeError ? `; error: ${eng.trees.treeError}` : ""}` );
-    const meshes = built.children as THREE.InstancedMesh[];
-    log( `the map's own trees drawn: ${meshes.length} instanced meshes, ${meshes.reduce( ( a, m ) => a + m.count, 0 )} instances` );
+    // ( the trees are features and pieces now: the map's own drawn as its pieces are )
+    const pieces = st().customObjects.filter( ( o ) => o.tree ), objects = st().objects.filter( ( o ) => o.tree );
+    log( `as features: ${objects.length}, as pieces: ${pieces.length}` );
+    const t0     = performance.now();
+    const drawn  = () => pieces.filter( ( o ) => ( eng.customR.objectGroup( o.uid )?.children.length ?? 0 ) > 0 ).length;
+    while ( performance.now() - t0 < 180000 && drawn() < pieces.length ) await sleep( 250 );
+    log( `the map's own trees drawn: ${drawn()} of ${pieces.length}, after ${( ( performance.now() - t0 ) / 1000 ).toFixed( 1 )} s` );
     // looking at the first one
-    const first = meshes[0];
+    const first = pieces[0] ? new THREE.Vector3( pieces[0].position.x, pieces[0].position.y, pieces[0].position.z ) : objects[0] ? new THREE.Vector3( ...objects[0].position ) : null;
     if ( first ) {
-      const m = new THREE.Matrix4();
-      first.getMatrixAt( 0, m );
-      const p = new THREE.Vector3().setFromMatrixPosition( m );
-      eng.nav.lookAtUnity( [p.x + 14, p.y + 7, -p.z - 14], [p.x, p.y + 3, -p.z] );
+      const p = first;
+      eng.nav.lookAtUnity( [p.x + 14, p.y + 7, p.z - 14], [p.x, p.y + 3, p.z] );
       await sleep( 1500 );
       await ipc.writeBinary( joinPath( dir, "map-trees.png" ), await eng.pictures.capture() );
     }
