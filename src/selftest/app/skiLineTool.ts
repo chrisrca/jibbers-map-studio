@@ -22,6 +22,8 @@ export async function skiLineToolSelftest( dir: string ) {
     await eng.ready;
     useEditor.setState( { splash: false } );
     await waitFor( () => ( terrain.chunks.length ? true : null ), "the ground", 60000 );
+    // ( the new map framed once it's in: looked about only after )
+    await waitFor( () => ( eng.veil.loading ? null : true ), "the map", 120000 );
     await sleep( 1500 );
     const st    = () => useEditor.getState();
     const g     = ( x: number, z: number ) => terrain.heightAt( x, z );

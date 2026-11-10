@@ -178,8 +178,10 @@ function SkiLineFeatureRows( p: {
         {SKI_LINE_PRESETS.map( ( q ) => <button key={q.name} title={`The ${q.name} preset's shape and stripes ( kept where it is )`} onClick={() => p.onOnce( withPreset( f, q ), `${q.name} preset` )}>{q.name}</button> )}
       </div>
       <Field label="Saved">
-        <div style={{ display: "flex", gap: 4 }}>
-          <Dropdown value={pick} options={[{ value: "", label: p.saved.length ? "Choose…" : "None" }, ...p.saved.map( ( q ) => ( { value: q.name, label: q.name } ) )]} onChange={setPick} />
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          <div style={{ display: "grid", flex: "1 1 90px", minWidth: 90 }}>
+            <Dropdown value={pick} options={[{ value: "", label: p.saved.length ? "Choose…" : "None" }, ...p.saved.map( ( q ) => ( { value: q.name, label: q.name } ) )]} onChange={setPick} />
+          </div>
           <button className="btn small" disabled={!chosen} title="Its shape and stripes ( kept where it is )" onClick={() => chosen && p.onOnce( { ...structuredClone( chosen ), start: f.start, lateral: f.lateral }, "Load feature" )}>Load</button>
           <button className="btn small" title="Saved under its name" onClick={p.onSave}>Save</button>
         </div>
@@ -197,31 +199,37 @@ function SkiLineFeatureRows( p: {
         <SkiLineStripeRows key={j} st={st} onChange={( q ) => p.onStripe( j, q )} onRemove={() => p.onOnce( { ...f, stripes: f.stripes.filter( ( _, k ) => k !== j ) }, "Remove stripe" )} />
       ) ) }
       <Field label="">
-        <button className="btn small" onClick={() => p.onOnce( { ...f, stripes: [...f.stripes, { across: false, position: 0.5, width: 0.6, softness: 0.4, opacity: 0.7, inset: 0, colour: 11 }] }, "Add stripe" )}>Add Stripe</button>
+        <button className="btn small" onClick={() => p.onOnce( { ...f, stripes: [...f.stripes, newStripe()] }, "Add stripe" )}>Add Stripe</button>
       </Field>
     </>
   );
 }
 
-function SkiLineStripeRows( { st, onChange, onRemove }: { st: SkiLineStripe; onChange: ( p: Partial<SkiLineStripe> ) => void; onRemove: () => void } ) {
+// ( a new stripe, as Map-Tools adds one )
+export const newStripe = (): SkiLineStripe => ( { across: false, position: 0.5, width: 0.6, softness: 0.4, opacity: 0.7, inset: 0, colour: 11 } );
+
+/**
+ * A stripe's settings ( a ski line feature's, or a ramp's ).
+**/
+export function SkiLineStripeRows( { st, onChange, onRemove }: { st: SkiLineStripe; onChange: ( p: Partial<SkiLineStripe> ) => void; onRemove: () => void } ) {
   return (
     <>
       <label>Stripe</label>
       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         <div className="seg">
-          <button className={!st.across ? "on" : ""} title="Runs along the feature" onClick={() => { onChange( { across: false } ); commitShape(); }}>Along</button>
-          <button className={st.across ? "on" : ""} title="Runs across the line at one point of the feature" onClick={() => { onChange( { across: true } ); commitShape(); }}>Across</button>
+          <button className={!st.across ? "on" : ""} title="Runs along it" onClick={() => { onChange( { across: false } ); commitShape(); }}>Along</button>
+          <button className={st.across ? "on" : ""} title="Runs across it at one point along it" onClick={() => { onChange( { across: true } ); commitShape(); }}>Across</button>
         </div>
         <button className="btn small" onClick={onRemove}>Remove</button>
       </div>
       <Field label="Colour">
         <Dropdown value={st.colour} options={MARKING_COLOURS.map( ( c, i ) => ( { value: i, label: c.name } ) )} onChange={( colour ) => { onChange( { colour } ); commitShape(); }} />
       </Field>
-      <Field label="Position" tip="Along stripes: where across the width. Across stripes: where along the feature ( 0 start, 1 end )."><Num value={st.position} step={0.01} min={0} max={1} onChange={( position ) => onChange( { position } )} /></Field>
+      <Field label="Position" tip="Along stripes: where across the width. Across stripes: where along it ( 0 start, 1 end )."><Num value={st.position} step={0.01} min={0} max={1} onChange={( position ) => onChange( { position } )} /></Field>
       <Field label="Width"><Num value={st.width} step={0.05} min={0.05} max={20} unit="m" onChange={( width ) => onChange( { width } )} /></Field>
       <Field label="Softness"><Num value={st.softness} step={0.01} min={0} max={1} onChange={( softness ) => onChange( { softness } )} /></Field>
       <Field label="Opacity"><Num value={st.opacity} step={0.01} min={0} max={1} onChange={( opacity ) => onChange( { opacity } )} /></Field>
-      {st.across && <Field label="Inset" tip="Pulled in from the line's edges ( a fraction of the width )."><Num value={st.inset} step={0.01} min={0} max={0.45} onChange={( inset ) => onChange( { inset } )} /></Field>}
+      {st.across && <Field label="Inset" tip="Pulled in from the edges ( a fraction of the width )."><Num value={st.inset} step={0.01} min={0} max={0.45} onChange={( inset ) => onChange( { inset } )} /></Field>}
     </>
   );
 }

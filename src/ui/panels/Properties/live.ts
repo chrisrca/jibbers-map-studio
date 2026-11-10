@@ -14,6 +14,13 @@ const snapshot = (): Snapshot => {
   return { objects: s.objects, spawns: s.spawns, customObjects: s.customObjects };
 };
 
+/**
+ * Whether two lists hold the same things: the same entries, or ones made again with the same values ( a field saving
+ * as Enter's pressed and again as it loses focus: the second no change, and no undo step of its own ). Only the
+ * entries made again are compared by value.
+**/
+const same = <T>( a: T[], b: T[] ) => a === b || ( a.length === b.length && a.every( ( x, i ) => x === b[i] || JSON.stringify( x ) === JSON.stringify( b[i] ) ) );
+
 export function useLiveEdit() {
   const start = useRef<Snapshot | null>( null );
   const begin = () => {
@@ -24,7 +31,7 @@ export function useLiveEdit() {
     start.current = null;
     if ( !prev ) return;
     const after = snapshot();
-    if ( after.objects === prev.objects && after.spawns === prev.spawns && after.customObjects === prev.customObjects ) return;
+    if ( same( after.objects, prev.objects ) && same( after.spawns, prev.spawns ) && same( after.customObjects, prev.customObjects ) ) return;
     history.push( {
       label,
       undo: () => useEditor.setState( { ...prev,  dirty: true } ),

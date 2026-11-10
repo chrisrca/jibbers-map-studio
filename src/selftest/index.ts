@@ -58,7 +58,12 @@ import { pieceHueSelftest } from "./app/pieceHue";
 import { colliderFreeSelftest } from "./app/colliderFree";
 import { assetFlowSelftest } from "./assets/assetFlow";
 import { hueInGameSelftest } from "./game/hueInGame";
+import { sceneryColourSelftest } from "./game/sceneryColour";
 import { hueDragSelftest } from "./app/hueDrag";
+import { helpLogsSelftest } from "./app/helpLogs";
+import { rampStripesSelftest } from "./terrain/rampStripes";
+import { uiFitSelftest } from "./app/uiFit";
+import { mapSizeViewSelftest } from "./app/mapSizeView";
 import { layerStackSelftest } from "./terrain/layerStack";
 import { gameColoursSelftest } from "./game/gameColours";
 import { lookSelftest } from "./look/look";
@@ -292,7 +297,12 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   colliderfree: colliderFreeSelftest,
   assetflow:    assetFlowSelftest,
   hueingame:    hueInGameSelftest,
+  scenerycolour: sceneryColourSelftest,
   huedrag:      hueDragSelftest,
+  helplogs:     helpLogsSelftest,
+  rampstripes:  rampStripesSelftest,
+  uifit:        uiFitSelftest,
+  mapsizeview:  mapSizeViewSelftest,
   layerstack:   layerStackSelftest,
   gamecolours:  gameColoursSelftest,
   vram:         vramSelftest,

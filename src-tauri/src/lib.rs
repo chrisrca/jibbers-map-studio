@@ -35,6 +35,7 @@ pub fn run() {
             commands::net::overpass_query,
             commands::projects::add_scenery,
             commands::app::save_lag_report,
+            commands::app::save_studio_logs,
             commands::projects::copy_piece_assets,
             commands::files::read_image_rgba,
             commands::game::game_close,

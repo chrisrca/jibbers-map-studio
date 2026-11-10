@@ -12,8 +12,8 @@ import { terrain } from "../../terrain";
 import { formationGridSteps, formationRockAt, rushFormations, rushing, type FormationGrid } from "./formation";
 import { evalCurve, evalRepeated } from "../../../core/curve";
 import { shapeAt, shapeBounds, strokeAt } from "./height";
-import { MARKING_VALUES, skiLineStripes } from "./skiline";
-import type { Shape, SkiLineNode, SkiLineShape } from "./types";
+import { MARKING_VALUES, rampStripes, skiLineStripes } from "./skiline";
+import type { CurveShape, Shape, SkiLineNode, SkiLineShape } from "./types";
 
 // What one shape did to one chunk: per sample in [i0..i0+w)×[j0..j0+h), the height it added and its surface ( the
 // height there with nothing on top of it: to tell edits made on top afterwards apart from the shape itself, and kept
@@ -460,7 +460,7 @@ function* bakeSteps( s: Shape, extras: Extras = new Map(), only?: Set<string>, o
     if ( !rocky ) fg = null;
   }
   // ( a ski line's stripes: the snow mask's layers they go into loaded meanwhile )
-  const striped = s.kind === "skiline" && !!paint && s.features.some( ( f ) => f.enabled && f.stripes.length );
+  const striped = !!paint && ( s.kind === "skiline" ? s.features.some( ( f ) => f.enabled && f.stripes.length ) : s.kind === "curve" && !!s.stripes?.length );
   if ( striped ) {
     let loaded = false;
     void Promise.all( terrain.chunks.filter( ( c ) => overlaps( c, minx, minz, maxx, maxz ) ).map( ( c ) => paint!.ensure( c.key ) ) ).then( () => ( loaded = true ), () => ( loaded = true ) );
@@ -528,7 +528,7 @@ function* bakeSteps( s: Shape, extras: Extras = new Map(), only?: Set<string>, o
     }
     const rock = fg ? rockPatch( c, fg, minx, minz, maxx, maxz ) : undefined;
     patches.push( { key: c.key, i0, j0, w, h, delta, out, rock, paint: rock && clearsMarkings( c.key, rock ) } );
-    if ( striped && s.kind === "skiline" ) patches.push( ...stripePatches( s, c ) );
+    if ( striped && ( s.kind === "skiline" || s.kind === "curve" ) ) patches.push( ...stripePatches( s, c ) );
   }
   return patches;
 }
@@ -602,13 +602,13 @@ export async function clearStripesUnder( s: SkiLineShape ) {
 }
 
 /**
- * A ski line's stripes on chunk `c`'s snow mask: a patch a colour, each pixel in the one whose colour it ends up
- * ( the last stripe to reach it ), at the most coverage any paints it.
+ * A ski line's stripes ( or a ramp's ) on chunk `c`'s snow mask: a patch a colour, each pixel in the one whose colour
+ * it ends up ( the last stripe to reach it ), at the most coverage any paints it.
 **/
-function stripePatches( s: SkiLineShape, c: { key: string; position: number[]; size: number[] } ): Applied {
+function stripePatches( s: SkiLineShape | CurveShape, c: { key: string; position: number[]; size: number[] } ): Applied {
   const L = paint?.layerOf( c.key );
   if ( !L ) return [];
-  const got = skiLineStripes( s, c.position[0], c.position[2], c.size[0], L.m );
+  const got = s.kind === "skiline" ? skiLineStripes( s, c.position[0], c.position[2], c.size[0], L.m ) : rampStripes( s, c.position[0], c.position[2], c.size[0], L.m );
   const by  = new Map<number, { idx: number[]; cov: number[] }>();
   for ( const [k, v] of got ) {
     const g = by.get( v.colour ) ?? by.set( v.colour, { idx: [], cov: [] } ).get( v.colour )!;

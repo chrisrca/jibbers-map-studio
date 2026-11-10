@@ -6,8 +6,7 @@ import { exportToGame, newUntitled, playInGame, saveFromMenu, saveProjectAs } fr
 import { useEditor, workspaceOf, type ToolId } from "../map/store";
 import { pickAndOpenProject } from "./dialogs/Dialogs";
 import { pickAndImportAny } from "./importAny";
-import { saveGameDiagnostics } from "../app/diagnostics";
-import { saveLagReport } from "../app/lagWatch";
+import { saveGameLogs, saveStudioLogs } from "../app/diagnostics";
 import { discordShown, setDiscordShown } from "../app/discordPresence";
 import { PopupMenu, type MenuItem } from "./widgets/widgets";
 import { RichText } from "./widgets/RichText";
@@ -67,12 +66,8 @@ export function TopBar( { onShortcuts }: { onShortcuts: () => void } ) {
       { label: "Keyboard shortcuts",     keys:    "?", run: onShortcuts },
       { label: "Show in Discord Status", checked: discordShown(), run: () => setDiscordShown( !discordShown() ) },
       { sep:   true,                     label:   "" },
-      { label: "Save game diagnostics…", run:     () => saveGameDiagnostics() },
-      {
-        label: "Save a lag report now",
-        title: "Saves what the editor and the game are doing right now (the editor also does this by itself when it gets very slow)",
-        run:   () => saveLagReport( "asked for from the Help menu" ).then( ( p ) => p && useEditor.getState().toast( `Saved ${p}`, "success" ) ),
-      },
+      { label: "Save game logs…",        run:     () => saveGameLogs() },
+      { label: "Save studio logs…",      run:     () => saveStudioLogs() },
     ],
   };
 

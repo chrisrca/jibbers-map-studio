@@ -120,7 +120,9 @@ export class PieceMaterials {
     const srgb   = ( k: string, colour: boolean ) => ( k in linear ? !linear[k] : colour );
     const c      = m.base_color;
     const mat    = new ( ground ? GroundLit : THREE.MeshStandardNodeMaterial )( {
-      color:     new THREE.Color().setRGB( c.r, c.g, c.b, THREE.SRGBColorSpace ),
+      // ( a map's surroundings as their texture paints them: their colour is the export's tint, for the game's light,
+      // geo/scenery/inner.ts tintFor )
+      color:     ground ? new THREE.Color( 1, 1, 1 ) : new THREE.Color().setRGB( c.r, c.g, c.b, THREE.SRGBColorSpace ),
       roughness: 1 - m.smoothness,
       metalness: m.metallic,
       side:      m.cull_mode === 0 ? THREE.DoubleSide : m.cull_mode === 1 ? THREE.BackSide : THREE.FrontSide,

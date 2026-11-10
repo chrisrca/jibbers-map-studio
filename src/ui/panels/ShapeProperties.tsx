@@ -12,7 +12,9 @@ import { terrain } from "../../terrain/terrain";
 import { NumberField, Panel } from "../widgets/controls";
 import { CurveEditor } from "../widgets/CurveEditor";
 import { Dropdown } from "../widgets/widgets";
-import { SkiLineProps } from "./SkiLineProperties";
+import { rampBent, rampLength } from "../../terrain/shapes/shapes/rampPath";
+import { SKI_LINE_PRESETS } from "../../terrain/shapes/shapes/skiline";
+import { newStripe, SkiLineProps, SkiLineStripeRows } from "./SkiLineProperties";
 
 const ground = ( p: [number, number] ) => {
   const h = terrain.heightAt( p[0], p[1] );
@@ -238,7 +240,9 @@ function StampProps( { s }: { s: StampShape } ) {
 
 function CurveProps( { s }: { s: CurveShape } ) {
   const set         = ( p: Partial<CurveShape> ) => liveShape( { ...s, ...p } );
-  const len         = Math.hypot( s.end[0] - s.start[0], s.end[1] - s.start[1] );
+  const stripes     = s.stripes ?? [];
+  const setStripes  = ( next: CurveShape["stripes"], label: string ) => { liveShape( { ...s, stripes: next }, label ); commitShape(); };
+  const len         = rampLength( s );
   // a kicker's height and lip angle go together: setting one sets the other
   const under       = groundWithout( s.uid );
   const height      = s.lipAngle != null ? kickerHeight( s, under ) : s.bump;
@@ -252,8 +256,11 @@ function CurveProps( { s }: { s: CurveShape } ) {
           <input className="txt" key={s.uid} defaultValue={s.name} onBlur={( e ) => { set( { name: e.target.value } ); commitShape(); }} />
         </Field>
         <Field label="Length">
-          <span style={{ color: "var(--muted)" }}>{len.toFixed( 1 )} m · drag the orange handles to move the ends</span>
+          <span style={{ color: "var(--muted)" }}>{len.toFixed( 1 )} m · drag the ends to move it, the arms to bend it</span>
         </Field>
+        { rampBent( s ) && (
+          <Field label=""><button className="btn small" onClick={() => { set( { startArm: undefined, endArm: undefined } ); commitShape(); }}>Straighten</button></Field>
+        ) }
         <Field label="Width"><Num value={s.width} step={0.25} min={0.5} onChange={( width ) => set( { width } )} /></Field>
 
         <div className="section">Height</div>
@@ -317,6 +324,20 @@ function CurveProps( { s }: { s: CurveShape } ) {
             ) ) }
           </div>
         </Field>
+
+        <div className="section">Stripes</div>
+        <div className="seg wrap" style={{ gridColumn: "1 / -1" }}>
+          {SKI_LINE_PRESETS.filter( ( q ) => q.stripes().length ).map( ( q ) => (
+            <button key={q.name} title={`The ski line ${q.name} preset's stripes`} onClick={() => setStripes( q.stripes(), `${q.name} stripes` )}>{q.name}</button>
+          ) )}
+        </div>
+        { stripes.map( ( st, j ) => (
+          <SkiLineStripeRows key={j} st={st} onChange={( q ) => set( { stripes: stripes.map( ( x, k ) => ( k === j ? { ...x, ...q } : x ) ) } )} onRemove={() => setStripes( stripes.filter( ( _, k ) => k !== j ), "Remove stripe" )} />
+        ) ) }
+        <Field label="">
+          <button className="btn small" onClick={() => setStripes( [...stripes, newStripe()], "Add stripe" )}>Add Stripe</button>
+        </Field>
+
         <Field label=""><button className="btn small" onClick={() => deleteShape( s.uid )}>Delete shape</button></Field>
       </div>
     </Panel>

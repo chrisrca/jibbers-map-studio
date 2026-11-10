@@ -221,8 +221,11 @@ button .icon { pointer-events: none; }
 .seg button:hover:not(.on) { background: var(--c-widget-hi); }
 .seg button.on { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
 .seg.wrap { flex-wrap: wrap; row-gap: 2px; }
-.props .seg { width: 100%; }
-.props .seg button { flex: 1; }
+/* ( in a panel a row of buttons shares its width, but none narrower than its words: one that won't fit goes on a
+   row of its own under it, each with its own left edge so a row's first isn't missing one ) */
+.props .seg { width: 100%; flex-wrap: wrap; row-gap: 2px; }
+.props .seg button { flex: 1 1 auto; min-width: auto; border-left-width: 1px; margin-left: -1px; }
+.props .seg button:first-child { margin-left: 0; }
 
 /* number fields (wcol_num): value centred, step arrows on hover, drag to scrub, click to type */
 .num { position: relative; display: flex; align-items: center; height: var(--row); min-width: 0; width: 100%; padding: 0 6px; border: 1px solid var(--c-outline); border-radius: var(--r); background: var(--c-widget); color: var(--c-text); font-variant-numeric: tabular-nums; box-shadow: 0 1px 0 var(--c-emboss); }

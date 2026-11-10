@@ -114,8 +114,17 @@ export function MapSizeEditor() {
   const reach    = sc ? look.radius : 0;
   const rings    = sc && chunks.length ? surroundingsPlan( chunkCells(), look.radius, look.detail ).rings : [];
   const all: MapBox = [fit[0] - reach, fit[1] - reach, fit[2] + reach, fit[3] + reach];
-  // what's shown: moved and zoomed, else the map's fit ( its middle and how much a side )
-  const [view, setView] = useState<{ x: number; z: number; side: number } | null>( null );
+  // what's shown: moved and zoomed, else the map's fit ( its middle and how much a side ), kept on what's loaded ( the
+  // surroundings' outer edge, the map and the squares round it inside it; without, the map and its squares ), no wider
+  const outer: MapBox    = rings.length ? rings[rings.length - 1].outer : fit;
+  const loaded: MapBox   = [Math.min( outer[0], minx ), Math.min( outer[1], minz ), Math.max( outer[2], maxx ), Math.max( outer[3], maxz )];
+  const [view, setRawView] = useState<{ x: number; z: number; side: number } | null>( null );
+  const keep    = ( v: { x: number; z: number; side: number } ) => {
+    const side = Math.min( v.side, loaded[2] - loaded[0], loaded[3] - loaded[1] ), half = side / 2;
+    const on   = ( c: number, lo: number, hi: number ) => ( lo + half > hi - half ? ( lo + hi ) / 2 : Math.min( hi - half, Math.max( lo + half, c ) ) );
+    return { x: on( v.x, loaded[0], loaded[2] ), z: on( v.z, loaded[1], loaded[3] ), side };
+  };
+  const setView = ( v: { x: number; z: number; side: number } | null ) => setRawView( v && keep( v ) );
   const side            = view?.side ?? fitSide, cx = view?.x ?? fitX, cz = view?.z ?? fitZ;
   const box: MapBox     = [cx - side / 2, cz - side / 2, cx + side / 2, cz + side / 2];
   // the land: all of it ( the surroundings and all ) once, and, once it's been still a moment, sharper where it's looked at
@@ -188,11 +197,10 @@ export function MapSizeEditor() {
     const r    = svg.current!.getBoundingClientRect();
     const fx   = ( e.clientX - r.left ) / r.width, fz = ( e.clientY - r.top ) / r.height;
     const was  = shown.current;
-    const most = Math.max( all[2] - all[0], fitSide ) * 1.1;
-    const next = Math.min( most, Math.max( 500, was.side * ( e.deltaY > 0 ? 1.2 : 1 / 1.2 ) ) );
-    // ( the point under the pointer stays under it )
+    const next = Math.min( loaded[2] - loaded[0], loaded[3] - loaded[1], Math.max( 500, was.side * ( e.deltaY > 0 ? 1.2 : 1 / 1.2 ) ) );
+    // ( the point under the pointer stays under it, as far as the land lets it )
     const px   = was.x - was.side / 2 + fx * was.side, pz = was.z + was.side / 2 - fz * was.side;
-    shown.current = { x: px + ( 0.5 - fx ) * next, z: pz - ( 0.5 - fz ) * next, side: next };
+    shown.current = keep( { x: px + ( 0.5 - fx ) * next, z: pz - ( 0.5 - fz ) * next, side: next } );
     setView( shown.current );
   };
 
@@ -253,7 +261,8 @@ export function MapSizeEditor() {
         onDoubleClick={() => setView( null )}
       >
         {image( wide )}
-        { close && close.box.join( "," ) === box.join( "," ) && image( close ) }
+        {/* ( the sharp picture where it was made, kept while the view moves on: the next one replaces it once it's in ) */}
+        {image( close )}
         { ground && image( { url: ground, box: fit } ) }
         { rings.map( ( r, k ) => {
           const q = rect( r.outer );

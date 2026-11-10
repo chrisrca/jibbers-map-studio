@@ -10,6 +10,10 @@ export interface CurveShape {
   name:          string;
   start:         [number, number];
   end:           [number, number];
+  // arms at the ends, bending the run between ( offsets from them, as a trail run's turning handles: rampPath.ts );
+  // without, it runs straight
+  startArm?:     [number, number];
+  endArm?:       [number, number];
   width:         number;
   // absolute heights; null = the ground there
   startHeight:   number | null;
@@ -41,6 +45,9 @@ export interface CurveShape {
   edgeBlend:     number;
   edgeFalloff:   number;
   edgeMode:      EdgeMode;
+  // lines painted into the snow mask, as a ski line's feature has them ( along: across the width; across: along the
+  // run, 0 start, 1 end )
+  stripes?:      SkiLineStripe[];
 }
 
 export interface CircleShape {

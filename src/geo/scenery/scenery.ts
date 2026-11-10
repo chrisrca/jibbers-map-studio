@@ -58,8 +58,6 @@ const SNOW = 216, ROCK = [160, 158, 155];
 // a ring may have ( divisors of 1000: the play area's chunks' edges fall on its lines whatever they are )
 const FINEST = 1, COARSEST = 200;
 const RING_STEPS = [1, 2, 4, 5, 8, 10, 20, 25, 40, 50, 100, 200];
-// The most vertices the surroundings may have in all ( the game draws every one of them, always )
-export const SCENERY_MAX_VERTICES = 4_000_000;
 // The detail curve when none's been set: straight down from ~10 m at the map's edge to ~100 m at the far edge
 export const SCENERY_DETAIL: Curve = [{ t: 0, v: 0.57 }, { t: 1 / 3, v: 0.4233 }, { t: 2 / 3, v: 0.2767 }, { t: 1, v: 0.13 }];
 
@@ -457,8 +455,6 @@ export async function buildScenery( o: SceneryOptions ): Promise<unknown> {
   const angle = o.rockAngle ?? SCENERY_ROCK_ANGLE;
   const drop  = o.drop ?? 300;
   const plan  = surroundingsPlan( o.cells, o.radius, o.detail );
-  if ( plan.vertices > SCENERY_MAX_VERTICES )
-    throw new Error( `Too detailed for the game: ~${( plan.vertices / 1e6 ).toFixed( 1 )} M vertices (${SCENERY_MAX_VERTICES / 1e6} M at most). Lower the detail curve close in.` );
   const base  = { dir: o.dir, rockAngle: angle, signal: o.signal };
   const count = plan.rings.length;
   // ( each stage's progress over every ring )

@@ -54,8 +54,11 @@ export async function pieceHueSelftest( dir: string ) {
       field.blur();
       await sleep( 1500 );
     };
+    const steps = () => history.list().labels.slice( 0, history.list().current + 1 ).slice( -4 ).join( " / " );
     await type( slider, "144" );
+    log( `  undo steps after the Hue: ${steps()}` );
     await type( adjustSlider( "Saturation" ), "-50" );
+    log( `  undo steps after the Saturation: ${steps()}` );
     await sleep( 1500 );
     const now = st().customObjects.find( ( c ) => c.uid === o.uid )!;
     check( Math.abs( ( now.hue ?? 0 ) - 0.4 ) < 1e-6 && now.adjust?.saturation === -0.5, `the piece's Hue ${now.hue}, Saturation ${now.adjust?.saturation}` );
@@ -69,7 +72,7 @@ export async function pieceHueSelftest( dir: string ) {
     // undone: back as it was
     history.undo();
     await sleep( 500 );
-    check( st().customObjects.find( ( c ) => c.uid === o.uid )!.adjust === undefined, "undone: the Saturation" );
+    check( st().customObjects.find( ( c ) => c.uid === o.uid )!.adjust === undefined, `undone: the Saturation ( now ${JSON.stringify( st().customObjects.find( ( c ) => c.uid === o.uid )!.adjust )}, hue ${st().customObjects.find( ( c ) => c.uid === o.uid )!.hue } )` );
     history.redo();
     await sleep( 500 );
     // the export: a texture with the Hue baked in

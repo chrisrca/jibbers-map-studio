@@ -17,10 +17,18 @@ export async function placeExportSelftest( dir: string ) {
   try {
     const proj = ( await ipc.findProjects( dir ) )[0]?.dir;
     if ( !proj ) throw new Error( `no project in ${dir}` );
+    const { snowLook } = await import( "../../viewport/render/terrainRenderer/look" );
+    const opened       = performance.now();
+    let snowAt         = -1;
+    const snowWatch    = setInterval( () => { if ( snowAt < 0 && snowLook.gameSnow.value === 1 ) snowAt = performance.now() - opened; }, 50 );
     await openProject( proj );
     const eng = await waitFor( () => getEngine(), "engine", 60000 );
     await sleep( 1000 );
     await waitFor( () => !eng.veil.loading, "the veil", 600000 );
+    log( `  the veil lifted ${( ( performance.now() - opened ) / 1000 ).toFixed( 1 )} s after opening; the game's snow came ${snowAt < 0 ? "not yet" : `at ${( snowAt / 1000 ).toFixed( 1 )} s`}` );
+    await sleep( 3000 );
+    clearInterval( snowWatch );
+    log( `  the game's snow came ${snowAt < 0 ? "not at all" : `at ${( snowAt / 1000 ).toFixed( 1 )} s`}` );
     useEditor.setState( { splash: false } );
     const st = () => useEditor.getState();
     // every message shown
@@ -47,6 +55,22 @@ export async function placeExportSelftest( dir: string ) {
     canvas.dispatchEvent( new PointerEvent( "pointerenter", { bubbles: true } ) );
     canvas.dispatchEvent( new PointerEvent( "pointermove", { clientX: x, clientY: y, buttons: 0, pointerId: 72, bubbles: true } ) );
     await sleep( 100 );
+    const lightCount = () => {
+      let n = 0;
+      eng.scene.traverse( ( o ) => { if ( ( o as { isLight?: boolean } ).isLight && o.visible ) n++; } );
+      return n;
+    };
+    const lights0 = lightCount();
+    // ( materials made on the frame that first draws them, not ahead: what a hold-up is, named )
+    type RO     = { object: { name: string; type: string; parent?: { name: string } | null }; material: { name: string; type: string } };
+    const nodes = ( eng.renderer as unknown as { _nodes: { getForRender( ro: RO, a?: boolean ): unknown } } )._nodes;
+    const built: string[] = [];
+    const gfr   = nodes.getForRender.bind( nodes );
+    nodes.getForRender = ( ro: RO, a?: boolean ) => {
+      const s0 = performance.now(), r = gfr( ro, a ), dt = performance.now() - s0;
+      if ( dt > 1 && !a ) built.push( `${ro.object.name || ro.object.parent?.name || ro.object.type}/${ro.material.name || ro.material.type} ${dt.toFixed( 0 )} ms` );
+      return r;
+    };
     // ( the longest the page was held up meanwhile )
     let worst = 0, last = performance.now(), on = true;
     const tick = ( t: number ) => {
@@ -64,6 +88,9 @@ export async function placeExportSelftest( dir: string ) {
     on = false;
     const placed = st().customObjects.slice( n0 );
     check( placed.length === 1, `the ground clicked: ${placed.length} placed in ${( took / 1000 ).toFixed( 1 )} s, the page held up at most ${worst.toFixed( 0 )} ms; said: ${said.join( " | " ) || "nothing"}` );
+    const kinds = new Map<string, number>();
+    for ( const b of built ) kinds.set( b.replace( / \d+ ms$/, "" ), ( kinds.get( b.replace( / \d+ ms$/, "" ) ) ?? 0 ) + 1 );
+    log( `  made while drawing: ${built.length} ( ${[...kinds].map( ( [k, n] ) => `${k} ×${n}` ).join( ", " )} ); lights in the scene ${lights0} -> ${lightCount()}` );
     check( took < 1500 && worst < 250, `placing it was quick: ${( took / 1000 ).toFixed( 1 )} s, the page held up at most ${worst.toFixed( 0 )} ms` );
     // the export: the piece in it, its mesh with it
     const out = joinPath( dir, "export-check.jbrmap" );
@@ -73,8 +100,10 @@ export async function placeExportSelftest( dir: string ) {
     const ex  = await ipc.exportProject( st().projectDir!, out );
     // ( the file's too big to read in here: its mesh looked for by the run's script )
     const mesh  = placed[0]?.parts[0]?.mesh ?? "";
-    const saved = ( JSON.parse( await ipc.readText( joinPath( st().projectDir!, "project.json" ) ) ) as { customObjects: unknown[]; objects: unknown[] } );
-    check( ex.objects === saved.customObjects.length + saved.objects.length, `exported in ${( ( performance.now() - t1 ) / 1000 ).toFixed( 1 )} s: ${ex.objects} objects ( ${saved.customObjects.length} pieces and ${saved.objects.length} of the game's saved ); MESH ${mesh}` );
+    const saved = ( JSON.parse( await ipc.readText( joinPath( st().projectDir!, "project.json" ) ) ) as { customObjects: { parts: { mesh: string }[] }[]; objects: unknown[] } );
+    // ( the game's own trees go in as its trees, not as objects: export.rs official_tree )
+    const trees = saved.customObjects.filter( ( o ) => o.parts.length && o.parts.every( ( q ) => /^Features\/tree[^/]*\//.test( q.mesh ) ) ).length;
+    check( ex.objects === saved.customObjects.length - trees + saved.objects.length, `exported in ${( ( performance.now() - t1 ) / 1000 ).toFixed( 1 )} s: ${ex.objects} objects ( ${saved.customObjects.length} pieces, ${trees} of them the game's trees, and ${saved.objects.length} of the game's saved ); MESH ${mesh}` );
     off();
     log( fails.length ? `SELFTEST FAILED: ${fails.join( "; " )}` : "SELFTEST OK" );
   } catch ( err ) {

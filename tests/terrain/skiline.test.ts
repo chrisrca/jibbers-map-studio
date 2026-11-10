@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 const { terrain }                                                                          = await import( "../../src/terrain/terrain" );
-const { newSkiLine, previewShape, resetShapes }                                            = await import( "../../src/terrain/shapes/shapes" );
-const { SKI_LINE_PRESETS, newSkiLineFeature, skiLineAt, skiLineBake, skiLineStripes, splinePoint, withPreset } = await import( "../../src/terrain/shapes/shapes/skiline" );
+const { newCurve, newSkiLine, previewShape, resetShapes }                                  = await import( "../../src/terrain/shapes/shapes" );
+const { SKI_LINE_PRESETS, newSkiLineFeature, rampStripes, skiLineAt, skiLineBake, skiLineStripes, splinePoint, withPreset } = await import( "../../src/terrain/shapes/shapes/skiline" );
 
 type Node = { p: [number, number, number]; width: number | null; roll: number };
 const node = ( x: number, y: number, z: number, roll = 0 ): Node => ( { p: [x, y, z], width: null, roll } );
@@ -58,6 +58,20 @@ describe( "a ski line, as Map-Tools lays it", () => {
     expect( at( 0, 86 ) ).toBeUndefined();
     // ( across, at its end, red )
     expect( at( 0, 92 )?.colour ).toBe( 0 );
+  } );
+
+  it( "a ramp's stripes, as a ski line feature's over the whole ramp", () => {
+    // ( a ramp 20 m north from ( 0, 70 ), 14 m wide, with the Kicker preset's stripes )
+    const s  = { ...newCurve( [0, 70], [0, 90] ), width: 14, stripes: SKI_LINE_PRESETS[0].stripes() };
+    const px = rampStripes( s, -32, 64, 64, 256 );
+    const at = ( x: number, z: number ) => px.get( Math.floor( ( z - 64 ) / 0.25 ) * 256 + Math.floor( ( x + 32 ) / 0.25 ) );
+    expect( at( 6.16, 80 )?.colour ).toBe( 11 );
+    expect( at( -6.16, 80 )?.cov ).toBeCloseTo( 0.7, 1 );
+    expect( at( 0, 80 ) ).toBeUndefined();
+    // ( across at its end, red, pulled in from the edges )
+    expect( at( 0, 89.9 )?.colour ).toBe( 0 );
+    expect( at( 6.9, 89.9 )?.colour ).not.toBe( 0 );
+    expect( rampStripes( { ...s, stripes: [] }, -32, 64, 64, 256 ).size ).toBe( 0 );
   } );
 
   it( "carved into the ground: a flat run 2 m under a slope, its edges met", () => {

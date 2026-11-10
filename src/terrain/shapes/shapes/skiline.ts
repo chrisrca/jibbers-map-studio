@@ -5,7 +5,8 @@
 // stripes painted into the snow mask. In world space, metres ( Map-Tools works in its terrain's pixels: the same ).
 
 import { type Curve, evalCurve } from "../../../core/curve";
-import type { SkiLineFeature, SkiLineShape, SkiLineStripe } from "./types";
+import { rampAt, rampPath, rampRights } from "./rampPath";
+import type { CurveShape, SkiLineFeature, SkiLineShape, SkiLineStripe } from "./types";
 
 type V3 = [number, number, number];
 
@@ -361,8 +362,52 @@ export function skiLineStripes( s: SkiLineShape, x0: number, z0: number, size: n
   const out = new Map<number, { cov: number; colour: number }>();
   const b   = s.enabled ? skiLineBake( s ) : null;
   if ( !b ) return out;
+  const segment = stripeSegments( out, x0, z0, size, m );
+  for ( const f of s.features ) {
+    if ( !f.enabled || f.length <= 0.01 ) continue;
+    for ( const st of f.stripes ) stripe( s, b, f, st, segment );
+  }
+  return out;
+}
+
+/**
+ * A ramp's stripes ( CurveShape.stripes ), as `skiLineStripes` paints a feature's over its whole length and width:
+ * along ones from its start to its end ( round its bend ), across ones from side to side. Position 0 is its left
+ * edge, as its cross-section's.
+**/
+export function rampStripes( s: CurveShape, x0: number, z0: number, size: number, m: number ): Map<number, { cov: number; colour: number }> {
+  const out = new Map<number, { cov: number; colour: number }>();
+  const p   = s.stripes?.length ? rampPath( s ) : null;
+  if ( !p ) return out;
+  const segment = stripeSegments( out, x0, z0, size, m );
+  const half    = s.width * 0.5, rights = rampRights( p );
+  for ( const st of s.stripes! ) {
+    const colour  = Math.min( 15, Math.max( 0, Math.round( st.colour ) ) );
+    const radius  = Math.max( st.width * 0.5, 0.05 );
+    const soft    = saturate( st.softness );
+    const opacity = st.opacity <= 0 ? 1 : saturate( st.opacity );
+    if ( st.across ) {
+      const c     = rampAt( p, saturate( st.position ) * p.len ), inset = Math.min( 0.45, Math.max( 0, st.inset ) ) * half * 2;
+      const a     = -half + inset, b = half - inset;
+      segment( [c.x + c.rx * a, 0, c.z + c.rz * a], [c.x + c.rx * b, 0, c.z + c.rz * b], radius, soft, opacity, colour );
+    } else {
+      const across = ( saturate( st.position ) - 0.5 ) * 2 * half;
+      for ( let i = 1; i < p.x.length; i++ ) {
+        const r0 = rights[i - 1], r1 = rights[i];
+        segment( [p.x[i - 1] + r0[0] * across, 0, p.z[i - 1] + r0[1] * across], [p.x[i] + r1[0] * across, 0, p.z[i] + r1[1] * across], radius, soft, opacity, colour );
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The stripe painter ( RasterizeStripe's segment ) over a snow mask of `m` pixels a side from ( x0, z0 ), `size` metres
+ * a side, into `out`.
+**/
+function stripeSegments( out: Map<number, { cov: number; colour: number }>, x0: number, z0: number, size: number, m: number ) {
   const px = size / m;
-  const segment = ( a: V3, q: V3, radius: number, soft: number, opacity: number, colour: number ) => {
+  return ( a: V3, q: V3, radius: number, soft: number, opacity: number, colour: number ) => {
     const reach = Math.max( radius * ( 1 + soft * 2 ), px * ( 0.75 + soft * 2.5 ) );
     const i0 = Math.max( 0, Math.floor( ( Math.min( a[0], q[0] ) - reach - x0 ) / px ) ), i1 = Math.min( m - 1, Math.ceil( ( Math.max( a[0], q[0] ) + reach - x0 ) / px ) );
     const j0 = Math.max( 0, Math.floor( ( Math.min( a[2], q[2] ) - reach - z0 ) / px ) ), j1 = Math.min( m - 1, Math.ceil( ( Math.max( a[2], q[2] ) + reach - z0 ) / px ) );
@@ -380,11 +425,6 @@ export function skiLineStripes( s: SkiLineShape, x0: number, z0: number, size: n
       }
     }
   };
-  for ( const f of s.features ) {
-    if ( !f.enabled || f.length <= 0.01 ) continue;
-    for ( const st of f.stripes ) stripe( s, b, f, st, segment );
-  }
-  return out;
 }
 
 function stripe( _s: SkiLineShape, b: SkiLineBake, f: SkiLineFeature, st: SkiLineStripe, segment: ( a: V3, q: V3, r: number, soft: number, op: number, colour: number ) => void ) {

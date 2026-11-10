@@ -13,7 +13,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{GetClientRect, GetParent, GetW
 /// `frontend`: what the studio's UI knows (device pixel ratio, the Game tab's area, …), as text.
 pub fn report(studio_hwnd: Option<HWND>, frontend: &str) -> String {
     let mut r = String::new();
-    let _ = writeln!(r, "Jibbers Map Studio — game diagnostics");
+    let _ = writeln!(r, "Jibbers Map Studio — game logs");
     let _ = writeln!(r, "studio {} · {}", env!("CARGO_PKG_VERSION"), windows_version());
     let _ = writeln!(r, "time (unix) {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0));
 
@@ -52,13 +52,54 @@ pub fn report(studio_hwnd: Option<HWND>, frontend: &str) -> String {
     section(&mut r, "Game display settings (registry)");
     game_registry(&mut r);
 
-    section(&mut r, "Game log (Player.log, last 120 lines)");
+    section(&mut r, "The game's own log (%APPDATA%\\Jibbers\\log.txt, last 300 lines)");
+    match super::maps_dir().ok().map(|m| m.parent().unwrap().join("log.txt")).filter(|p| p.exists()) {
+        Some(p) => r.push_str(&tail(&p, 300)),
+        None => r.push_str("(none)\n"),
+    }
+
+    section(&mut r, "Unity's log (Player.log, last 600 lines)");
     match player_log() {
         Some(p) => {
             let _ = writeln!(r, "{}", p.display());
-            r.push_str(&tail(&p, 120));
+            r.push_str(&tail(&p, 600));
         }
         None => r.push_str("(not found under %USERPROFILE%\\AppData\\LocalLow)\n"),
+    }
+    r
+}
+
+/// The studio's logs: what the page knows (`frontend`: its window, its slowdown figures), how it started (boot.log),
+/// the warnings and errors it printed (studio.log), the machine's GPU and processes, and the newest lag reports kept.
+pub fn studio_report(frontend: &str) -> String {
+    let mut r = String::new();
+    let _ = writeln!(r, "Jibbers Map Studio — studio logs");
+    let _ = writeln!(r, "studio {} · {}", env!("CARGO_PKG_VERSION"), windows_version());
+    let _ = writeln!(r, "time (unix) {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0));
+    r.push_str(frontend.trim_end());
+    r.push('\n');
+    let data = crate::library::userassets::data_dir().ok();
+    section(&mut r, "Starting up (boot.log)");
+    match data.as_ref().map(|d| d.join("boot.log")).filter(|p| p.exists()) {
+        Some(p) => r.push_str(&tail(&p, 200)),
+        None => r.push_str("(none)\n"),
+    }
+    section(&mut r, "Warnings and errors (studio.log, last 400 lines; unix time first)");
+    match data.as_ref().map(|d| d.join("studio.log")).filter(|p| p.exists()) {
+        Some(p) => r.push_str(&tail(&p, 400)),
+        None => r.push_str("(none)\n"),
+    }
+    section(&mut r, "The machine");
+    r.push_str(&crate::commands::app::system_info());
+    section(&mut r, "Lag reports (the newest three)");
+    let mut reports: Vec<PathBuf> = data.map(|d| d.join("lag-reports")).and_then(|d| std::fs::read_dir(d).ok()).map(|rd| rd.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+    reports.sort();
+    if reports.is_empty() {
+        r.push_str("(none)\n");
+    }
+    for p in reports.iter().rev().take(3) {
+        let _ = writeln!(r, "-- {}", p.display());
+        r.push_str(&tail(p, 200));
     }
     r
 }
