@@ -64,6 +64,7 @@ import { helpLogsSelftest } from "./app/helpLogs";
 import { rampStripesSelftest } from "./terrain/rampStripes";
 import { uiFitSelftest } from "./app/uiFit";
 import { mapSizeViewSelftest } from "./app/mapSizeView";
+import { colliderSwitchSelftest } from "./app/colliderSwitch";
 import { layerStackSelftest } from "./terrain/layerStack";
 import { gameColoursSelftest } from "./game/gameColours";
 import { lookSelftest } from "./look/look";
@@ -303,6 +304,7 @@ const ROUTES: Record<string, ( dir: string ) => Promise<unknown>> = {
   rampstripes:  rampStripesSelftest,
   uifit:        uiFitSelftest,
   mapsizeview:  mapSizeViewSelftest,
+  colliderswitch: colliderSwitchSelftest,
   layerstack:   layerStackSelftest,
   gamecolours:  gameColoursSelftest,
   vram:         vramSelftest,

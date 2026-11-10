@@ -4,7 +4,8 @@ import { useState } from "react";
 import * as THREE from "three/webgpu";
 import { quatToUnityEuler, unityEulerToQuat, type V3 } from "../../../core/coords";
 import { deltaBetween, transformCustom } from "../../../core/transform";
-import { type CustomObjectEntry, type SurfaceType, arr3, customName, safeScale } from "../../../core/types";
+import { type CustomObjectEntry, type SurfaceType, arr3, customName, hasLook, safeScale } from "../../../core/types";
+import { collidersAsRail, isBrushCollider, railAsColliders } from "../../../pieces/brushColliders";
 import { useEditor } from "../../../map/store";
 import { withModel } from "../../../model/objects";
 import { withRail, withRailAgain, withoutRail } from "../../../pieces/rail";
@@ -178,6 +179,23 @@ export function CustomProperties( { o, live, tab }: { o: CustomObjectEntry; live
                     else void makeRail( o, set, commit );
                   }
                   return;
+                }
+                // a piece of colliders only ( the Colliders tool's ): a jib's rail made drawn colliders along its line as it
+                // stops being one, and a rail through them again as it's made one ( it has no mesh to find one on )
+                if ( !hasLook( o ) ) {
+                  if ( s.id !== "Jib" && o.rail ) {
+                    set( ( x ) => {
+                      const laid = x.rail ? railAsColliders( x.rail, x, s.id ) : [];
+                      const base = withoutRail( x );
+                      return { ...base, surface_type: s.id, can_magnetize: false, colliders: [...base.colliders.filter( ( c ) => !isBrushCollider( c ) ).map( ( c ) => ( { ...c, surface_type: s.id } ) ), ...laid] };
+                    } );
+                    return commit();
+                  }
+                  const back = s.id === "Jib" && !o.rail ? collidersAsRail( o.colliders, o ) : null;
+                  if ( back ) {
+                    set( ( x ) => withRail( { ...x, surface_type: "Jib", can_magnetize: true, colliders: x.colliders.filter( ( c ) => !isBrushCollider( c ) ) }, back ) );
+                    return commit();
+                  }
                 }
                 const jib = ( x: CustomObjectEntry ): CustomObjectEntry => ( { ...x, surface_type: "Jib", can_magnetize: true, colliders: x.colliders.map( ( c ) => ( { ...c, surface_type: "Jib" as const } ) ) } );
                 // a jib grinds along its rail: made as it becomes one ( or when it's still without one )

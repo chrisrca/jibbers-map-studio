@@ -3,7 +3,7 @@
 import * as THREE from "three/webgpu";
 import { describe, expect, it } from "vitest";
 import { arr3, type CustomCollider } from "../../src/core/types";
-import { BRUSH_MARK, eraseNear, isBrushCollider, strokeColliders, type StrokePoint } from "../../src/pieces/brushColliders";
+import { BRUSH_MARK, collidersAsRail, eraseNear, isBrushCollider, railAsColliders, strokeColliders, type StrokePoint } from "../../src/pieces/brushColliders";
 import { RAIL_MARK } from "../../src/pieces/rail";
 
 // A collider's own axis `a` in the map ( Unity's Euler: Y, then X, then Z, in Unity's own frame ).
@@ -57,5 +57,31 @@ describe( "the Collider tool's strokes", () => {
     expect( left ).toContain( rail );
     expect( left.filter( isBrushCollider ).length ).toBeLessThan( drawn.length );
     expect( left.filter( isBrushCollider ).every( ( c ) => c.local_position.x > 0.4 ) ).toBe( true );
+  } );
+} );
+
+describe( "a colliders-only jib made solid and back", () => {
+  const xyz = ( x: number, y: number, z: number ) => ( { x, y, z } );
+  for ( const [name, at] of [
+    ["where it was made", { position: xyz( 10, 2, -4 ), rotation: xyz( 0, 0, 0 ), scale: xyz( 1, 1, 1 ) }],
+    ["moved, turned and sized since", { position: xyz( -3, 7, 12 ), rotation: xyz( 0, 35, 0 ), scale: xyz( 2, 2, 2 ) }],
+  ] as const ) {
+    it( `its rail laid as colliders along its line, and the same rail back from them ( ${name} )`, () => {
+      const rail = { points: [[0, 0, 0], [0, 0.4, 2], [0.5, 0.6, 4]] as [number, number, number][], radius: 0.1 };
+      const laid = railAsColliders( rail, at, "Generic" );
+      expect( laid.length ).toBe( 2 );
+      expect( laid.every( ( c ) => isBrushCollider( c ) && c.surface_type === "Generic" && c.shape === "Capsule" ) ).toBe( true );
+      const back = collidersAsRail( laid, at )!;
+      expect( back.points.length ).toBe( 3 );
+      back.points.forEach( ( p, i ) => p.forEach( ( v, k ) => expect( v ).toBeCloseTo( rail.points[i][k], 4 ) ) );
+      expect( back.radius ).toBeCloseTo( 0.1, 6 );
+      expect( back.box ).toBeUndefined();
+    } );
+  }
+  it( "a box rail as boxes, and a box rail back", () => {
+    const at   = { position: xyz( 0, 0, 0 ), rotation: xyz( 0, 0, 0 ), scale: xyz( 1, 1, 1 ) };
+    const laid = railAsColliders( { points: [[0, 0, 0], [0, 0, 2]], radius: 0.2, box: [0.2, 0.2] }, at, "Snow" );
+    expect( laid.map( ( c ) => c.shape ) ).toEqual( ["Box"] );
+    expect( collidersAsRail( laid, at )!.box ).toEqual( [0.2, 0.2] );
   } );
 } );
